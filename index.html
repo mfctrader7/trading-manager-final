@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -45,11 +46,38 @@
         const REAL_USER_ID = 'd4c4fa87-3488-483e-bd0f-11908186bc83';
 
         const formatCurrency = (value) => {
+            const numValue = parseFloat(value) || 0;
+            
+            // For very small values (< 0.01), show up to 8 decimals
+            if (numValue > 0 && numValue < 0.01) {
+                // Count significant digits after decimal point
+                const str = numValue.toString();
+                const decimalPart = str.split('.')[1] || '';
+                let significantDecimals = 0;
+                
+                // Find first non-zero digit and add 2 more digits
+                for (let i = 0; i < decimalPart.length; i++) {
+                    if (decimalPart[i] !== '0') {
+                        significantDecimals = Math.min(i + 3, 8); // Show up to 8 decimals max
+                        break;
+                    }
+                }
+                
+                return new Intl.NumberFormat('es-ES', { 
+                    style: 'currency', 
+                    currency: 'USD',
+                    minimumFractionDigits: significantDecimals,
+                    maximumFractionDigits: significantDecimals
+                }).format(numValue);
+            }
+            
+            // For normal values (>= 0.01), use 2 decimals
             return new Intl.NumberFormat('es-ES', { 
                 style: 'currency', 
                 currency: 'USD',
-                minimumFractionDigits: 2 
-            }).format(value || 0);
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+            }).format(numValue);
         };
 
         function TradingApp() {
@@ -1590,10 +1618,14 @@
                 // PEPP (Precio Entrada Promedio Ponderado)
                 const pepp = totalExecuted > 0 ? totalIPonderada / totalExecuted : 0;
                 
-                // Precio de liquidación - FÓRMULA CORRECTA
+                // Precio de liquidación - FÓRMULA CORREGIDA
                 const totalMarginWithAdditional = selectedOperation.ownCapital + (selectedOperation.additionalMargin || 0);
-                const effectiveLeverage = totalExecuted / totalMarginWithAdditional;
-                const liquidationPrice = pepp * (1 - (1 / effectiveLeverage));
+                const leverage = selectedOperation.leverage || 1;
+                
+                // Fórmula correcta para posición LONG
+                const liquidationPrice = selectedOperation.type === 'LONG' 
+                    ? pepp * (1 - (1 / leverage))
+                    : pepp * (1 + (1 / leverage));
 
                 return React.createElement('div', { style: styles.app },
                     React.createElement('header', { style: styles.header },
