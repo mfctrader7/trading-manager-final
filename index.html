@@ -1,4 +1,5 @@
 
+
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -45,20 +46,44 @@
         
         const REAL_USER_ID = 'd4c4fa87-3488-483e-bd0f-11908186bc83';
 
+        // Helper function to create dates preserving local timezone (MEJORADO)
+        const createLocalDateTime = (dateStr, timeStr) => {
+            // Crear fecha en timezone local sin conversión UTC automática
+            const [year, month, day] = dateStr.split('-');
+            const [hours, minutes] = timeStr.split(':');
+            
+            // Usar constructor de Date con valores individuales (evita parsing de string)
+            const localDate = new Date(
+                parseInt(year), 
+                parseInt(month) - 1, // Mes base-0
+                parseInt(day), 
+                parseInt(hours), 
+                parseInt(minutes), 
+                0, 0 // segundos, milisegundos
+            );
+            
+            console.log('🕐 Creando fecha local:', {
+                input: `${dateStr} ${timeStr}`,
+                output: localDate.toLocaleString(),
+                iso: localDate.toISOString(),
+                timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
+            });
+            
+            return localDate;
+        };
+
         const formatCurrency = (value) => {
             const numValue = parseFloat(value) || 0;
             
-            // For very small values (< 0.01), show up to 8 decimals
+            // Valores muy pequeños (< 0.01): buscar dígitos significativos, hasta 10 decimales
             if (numValue > 0 && numValue < 0.01) {
-                // Count significant digits after decimal point
                 const str = numValue.toString();
                 const decimalPart = str.split('.')[1] || '';
                 let significantDecimals = 0;
                 
-                // Find first non-zero digit and add 2 more digits
                 for (let i = 0; i < decimalPart.length; i++) {
                     if (decimalPart[i] !== '0') {
-                        significantDecimals = Math.min(i + 3, 8); // Show up to 8 decimals max
+                        significantDecimals = Math.min(i + 4, 10); // +4 dígitos tras el primero significativo, máx 10
                         break;
                     }
                 }
@@ -71,7 +96,17 @@
                 }).format(numValue);
             }
             
-            // For normal values (>= 0.01), use 2 decimals
+            // Valores entre 0.01 y 1: 4 decimales (ej: 0.7816 en vez de 0.78)
+            if (numValue > 0 && numValue < 1) {
+                return new Intl.NumberFormat('es-ES', { 
+                    style: 'currency', 
+                    currency: 'USD',
+                    minimumFractionDigits: 4,
+                    maximumFractionDigits: 4
+                }).format(numValue);
+            }
+            
+            // Valores >= 1: 2 decimales (ej: 150.07)
             return new Intl.NumberFormat('es-ES', { 
                 style: 'currency', 
                 currency: 'USD',
@@ -87,7 +122,180 @@
             const [selectedOperation, setSelectedOperation] = useState(null);
             const [operationEntries, setOperationEntries] = useState([]);
             const [operationTPs, setOperationTPs] = useState([]);
+            const [totalConfiguredTPs, setTotalConfiguredTPs] = useState(0);
+            const [allOperationTPs, setAllOperationTPs] = useState([]);
+
+            // Function to check for configured TPs with direct data (bypassing state delay)
+            const checkConfiguredTPsWithData = async (futuresOps = [], spotOps = []) => {
+                try {
+                    console.log('🔍 Buscando TPs con datos directos...', {
+                        futures: futuresOps.length,
+                        spot: spotOps.length
+                    });
+                    
+                    const allOperations = [...futuresOps, ...spotOps];
+                    let totalTPs = 0;
+                    let allTPs = [];
+                    
+                    if (allOperations.length === 0) {
+                        console.log('⚠️ No hay operaciones en datos directos');
+                        return;
+                    }
+                    
+                    for (const op of allOperations) {
+                        console.log(`🔍 Revisando TPs para ${op.crypto} (ID: ${op.id})`);
+                        
+                        // ✅ NUEVO: Cargar entries para calcular PEPP y units reales
+                        const { data: entries, error: entriesError } = await supabaseClient
+                            .from('entries')
+                            .select('entry_price, executed, units, i_ponderada, margin')
+                            .eq('operation_id', op.id);
+                        
+                        let realPEPP = 0;
+                        let realTotalUnits = 0;
+                        
+                        if (!entriesError && entries && entries.length > 0) {
+                            const totalExecuted = entries.reduce((sum, e) => sum + parseFloat(e.executed || 0), 0);
+                            const totalIPonderada = entries.reduce((sum, e) => sum + parseFloat(e.i_ponderada || 0), 0);
+                            const totalUnitsFromEntries = entries.reduce((sum, e) => sum + parseFloat(e.units || 0), 0);
+                            const totalMarginFromEntries = entries.reduce((sum, e) => sum + parseFloat(e.margin || 0), 0);
+                            realPEPP = totalExecuted > 0 ? totalIPonderada / totalExecuted : 0;
+                            // Aplicar ratio de capital para reflejar unidades reales actuales
+                            // ops vienen en camelCase desde loadOperations()
+                            const currentCapital = (parseFloat(op.ownCapital || op.own_capital) || 0) + (parseFloat(op.additionalMargin || op.additional_margin) || 0);
+                            const capitalRatio = totalMarginFromEntries > 0 ? currentCapital / totalMarginFromEntries : 1;
+                            realTotalUnits = totalUnitsFromEntries * capitalRatio;
+                            
+                            console.log(`📊 ${op.crypto} - PEPP real: ${realPEPP}, Units reales: ${realTotalUnits}`);
+                        }
+                        
+                        const { data: tps, error } = await supabaseClient
+                            .from('take_profits')
+                            .select('*')
+                            .eq('operation_id', op.id);
+                            
+                        console.log(`📋 TPs encontrados para ${op.crypto}:`, tps);
+                            
+                        if (!error && tps && tps.length > 0) {
+                            const configuredTPs = tps.filter(tp => tp.price > 0 && tp.executed === false);
+                            totalTPs += configuredTPs.length;
+                            
+                            // ✅ NUEVO: Calcular projected_profit real para cada TP
+                            const enrichedTPs = configuredTPs.map(tp => {
+                                let projected_profit = 0;
+                                if (realPEPP > 0 && realTotalUnits > 0 && tp.price > 0 && tp.percentage > 0) {
+                                    const unitsToSell = realTotalUnits * (tp.percentage / 100);
+                                    projected_profit = (tp.price - realPEPP) * unitsToSell;
+                                    console.log(`🎯 ${op.crypto} TP${tp.level}: precio=${tp.price}, PEPP=${realPEPP}, units=${unitsToSell.toFixed(4)}, profit=$${projected_profit.toFixed(2)}`);
+                                }
+                                return { ...tp, projected_profit, operationData: op };
+                            });
+                            
+                            allTPs.push(...enrichedTPs);
+                            console.log(`✅ ${configuredTPs.length} TPs configurados en ${op.crypto}`);
+                        }
+                    }
+                    
+                    setTotalConfiguredTPs(totalTPs);
+                    setAllOperationTPs(allTPs);
+                    
+                    // Update global chart data with real TP information
+                    if (window.chartData) {
+                        window.chartData.totalTPs = totalTPs;
+                        window.chartData.realTPs = allTPs;
+                    }
+                    
+                    console.log('📊 TPs configurados detectados (datos directos):', {
+                        total: totalTPs,
+                        tps: allTPs
+                    });
+                    
+                    // CRÍTICO: Recrear gráficos con datos de TPs  
+                    if (totalTPs > 0) {
+                        console.log('🔄 Recreando gráficos con datos de TPs...');
+                        setTimeout(() => {
+                            initAnalyticsCharts();
+                        }, 1000);
+                    }
+                    
+                } catch (error) {
+                    console.error('Error checking configured TPs with direct data:', error);
+                }
+            };
+
+            // Function to check for configured TPs across all operations
+            const checkConfiguredTPs = async () => {
+                try {
+                    console.log('🔍 Buscando TPs configurados...', {
+                        operations: operations.length,
+                        spotOperations: spotOperations.length
+                    });
+                    
+                    const allOperations = [...operations, ...spotOperations];
+                    let totalTPs = 0;
+                    let allTPs = [];
+                    
+                    if (allOperations.length === 0) {
+                        console.log('⚠️ No hay operaciones cargadas para revisar TPs');
+                        return;
+                    }
+                    
+                    for (const op of allOperations) {
+                        console.log(`🔍 Revisando TPs para operación ${op.crypto} (ID: ${op.id})`);
+                        
+                        const { data: tps, error } = await supabaseClient
+                            .from('take_profits')
+                            .select('*')
+                            .eq('operation_id', op.id);
+                            
+                        console.log(`📋 TPs encontrados para ${op.crypto}:`, tps);
+                            
+                        if (!error && tps && tps.length > 0) {
+                            const configuredTPs = tps.filter(tp => tp.price > 0 && tp.executed === false);
+                            totalTPs += configuredTPs.length;
+                            allTPs.push(...configuredTPs.map(tp => ({...tp, operationData: op})));
+                            
+                            console.log(`✅ ${configuredTPs.length} TPs configurados en ${op.crypto}`);
+                        }
+                    }
+                    
+                    setTotalConfiguredTPs(totalTPs);
+                    setAllOperationTPs(allTPs);
+                    
+                    console.log('📊 TPs configurados detectados:', {
+                        total: totalTPs,
+                        tps: allTPs
+                    });
+                    
+                } catch (error) {
+                    console.error('Error checking configured TPs:', error);
+                }
+            };
+
+            // Check for TPs when component loads and when operations change
+            useEffect(() => {
+                const timer = setTimeout(() => {
+                    checkConfiguredTPs();
+                }, 1000); // Wait 1 second for operations to load
+                
+                return () => clearTimeout(timer);
+            }, [operations, spotOperations]);
+
+            // Also check when we enter analytics view
+            useEffect(() => {
+                const checkInterval = setInterval(() => {
+                    if (currentView === 'analytics') {
+                        checkConfiguredTPs();
+                    }
+                }, 2000);
+                
+                return () => clearInterval(checkInterval);
+            }, [currentView]);
             const [showConfigureTPs, setShowConfigureTPs] = useState(false);
+            const [showExecuteModal, setShowExecuteModal] = useState(false);
+            const [tpToExecute, setTpToExecute] = useState(null);
+            const [executeIsSpot, setExecuteIsSpot] = useState(false);
+            const [executeDate, setExecuteDate] = useState('');
             const [tpConfig, setTpConfig] = useState([]);
             const [savingTPs, setSavingTPs] = useState(false);
             const [tpError, setTpError] = useState('');
@@ -120,6 +328,10 @@
             const [activeAnalyticsTab, setActiveAnalyticsTab] = useState('distribution');
             const [closedOperations, setClosedOperations] = useState([]);
             const [selectedClosedOperation, setSelectedClosedOperation] = useState(null);
+            const [executedTPsHistory, setExecutedTPsHistory] = useState([]);
+            const [closedOpsTab, setClosedOpsTab] = useState('futuros'); // tab for closed ops view
+            const [filterDateFrom, setFilterDateFrom] = useState('');
+            const [filterDateTo, setFilterDateTo] = useState('');
             const [closedOperationEntries, setClosedOperationEntries] = useState([]);
             const [closedOperationTPs, setClosedOperationTPs] = useState([]);
             const [portfolio, setPortfolio] = useState({ totalCapital: 98500, availableLiquidity: 98500 });
@@ -166,6 +378,8 @@
                 try {
                     setConnectionStatus('Cargando operaciones...');
                     
+                    console.log('🔍 Buscando operaciones FUTUROS para user_id:', REAL_USER_ID);
+                    
                     const { data: operationsData, error: opsError } = await supabaseClient
                         .from('operations')
                         .select(`
@@ -178,7 +392,16 @@
                         .eq('status', 'open')
                         .order('created_at', { ascending: false });
 
-                    if (opsError) throw opsError;
+                    console.log('📊 Query FUTUROS resultado:', {
+                        data: operationsData,
+                        error: opsError,
+                        count: operationsData ? operationsData.length : 0
+                    });
+
+                    if (opsError) {
+                        console.error('❌ Error query FUTUROS:', opsError);
+                        throw opsError;
+                    }
 
                     const formattedOps = operationsData ? operationsData.map(op => ({
                         id: op.id,
@@ -195,15 +418,42 @@
 
                     setOperations(formattedOps);
 
-                    const capitalInvertido = formattedOps.reduce((sum, op) => 
+                    // Calcular capital FUTUROS
+                    const futuresCapitalInvertido = formattedOps.reduce((sum, op) => 
                         sum + op.ownCapital + op.additionalMargin, 0);
                     
+                    // Obtener capital SPOT ACTUAL de la base de datos (no del state desactualizado)
+                    const { data: currentSpotOps } = await supabaseClient
+                        .from('operations')
+                        .select('own_capital, additional_margin')
+                        .eq('user_id', REAL_USER_ID)
+                        .eq('operation_type', 'spot')
+                        .eq('status', 'open');
+                    
+                    const spotCapitalInvertido = currentSpotOps ? 
+                        currentSpotOps.reduce((sum, op) => sum + parseFloat(op.own_capital || 0) + parseFloat(op.additional_margin || 0), 0) : 0;
+                    
+                    // Actualizar portfolio con AMBOS capitales
+                    const totalCapitalInvertido = futuresCapitalInvertido + spotCapitalInvertido;
                     setPortfolio({
                         totalCapital: 98500,
-                        availableLiquidity: 98500 - capitalInvertido
+                        availableLiquidity: 98500 - totalCapitalInvertido
+                    });
+                    
+                    console.log('💰 Portfolio actualizado desde FUTUROS (con SPOT actual):', {
+                        futuresCapital: futuresCapitalInvertido,
+                        spotCapital: spotCapitalInvertido,
+                        totalInvertido: totalCapitalInvertido,
+                        liquidezRestante: 98500 - totalCapitalInvertido
                     });
 
                     setConnectionStatus(`✅ ${formattedOps.length + spotOperations.length} operaciones cargadas`);
+
+                    // CRÍTICO: Revisar TPs con datos directos (no esperar state update)
+                    console.log('🔄 Operaciones cargadas, revisando TPs con datos directos...');
+                    setTimeout(() => {
+                        checkConfiguredTPsWithData(formattedOps, spotOperations);
+                    }, 500);
 
                 } catch (error) {
                     setConnectionStatus('Error: ' + error.message);
@@ -256,7 +506,7 @@
                             // Buscar fecha del último TP ejecutado
                             const { data: executedTPs, error: tpError } = await supabaseClient
                                 .from('take_profits')
-                                .select('percentage, price, executed, created_at')
+                                .select('percentage, price, executed, created_at, profit, units_sold')
                                 .eq('operation_id', op.id)
                                 .eq('executed', true)
                                 .order('created_at', { ascending: false });
@@ -265,16 +515,21 @@
                             let totalPnL = 0;
                             
                             if (!tpError && executedTPs && executedTPs.length > 0) {
-                                // Usar fecha del TP si existe, sino usar fecha de creación de la operación como fallback
                                 const lastTPDate = executedTPs[0].created_at;
                                 closingDate = lastTPDate && lastTPDate !== null 
                                     ? new Date(lastTPDate) 
-                                    : new Date(op.created_at); // Fallback para operaciones antiguas
+                                    : new Date(op.created_at);
                                 
+                                // Usar profit guardado si existe, sino recalcular (datos legacy)
                                 totalPnL = executedTPs.reduce((sum, tp) => {
-                                    const unitsToSell = (totalRealUnits * tp.percentage) / 100;
-                                    const profit = (tp.price - pepp) * unitsToSell;
-                                    return sum + profit;
+                                    if (tp.profit !== null && tp.profit !== undefined) {
+                                        return sum + parseFloat(tp.profit);
+                                    }
+                                    // Fallback para datos antiguos sin profit guardado
+                                    const unitsToSell = tp.units_sold 
+                                        ? parseFloat(tp.units_sold)
+                                        : (totalRealUnits * tp.percentage) / 100;
+                                    return sum + (tp.price - pepp) * unitsToSell;
                                 }, 0);
                             }
 
@@ -330,6 +585,96 @@
                 }
             };
 
+            const handleDeleteExecutedTP = async (tpId) => {
+                if (!confirm('¿Eliminar este registro del historial? Esta acción no se puede deshacer.')) return;
+                try {
+                    const { error } = await supabaseClient
+                        .from('take_profits')
+                        .delete()
+                        .eq('id', tpId);
+                    if (error) throw error;
+                    await loadExecutedTPsHistory();
+                    await loadClosedOperations();
+                } catch (error) {
+                    alert('Error al eliminar: ' + error.message);
+                }
+            };
+
+            const loadExecutedTPsHistory = async () => {
+                try {
+                    // Load ALL executed TPs from open AND closed operations
+                    const { data: allOps, error: opsError } = await supabaseClient
+                        .from('operations')
+                        .select('id, crypto, type, operation_type, leverage, status')
+                        .eq('user_id', REAL_USER_ID);
+
+                    if (opsError) throw opsError;
+
+                    const allExecutedTPs = [];
+
+                    for (const op of allOps || []) {
+                        // Get entries to calculate PEPP and units
+                        const { data: entries } = await supabaseClient
+                            .from('entries')
+                            .select('margin, executed, entry_price, units, i_ponderada')
+                            .eq('operation_id', op.id);
+
+                        let pepp = 0;
+                        let totalUnits = 0;
+                        if (entries && entries.length > 0) {
+                            const totalExecuted = entries.reduce((sum, e) => sum + parseFloat(e.executed || 0), 0);
+                            const totalIPonderada = entries.reduce((sum, e) => sum + parseFloat(e.i_ponderada || 0), 0);
+                            totalUnits = entries.reduce((sum, e) => sum + parseFloat(e.units || 0), 0);
+                            pepp = totalExecuted > 0 ? totalIPonderada / totalExecuted : 0;
+                        }
+
+                        // Get executed TPs for this operation
+                        const { data: tps } = await supabaseClient
+                            .from('take_profits')
+                            .select('*')
+                            .eq('operation_id', op.id)
+                            .eq('executed', true)
+                            .order('created_at', { ascending: true });
+
+                        for (const tp of tps || []) {
+                            // Use saved profit/units if available, otherwise recalculate (legacy data)
+                            const savedProfit = tp.profit !== null && tp.profit !== undefined ? parseFloat(tp.profit) : null;
+                            const savedUnits = tp.units_sold !== null && tp.units_sold !== undefined ? parseFloat(tp.units_sold) : null;
+                            const savedMargin = tp.margin_used !== null && tp.margin_used !== undefined ? parseFloat(tp.margin_used) : null;
+                            const unitsToSell = savedUnits !== null ? savedUnits : totalUnits * (tp.percentage / 100);
+                            const profit = savedProfit !== null ? savedProfit : (tp.price - pepp) * unitsToSell;
+                            const marginUsed = savedMargin !== null ? savedMargin : 0;
+                            allExecutedTPs.push({
+                                id: tp.id,
+                                operationId: op.id,
+                                crypto: op.crypto,
+                                type: op.type,
+                                operationType: op.operation_type || 'futuros',
+                                leverage: op.leverage || 1,
+                                opStatus: op.status,
+                                tpLevel: tp.level,
+                                tpPrice: tp.price,
+                                percentage: tp.percentage,
+                                unitsToSell: unitsToSell,
+                                profit: profit,
+                                marginUsed: marginUsed,
+                                pepp: pepp,
+                                executedAt: tp.created_at ? new Date(tp.created_at) : null
+                            });
+                        }
+                    }
+
+                    // Sort by date descending
+                    allExecutedTPs.sort((a, b) => (b.executedAt || 0) - (a.executedAt || 0));
+                    setExecutedTPsHistory(allExecutedTPs);
+                    console.log('📋 TPs ejecutados cargados:', allExecutedTPs.length);
+
+                } catch (error) {
+                    console.error('Error cargando historial de TPs:', error);
+                    setExecutedTPsHistory([]);
+                }
+            };
+
             const loadSpotOperations = async () => {
                 try {
                     const { data: spotOpsData, error: spotError } = await supabaseClient
@@ -361,6 +706,49 @@
 
                     setSpotOperations(formattedSpotOps);
                     console.log('📈 Operaciones SPOT cargadas:', formattedSpotOps);
+
+                    // CRÍTICO: Actualizar portfolio con datos FRESCOS de ambas fuentes
+                    const spotCapitalInvertido = formattedSpotOps.reduce((sum, op) => 
+                        sum + op.ownCapital + op.additionalMargin, 0);
+                    
+                    // Obtener capital FUTUROS ACTUAL de la base de datos (no del state desactualizado)
+                    const { data: currentFuturesOps } = await supabaseClient
+                        .from('operations')
+                        .select('id, crypto, type, operation_type, own_capital, additional_margin')
+                        .eq('user_id', REAL_USER_ID)
+                        .eq('operation_type', 'futuros')
+                        .eq('status', 'open');
+                    
+                    const futuresCapitalInvertido = currentFuturesOps ? 
+                        currentFuturesOps.reduce((sum, op) => sum + parseFloat(op.own_capital || 0) + parseFloat(op.additional_margin || 0), 0) : 0;
+                    
+                    // Actualizar portfolio con AMBOS capitales
+                    const totalCapitalInvertido = futuresCapitalInvertido + spotCapitalInvertido;
+                    setPortfolio({
+                        totalCapital: 98500,
+                        availableLiquidity: 98500 - totalCapitalInvertido
+                    });
+                    
+                    console.log('💰 Portfolio actualizado desde SPOT (con FUTUROS actual):', {
+                        futuresCapital: futuresCapitalInvertido,
+                        spotCapital: spotCapitalInvertido,
+                        totalInvertido: totalCapitalInvertido,
+                        liquidezRestante: 98500 - totalCapitalInvertido
+                    });
+
+                    // CRÍTICO: Revisar TPs con AMBAS fuentes de datos (futuros frescos + spot)
+                    // Usamos currentFuturesOps que ya cargamos arriba para el portfolio
+                    const formattedCurrentFutures = currentFuturesOps ? currentFuturesOps.map(op => ({
+                        id: op.id,
+                        crypto: op.crypto,
+                        type: op.type,
+                        operationType: op.operation_type || 'futuros',
+                        ownCapital: parseFloat(op.own_capital) || 0,
+                        additionalMargin: parseFloat(op.additional_margin) || 0,
+                    })) : operations;
+                    setTimeout(() => {
+                        checkConfiguredTPsWithData(formattedCurrentFutures, formattedSpotOps);
+                    }, 300);
 
                 } catch (error) {
                     console.error('Error cargando operaciones SPOT:', error);
@@ -870,38 +1258,24 @@
                         .from('take_profits')
                         .select('*')
                         .eq('operation_id', operationId)
+                        .eq('executed', false)
                         .order('level', { ascending: true });
 
                     if (error) throw error;
 
-                    // Crear array de 5 TPs (del 1 al 5)
-                    const tpArray = [];
-                    for (let i = 1; i <= 5; i++) {
-                        const existingTP = tps?.find(tp => tp.level === i);
-                        tpArray.push({
-                            number: i,
-                            price: existingTP?.price || '',
-                            percentage: existingTP?.percentage || '',
-                            executed: existingTP?.executed || false,
-                            id: existingTP?.id || null
-                        });
-                    }
+                    // Solo TPs pendientes, renumerados desde 1
+                    const tpArray = (tps || []).map((tp, index) => ({
+                        number: index + 1,
+                        price: tp.price || '',
+                        percentage: tp.percentage || '',
+                        executed: false,
+                        id: tp.id
+                    }));
 
                     setOperationTPs(tpArray);
                 } catch (error) {
                     console.error('Error cargando TPs:', error);
-                    // Crear array vacío con 5 TPs
-                    const emptyTPs = [];
-                    for (let i = 1; i <= 5; i++) {
-                        emptyTPs.push({
-                            number: i,
-                            price: '',
-                            percentage: '',
-                            executed: false,
-                            id: null
-                        });
-                    }
-                    setOperationTPs(emptyTPs);
+                    setOperationTPs([]);
                 }
             };
 
@@ -953,8 +1327,17 @@
                         leverage
                     });
 
-                    // Usar fecha personalizada del formulario
-                    const entryDateTime = new Date(newEntry.entryDate);
+                    // Usar fecha personalizada del formulario con timezone local preservado
+                    const entryDateTime = createLocalDateTime(
+                        newEntry.entryDate.split('T')[0], 
+                        newEntry.entryDate.split('T')[1]
+                    );
+                    
+                    console.log('📅 Fecha DCA con timezone corregido:', {
+                        input: newEntry.entryDate,
+                        local: entryDateTime.toLocaleString(),
+                        iso: entryDateTime.toISOString()
+                    });
 
                     console.log('📝 Creando entrada:', {
                         operationId: selectedOperation.id,
@@ -981,16 +1364,51 @@
                     if (error) throw error;
 
                     console.log('✅ Entrada creada exitosamente:', data);
+
+                    // CRÍTICO: Actualizar additional_margin en la operación principal
+                    const currentAdditionalMargin = selectedOperation.additionalMargin || 0;
+                    const newAdditionalMargin = currentAdditionalMargin + margin;
+                    
+                    console.log('💰 Actualizando additional_margin:', {
+                        anterior: currentAdditionalMargin,
+                        nuevoMargen: margin,
+                        total: newAdditionalMargin
+                    });
+
+                    // Actualizar la operación en la base de datos
+                    const { error: updateError } = await supabaseClient
+                        .from('operations')
+                        .update({ 
+                            additional_margin: newAdditionalMargin 
+                        })
+                        .eq('id', selectedOperation.id);
+
+                    if (updateError) {
+                        console.error('⚠️ Error actualizando additional_margin:', updateError);
+                    } else {
+                        console.log('✅ Additional margin actualizado correctamente');
+                    }
+
+                    // Actualizar operación local
+                    setSelectedOperation({
+                        ...selectedOperation,
+                        additionalMargin: newAdditionalMargin
+                    });
+
                     alert('✅ Entrada agregada exitosamente');
 
-                    // Resetear formulario y recargar
+                    // Resetear formulario y recargar TODO
                     setNewEntry({
                         entryPrice: '',
                         margin: '',
                         entryDate: new Date().toISOString().slice(0, 16)
                     });
                     setShowAddEntry(false);
+                    
+                    // CRÍTICO: Recargar AMBOS para actualizar dashboard
                     await loadOperationEntries(selectedOperation.id);
+                    await loadOperations(); // 🎯 ESTE ES EL FIX CLAVE
+                    await loadSpotOperations(); // Por si es SPOT
 
                 } catch (error) {
                     console.error('❌ Error:', error);
@@ -1002,13 +1420,18 @@
 
             const handleConfigureTPs = () => {
                 setShowConfigureTPs(true);
-                // Inicializar configuración con valores existentes
-                const initialConfig = operationTPs.map(tp => ({
-                    number: tp.number,
+                // Cargar TPs pendientes existentes + slots vacíos (mínimo 3 disponibles)
+                const pendingTPs = operationTPs.map((tp, index) => ({
+                    number: index + 1,
                     price: tp.price || '',
                     percentage: tp.percentage || ''
                 }));
-                setTpConfig(initialConfig);
+                // Asegurar mínimo 3 slots para configurar
+                const minSlots = Math.max(pendingTPs.length, 3);
+                while (pendingTPs.length < minSlots) {
+                    pendingTPs.push({ number: pendingTPs.length + 1, price: '', percentage: '' });
+                }
+                setTpConfig(pendingTPs);
                 setTpError('');
             };
 
@@ -1035,16 +1458,25 @@
                         }
                     }
 
-                    // Eliminar TPs existentes de esta operación
+                    // Solo eliminar TPs pendientes — los ejecutados son historial intocable
                     await supabaseClient
                         .from('take_profits')
                         .delete()
-                        .eq('operation_id', selectedOperation.id);
+                        .eq('operation_id', selectedOperation.id)
+                        .eq('executed', false);
 
-                    // Insertar TPs configurados
-                    const tpsToInsert = configuredTPs.map(tp => ({
+                    // Calcular offset de nivel basado en TPs ya ejecutados
+                    const { data: executedCount } = await supabaseClient
+                        .from('take_profits')
+                        .select('id', { count: 'exact' })
+                        .eq('operation_id', selectedOperation.id)
+                        .eq('executed', true);
+                    const levelOffset = executedCount ? executedCount.length : 0;
+
+                    // Insertar TPs configurados con nivel correcto (continuando desde ejecutados)
+                    const tpsToInsert = configuredTPs.map((tp, index) => ({
                         operation_id: selectedOperation.id,
-                        level: tp.number,
+                        level: levelOffset + index + 1,
                         price: parseFloat(tp.price),
                         percentage: parseFloat(tp.percentage),
                         executed: false,
@@ -1066,6 +1498,9 @@
                     await loadOperationTPs(selectedOperation.id);
                     setShowConfigureTPs(false);
 
+                    // Actualizar chartData para que los gráficos reflejen los cambios sin relogin
+                    await checkConfiguredTPsWithData(operations, spotOperations);
+
                 } catch (error) {
                     console.error('❌ Error:', error);
                     setTpError(error.message);
@@ -1080,22 +1515,31 @@
                 setTpConfig(updated);
             };
 
-            const handleExecuteTP = async (tp, isSpot = false) => {
+            const openExecuteModal = (tp, isSpot = false) => {
+                setTpToExecute(tp);
+                setExecuteIsSpot(isSpot);
+                setExecuteDate(new Date().toISOString().slice(0, 16)); // default: now
+                setShowExecuteModal(true);
+            };
+
+            const handleExecuteTP = async (tp, isSpot = false, executionDate = null) => {
                 // Detectar si es SPOT o usar parámetros específicos
                 const operationType = isSpot || selectedOperation.operationType === 'spot' ? 'SPOT' : 'FUTUROS';
-                
-                if (!confirm(`¿Ejecutar ${tp.number === 1 ? 'TP1' : tp.number === 2 ? 'TP2' : tp.number === 3 ? 'TP3' : tp.number === 4 ? 'TP4' : 'TP5'} ${operationType} a ${formatCurrency(tp.price)}?`)) {
-                    return;
-                }
 
                 try {
                     console.log(`🎯 Ejecutando TP ${operationType}:`, tp);
                     
                     // Calcular totales para la operación actual
-                    const currentTotalUnits = operationEntries.reduce((sum, entry) => sum + parseFloat(entry.units || 0), 0);
+                    const currentTotalUnitsFromEntries = operationEntries.reduce((sum, entry) => sum + parseFloat(entry.units || 0), 0);
                     const currentTotalExecuted = operationEntries.reduce((sum, entry) => sum + parseFloat(entry.executed || 0), 0);
                     const currentTotalIPonderada = operationEntries.reduce((sum, entry) => sum + parseFloat(entry.i_ponderada || 0), 0);
+                    const currentTotalMarginFromEntries = operationEntries.reduce((sum, entry) => sum + parseFloat(entry.margin || 0), 0);
                     const currentPEPP = currentTotalExecuted > 0 ? currentTotalIPonderada / currentTotalExecuted : 0;
+
+                    // Aplicar ratio de capital para obtener unidades reales actuales
+                    const currentCapitalActual = (parseFloat(selectedOperation.ownCapital) || 0) + (parseFloat(selectedOperation.additionalMargin) || 0);
+                    const currentCapitalRatio = currentTotalMarginFromEntries > 0 ? currentCapitalActual / currentTotalMarginFromEntries : 1;
+                    const currentTotalUnits = currentTotalUnitsFromEntries * currentCapitalRatio;
                     
                     // Cálculos para la ejecución
                     const unitsToSell = (currentTotalUnits * tp.percentage) / 100;
@@ -1106,15 +1550,28 @@
                         unitsToSell,
                         executedAmount,
                         profit,
-                        currentPEPP: pepp,
+                        currentPEPP: currentPEPP,
                         tpPrice: tp.price
                     });
 
-                    // Marcar TP como ejecutado en Supabase
+                    // Marcar TP como ejecutado en Supabase con fecha real de ejecución
+                    const executionTimestamp = executionDate 
+                        ? new Date(executionDate).toISOString()
+                        : new Date().toISOString();
+                    
+                    // Calcular margen utilizado en esta ejecución
+                    const marginUsedForTP = isSpotOp
+                        ? ((parseFloat(selectedOperation.ownCapital) || 0) + (parseFloat(selectedOperation.additionalMargin) || 0)) * (tp.percentage / 100)
+                        : ((parseFloat(selectedOperation.ownCapital) || 0) + (parseFloat(selectedOperation.additionalMargin) || 0)) * (tp.percentage / 100);
+
                     const { error } = await supabaseClient
                         .from('take_profits')
                         .update({ 
-                            executed: true
+                            executed: true,
+                            created_at: executionTimestamp,
+                            profit: profit,
+                            units_sold: unitsToSell,
+                            margin_used: marginUsedForTP
                         })
                         .eq('id', tp.id);
 
@@ -1125,14 +1582,16 @@
                     const isSpotOp = isSpot || selectedOperation.operationType === 'spot' || selectedOperation.leverage === 1;
                     
                     if (isSpotOp) {
-                        // SPOT: Solo reducir capital propio (sin borrowed capital)
-                        const totalRealMargin = operationEntries.reduce((sum, entry) => sum + parseFloat(entry.margin || 0), 0);
+                        // SPOT: Reducir % sobre capital ACTUAL
+                        const currentOwnCapital = parseFloat(selectedOperation.ownCapital) || 0;
+                        const currentAdditionalMargin = parseFloat(selectedOperation.additionalMargin) || 0;
+                        const totalCurrentOwnCapital = currentOwnCapital + currentAdditionalMargin;
                         const reductionPercentage = tp.percentage / 100;
-                        const marginToReduce = totalRealMargin * reductionPercentage;
-                        const newOwnCapital = totalRealMargin - marginToReduce;
+                        const marginToReduce = totalCurrentOwnCapital * reductionPercentage;
+                        const newOwnCapital = totalCurrentOwnCapital - marginToReduce;
 
                         console.log('💰 Actualizando capital SPOT:', {
-                            antes: { margen: totalRealMargin },
+                            antes: { margen: totalCurrentOwnCapital },
                             reduccion: { porcentaje: tp.percentage + '%', margen: marginToReduce },
                             despues: { margen: newOwnCapital }
                         });
@@ -1141,8 +1600,9 @@
                             .from('operations')
                             .update({
                                 own_capital: newOwnCapital,
-                                borrowed_capital: 0, // SPOT no tiene capital prestado
-                                total_investment: newOwnCapital // SPOT: capital = inversión
+                                borrowed_capital: 0,
+                                total_investment: newOwnCapital,
+                                additional_margin: 0 // DCA consolidado en own_capital tras ejecutar TP
                             })
                             .eq('id', selectedOperation.id);
 
@@ -1150,21 +1610,22 @@
                             console.error('⚠️ Error actualizando operación SPOT:', updateError);
                         }
                     } else {
-                        // FUTUROS: Reducir tanto capital propio como prestado
-                        const totalRealMargin = operationEntries.reduce((sum, entry) => sum + parseFloat(entry.margin || 0), 0);
-                        const totalRealExecuted = operationEntries.reduce((sum, entry) => sum + parseFloat(entry.executed || 0), 0);
-                        const totalRealLeveraged = totalRealExecuted - totalRealMargin;
+                        // FUTUROS: Reducir % sobre capital ACTUAL
+                        const currentOwnCapital = parseFloat(selectedOperation.ownCapital) || 0;
+                        const currentAdditionalMargin = parseFloat(selectedOperation.additionalMargin) || 0;
+                        const totalCurrentOwnCapital = currentOwnCapital + currentAdditionalMargin;
+                        const currentBorrowedCapital = parseFloat(selectedOperation.borrowedCapital) || 0;
                         
                         const reductionPercentage = tp.percentage / 100;
-                        const marginToReduce = totalRealMargin * reductionPercentage;
-                        const leveragedToReduce = totalRealLeveraged * reductionPercentage;
+                        const marginToReduce = totalCurrentOwnCapital * reductionPercentage;
+                        const leveragedToReduce = currentBorrowedCapital * reductionPercentage;
                         
-                        const newOwnCapital = totalRealMargin - marginToReduce;
-                        const newBorrowedCapital = totalRealLeveraged - leveragedToReduce;
+                        const newOwnCapital = totalCurrentOwnCapital - marginToReduce;
+                        const newBorrowedCapital = currentBorrowedCapital - leveragedToReduce;
                         const newTotalInvestment = newOwnCapital + newBorrowedCapital;
 
                         console.log('💰 Actualizando capital FUTUROS:', {
-                            antes: { margen: totalRealMargin, prestado: totalRealLeveraged, total: totalRealExecuted },
+                            antes: { margen: totalCurrentOwnCapital, prestado: currentBorrowedCapital, total: totalCurrentOwnCapital + currentBorrowedCapital },
                             reduccion: { porcentaje: tp.percentage + '%', margen: marginToReduce, prestado: leveragedToReduce },
                             despues: { margen: newOwnCapital, prestado: newBorrowedCapital, total: newTotalInvestment }
                         });
@@ -1174,7 +1635,8 @@
                             .update({
                                 own_capital: newOwnCapital,
                                 borrowed_capital: newBorrowedCapital,
-                                total_investment: newTotalInvestment
+                                total_investment: newTotalInvestment,
+                                additional_margin: 0 // DCA consolidado en own_capital tras ejecutar TP
                             })
                             .eq('id', selectedOperation.id);
 
@@ -1183,54 +1645,60 @@
                         }
                     }
 
-                    // Verificar si la operación debe cerrarse (100% ejecutado)
-                    const { data: allTPs, error: tpCheckError } = await supabaseClient
-                        .from('take_profits')
-                        .select('percentage, executed')
-                        .eq('operation_id', selectedOperation.id);
+                    // Capital real tras ejecución (para el aviso de TPs pendientes)
+                    const capitalActualTrasTP = isSpotOp
+                        ? ((parseFloat(selectedOperation.ownCapital) || 0) + (parseFloat(selectedOperation.additionalMargin) || 0)) * (1 - tp.percentage / 100)
+                        : ((parseFloat(selectedOperation.ownCapital) || 0) + (parseFloat(selectedOperation.additionalMargin) || 0)) * (1 - tp.percentage / 100);
 
-                    if (!tpCheckError && allTPs) {
-                        const totalExecutedPercentage = allTPs
-                            .filter(tp => tp.executed === true)
-                            .reduce((sum, tp) => sum + (parseFloat(tp.percentage) || 0), 0);
+                    // Verificar si la operación debe cerrarse
+                    // Regla: cerrar solo cuando el capital restante sea prácticamente 0
+                    const isSpotOpCheck = isSpot || selectedOperation.operationType === 'spot' || selectedOperation.leverage === 1;
+                    
+                    // Leer el capital actualizado directamente de Supabase (ya reducido)
+                    const { data: updatedOpCheck } = await supabaseClient
+                        .from('operations')
+                        .select('own_capital, additional_margin, borrowed_capital')
+                        .eq('id', selectedOperation.id)
+                        .single();
 
-                        console.log('📊 Análisis de cierre automático:', {
-                            operationId: selectedOperation.id,
-                            tpsEncontrados: allTPs.length,
-                            tpsEjecutados: allTPs.filter(tp => tp.executed === true).length,
-                            porcentajes: allTPs.map(tp => ({ percentage: tp.percentage, executed: tp.executed })),
-                            totalEjecutado: totalExecutedPercentage + '%'
-                        });
+                    const capitalRestanteCheck = updatedOpCheck 
+                        ? (parseFloat(updatedOpCheck.own_capital) || 0) + (parseFloat(updatedOpCheck.additional_margin) || 0)
+                        : 0;
 
-                        // Si se ejecutó 100% o más, cerrar la operación
-                        if (totalExecutedPercentage >= 100) {
-                            console.log('🎯 Cerrando operación automáticamente...');
-                            
-                            const { error: closeError } = await supabaseClient
-                                .from('operations')
-                                .update({
-                                    status: 'closed'
-                                })
-                                .eq('id', selectedOperation.id);
+                    console.log('📊 Análisis de cierre:', { capitalRestante: capitalRestanteCheck });
 
-                            if (closeError) {
-                                console.error('⚠️ Error cerrando operación:', closeError);
-                            } else {
-                                console.log('🎉 Operación cerrada automáticamente (100% ejecutado)');
-                                alert(`🎉 ¡Operación ${selectedOperation.crypto} cerrada completamente!\n\nTodos los TPs ejecutados (${totalExecutedPercentage}%)\nLa operación se movió a "Operaciones Cerradas"`);
-                                
-                                // Recargar operaciones cerradas y volver al dashboard
-                                await loadClosedOperations();
-                                setCurrentView('dashboard');
-                            }
-                        } else {
-                            console.log(`📊 Operación aún abierta: ${totalExecutedPercentage}% ejecutado`);
+                    if (capitalRestanteCheck <= 0.01) {
+                        console.log('🎯 Cerrando operación — capital agotado');
+                        const { error: closeError } = await supabaseClient
+                            .from('operations')
+                            .update({ status: 'closed' })
+                            .eq('id', selectedOperation.id);
+
+                        if (!closeError) {
+                            alert(`🎉 ¡Operación ${selectedOperation.crypto} cerrada completamente!\n\nCapital ejecutado al 100%.\nLa operación se movió a "Operaciones Cerradas"`);
+                            await loadClosedOperations();
+                            setCurrentView('dashboard');
                         }
+                    } else {
+                        console.log(`📊 Operación aún abierta. Capital restante: ${capitalRestanteCheck}`);
                     }
 
                     console.log('✅ TP marcado como ejecutado');
                     const tpName = tp.number === 1 ? 'TP1' : tp.number === 2 ? 'TP2' : tp.number === 3 ? 'TP3' : tp.number === 4 ? 'TP4' : 'TP5';
-                    alert(`✅ ${tpName} ${operationType} ejecutado exitosamente\n\nProfit: ${formatCurrency(profit)}\nUnidades vendidas: ${unitsToSell.toFixed(8)} ${selectedOperation.crypto}\nPrecio: ${formatCurrency(tp.price)}\nPorcentaje: ${tp.percentage}%`);
+                    
+                    // Verificar si hay TPs pendientes para mostrar aviso
+                    const { data: remainingTPs } = await supabaseClient
+                        .from('take_profits')
+                        .select('id, percentage')
+                        .eq('operation_id', selectedOperation.id)
+                        .eq('executed', false);
+                    
+                    const capitalTrasEjecucion = capitalActualTrasTP;
+                    const warningMsg = remainingTPs && remainingTPs.length > 0
+                        ? `\n\n⚠️ Tienes ${remainingTPs.length} TP${remainingTPs.length > 1 ? 's' : ''} pendiente${remainingTPs.length > 1 ? 's' : ''}. Sus % se aplicarán sobre el capital restante: ${formatCurrency(capitalTrasEjecucion)}`
+                        : '';
+                    
+                    alert(`✅ ${tpName} ${operationType} ejecutado exitosamente\n\nProfit: ${formatCurrency(profit)}\nUnidades vendidas: ${unitsToSell.toFixed(8)} ${selectedOperation.crypto}\nPrecio: ${formatCurrency(tp.price)}\nPorcentaje: ${tp.percentage}%${warningMsg}`);
 
                     // Recargar TPs y operaciones para actualizar dashboard
                     await loadOperationTPs(selectedOperation.id);
@@ -1263,6 +1731,10 @@
                         };
                         setSelectedOperation(refreshedOperation);
                     }
+
+                    // Actualizar chartData y historial de TPs ejecutados
+                    await checkConfiguredTPsWithData(operations, spotOperations);
+                    await loadExecutedTPsHistory();
 
                 } catch (error) {
                     console.error('❌ Error ejecutando TP:', error);
@@ -1388,10 +1860,24 @@
             };
 
             const preview = calculatePreview();
-            const capitalInvertido = operations.reduce((sum, op) => sum + op.ownCapital + op.additionalMargin, 0);
+            const capitalInvertido = operations.reduce((sum, op) => sum + op.ownCapital + op.additionalMargin, 0) 
+                                   + spotOperations.reduce((sum, op) => sum + op.ownCapital + op.additionalMargin, 0);
             const stopDangerTotal = operations.reduce((sum, op) => {
-                return sum + Math.max(0, op.totalInvestment - op.ownCapital - op.additionalMargin);
+                // Calcular prestado REAL: inicial + DCA
+                const initialBorrowed = op.ownCapital * (op.leverage - 1); // 250 * 2 = 500
+                const dcaBorrowed = (op.additionalMargin || 0) * (op.leverage - 1); // 100 * 2 = 200  
+                const totalBorrowed = initialBorrowed + dcaBorrowed; // 500 + 200 = 700
+                
+                return sum + totalBorrowed;
             }, 0);
+
+            // Update global chart data for analytics
+            if (window.chartData) {
+                window.chartData.spotCapital = spotOperations.reduce((sum, op) => sum + op.ownCapital + op.additionalMargin, 0);
+                window.chartData.futuresCapital = operations.reduce((sum, op) => sum + op.ownCapital + op.additionalMargin, 0);
+                window.chartData.availableLiquidity = portfolio.availableLiquidity;
+                window.chartData.totalTPs = totalConfiguredTPs || 0; // Add TP count
+            }
 
             if (loading) {
                 return React.createElement('div', { style: styles.loading }, 
@@ -1610,22 +2096,34 @@
             if (currentView === 'detail' && selectedOperation) {
                 // Cálculos avanzados
                 const totalEntries = operationEntries.length;
-                const totalExecuted = operationEntries.reduce((sum, entry) => sum + parseFloat(entry.executed || 0), 0);
-                const totalMargin = operationEntries.reduce((sum, entry) => sum + parseFloat(entry.margin || 0), 0);
-                const totalUnits = operationEntries.reduce((sum, entry) => sum + parseFloat(entry.units || 0), 0);
+
+                // Valores desde entradas reales (PEPP nunca cambia)
+                const totalExecutedFromEntries = operationEntries.reduce((sum, entry) => sum + parseFloat(entry.executed || 0), 0);
                 const totalIPonderada = operationEntries.reduce((sum, entry) => sum + parseFloat(entry.i_ponderada || 0), 0);
+                const totalUnitsFromEntries = operationEntries.reduce((sum, entry) => sum + parseFloat(entry.units || 0), 0);
+                const totalMarginFromEntries = operationEntries.reduce((sum, entry) => sum + parseFloat(entry.margin || 0), 0);
+
+                // PEPP desde entradas reales (nunca cambia)
+                const pepp = totalExecutedFromEntries > 0 ? totalIPonderada / totalExecutedFromEntries : 0;
+
+                // Margen actual desde selectedOperation (se actualiza al ejecutar TPs)
+                const capitalActual = (selectedOperation.ownCapital || 0) + (selectedOperation.additionalMargin || 0);
+                const totalMarginWithAdditional = capitalActual;
+                const totalMargin = capitalActual;
+
+                // Ratio de capital para escalar unidades y ejecutado al estado actual
+                // Ejemplo: si se ejecutó 50% → capitalActual = 50% del original → ratio = 0.5
+                const capitalRatio = totalMarginFromEntries > 0 ? capitalActual / totalMarginFromEntries : 1;
+                const totalUnits = totalUnitsFromEntries * capitalRatio;
+                const totalExecuted = totalExecutedFromEntries * capitalRatio;
+
+                // Apalancamiento efectivo actual
+                const effectiveLeverage = capitalActual > 0 ? totalExecuted / capitalActual : selectedOperation.leverage;
                 
-                // PEPP (Precio Entrada Promedio Ponderado)
-                const pepp = totalExecuted > 0 ? totalIPonderada / totalExecuted : 0;
-                
-                // Precio de liquidación - FÓRMULA CORREGIDA
-                const totalMarginWithAdditional = selectedOperation.ownCapital + (selectedOperation.additionalMargin || 0);
-                const leverage = selectedOperation.leverage || 1;
-                
-                // Fórmula correcta para posición LONG
+                // Fórmula correcta para posición LONG con leverage efectivo
                 const liquidationPrice = selectedOperation.type === 'LONG' 
-                    ? pepp * (1 - (1 / leverage))
-                    : pepp * (1 + (1 / leverage));
+                    ? pepp * (1 - (1 / effectiveLeverage))
+                    : pepp * (1 + (1 / effectiveLeverage));
 
                 return React.createElement('div', { style: styles.app },
                     React.createElement('header', { style: styles.header },
@@ -2140,54 +2638,44 @@
                                                             )
                                                         ),
                                                         
-                                                        // Mostrar profit potencial si hay PEPP y unidades
-                                                        pepp > 0 && totalUnits > 0 && React.createElement('div', { style: styles.tpProfitInfo },
-                                                            React.createElement('div', { style: styles.tpRow },
-                                                                React.createElement('span', { style: styles.tpLabel }, 'Profit:'),
-                                                                React.createElement('span', { 
-                                                                    style: {
-                                                                        ...styles.tpValue, 
-                                                                        color: tp.price > pepp ? '#88D498' : '#E89BA5'
-                                                                    } 
-                                                                }, formatCurrency((tp.price - pepp) * ((totalUnits * tp.percentage) / 100)))
-                                                            ),
-                                                            React.createElement('div', { style: styles.tpRow },
-                                                                React.createElement('span', { style: styles.tpLabel }, 'Unidades:'),
-                                                                React.createElement('span', { style: styles.tpValue }, 
-                                                                    ((totalUnits * tp.percentage) / 100).toFixed(8)
-                                                                )
-                                                            ),
-                                                            
-                                                            // Información adicional para TPs ejecutados
-                                                            tp.executed && (() => {
-                                                                // Calcular basado en el total REAL de todas las entradas (DCA)
-                                                                const totalRealMargin = operationEntries.reduce((sum, entry) => sum + parseFloat(entry.margin || 0), 0);
-                                                                const totalRealExecuted = operationEntries.reduce((sum, entry) => sum + parseFloat(entry.executed || 0), 0);
-                                                                const totalRealLeveraged = totalRealExecuted - totalRealMargin;
-                                                                
-                                                                const executedMargin = (totalRealMargin * tp.percentage) / 100;
-                                                                const executedLeveraged = (totalRealLeveraged * tp.percentage) / 100;
-                                                                
-                                                                return React.createElement('div', { style: styles.executedInfo },
-                                                                    React.createElement('div', { style: styles.tpRow },
-                                                                        React.createElement('span', { style: styles.tpLabel }, 'Margen Ejecutado:'),
-                                                                        React.createElement('span', { style: styles.tpValue }, 
-                                                                            formatCurrency(executedMargin)
-                                                                        )
-                                                                    ),
-                                                                    React.createElement('div', { style: styles.tpRow },
-                                                                        React.createElement('span', { style: styles.tpLabel }, 'Capital Apalancado:'),
-                                                                        React.createElement('span', { style: styles.tpValue }, 
-                                                                            formatCurrency(executedLeveraged)
-                                                                        )
+                                                        // Profit, unidades, margen y capital - siempre visible en tarjetas pendientes
+                                                        pepp > 0 && totalUnits > 0 && (() => {
+                                                            const tpUnits = (totalUnits * tp.percentage) / 100;
+                                                            const tpProfit = (tp.price - pepp) * tpUnits;
+                                                            const tpMargin = totalMargin * (tp.percentage / 100);
+                                                            const tpLeveraged = totalExecuted * (tp.percentage / 100);
+                                                            const tpROI = tpMargin > 0 ? (tpProfit / tpMargin) * 100 : 0;
+                                                            return React.createElement('div', { style: styles.tpProfitInfo },
+                                                                React.createElement('div', { style: styles.tpRow },
+                                                                    React.createElement('span', { style: styles.tpLabel }, 'Profit:'),
+                                                                    React.createElement('span', { style: { ...styles.tpValue, color: tpProfit >= 0 ? '#88D498' : '#E89BA5' } },
+                                                                        formatCurrency(tpProfit)
                                                                     )
-                                                                );
-                                                            })()
-                                                        ),
+                                                                ),
+                                                                React.createElement('div', { style: styles.tpRow },
+                                                                    React.createElement('span', { style: styles.tpLabel }, 'ROI:'),
+                                                                    React.createElement('span', { style: { ...styles.tpValue, color: tpROI >= 0 ? '#88D498' : '#E89BA5', fontWeight: '700' } },
+                                                                        (tpROI >= 0 ? '+' : '') + tpROI.toFixed(2) + '%'
+                                                                    )
+                                                                ),
+                                                                React.createElement('div', { style: styles.tpRow },
+                                                                    React.createElement('span', { style: styles.tpLabel }, 'Unidades:'),
+                                                                    React.createElement('span', { style: styles.tpValue }, tpUnits.toFixed(4))
+                                                                ),
+                                                                React.createElement('div', { style: { ...styles.tpRow, borderTop: '1px solid rgba(168,178,193,0.1)', paddingTop: '0.4rem', marginTop: '0.4rem' } },
+                                                                    React.createElement('span', { style: styles.tpLabel }, 'Margen a liberar:'),
+                                                                    React.createElement('span', { style: { ...styles.tpValue, color: '#7C9DD4' } }, formatCurrency(tpMargin))
+                                                                ),
+                                                                React.createElement('div', { style: styles.tpRow },
+                                                                    React.createElement('span', { style: styles.tpLabel }, 'Capital Apalancado:'),
+                                                                    React.createElement('span', { style: styles.tpValue }, formatCurrency(tpLeveraged))
+                                                                )
+                                                            );
+                                                        })(),
                                                         
                                                         // Botón ejecutar solo si no está ejecutado
                                                         !tp.executed && React.createElement('button', {
-                                                            onClick: () => handleExecuteTP(tp, pepp, totalUnits),
+                                                            onClick: () => openExecuteModal(tp, false),
                                                             style: styles.executeTPBtn
                                                         }, '🎯 Ejecutar TP')
                                                     )
@@ -2219,9 +2707,7 @@
                                                     ),
                                                     React.createElement('div', { style: styles.tpConfigInputs },
                                                         React.createElement('div', { style: styles.inputGroup },
-                                                            React.createElement('label', { style: styles.label }, 
-                                                                'Precio Objetivo'
-                                                            ),
+                                                            React.createElement('label', { style: styles.label }, 'Precio Objetivo'),
                                                             React.createElement('input', {
                                                                 type: 'number',
                                                                 step: '0.00000001',
@@ -2232,9 +2718,7 @@
                                                             })
                                                         ),
                                                         React.createElement('div', { style: styles.inputGroup },
-                                                            React.createElement('label', { style: styles.label }, 
-                                                                '% a Vender'
-                                                            ),
+                                                            React.createElement('label', { style: styles.label }, '% a Vender'),
                                                             React.createElement('input', {
                                                                 type: 'number',
                                                                 min: '1',
@@ -2245,11 +2729,65 @@
                                                                 style: styles.input,
                                                                 placeholder: '25'
                                                             })
-                                                        )
+                                                        ),
+                                                        // Preview en tiempo real
+                                                        tp.price && tp.percentage && pepp > 0 && totalUnits > 0 && (() => {
+                                                            const simUnits = totalUnits * (parseFloat(tp.percentage) / 100);
+                                                            const simProfit = (parseFloat(tp.price) - pepp) * simUnits;
+                                                            const simMargin = totalMargin * (parseFloat(tp.percentage) / 100);
+                                                            return React.createElement('div', {
+                                                                style: { marginTop: '0.75rem', padding: '0.75rem', backgroundColor: 'rgba(37,41,54,0.8)', borderRadius: '8px', borderLeft: `3px solid ${simProfit >= 0 ? '#88D498' : '#E89BA5'}` }
+                                                            },
+                                                                React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', marginBottom: '0.3rem' } },
+                                                                    React.createElement('span', { style: { color: '#A8B2C1', fontSize: '0.78rem' } }, 'Profit est.:'),
+                                                                    React.createElement('span', { style: { color: simProfit >= 0 ? '#88D498' : '#E89BA5', fontSize: '0.85rem', fontWeight: '600' } },
+                                                                        (simProfit >= 0 ? '+' : '') + formatCurrency(simProfit)
+                                                                    )
+                                                                ),
+                                                                React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', marginBottom: '0.3rem' } },
+                                                                    React.createElement('span', { style: { color: '#A8B2C1', fontSize: '0.78rem' } }, 'Margen:'),
+                                                                    React.createElement('span', { style: { color: '#7C9DD4', fontSize: '0.85rem' } }, formatCurrency(simMargin))
+                                                                ),
+                                                                React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between' } },
+                                                                    React.createElement('span', { style: { color: '#A8B2C1', fontSize: '0.78rem' } }, 'Unidades:'),
+                                                                    React.createElement('span', { style: { color: '#E8ECEF', fontSize: '0.85rem' } }, simUnits.toFixed(4))
+                                                                )
+                                                            );
+                                                        })()
                                                     )
                                                 )
                                             ))
                                         ),
+
+                                        // RESUMEN GLOBAL EN TIEMPO REAL
+                                        (() => {
+                                            const configuredWithData = tpConfig.filter(tp => tp.price && tp.percentage);
+                                            if (configuredWithData.length === 0) return null;
+                                            const totalPct = configuredWithData.reduce((s, tp) => s + parseFloat(tp.percentage || 0), 0);
+                                            const totalProfitSim = configuredWithData.reduce((s, tp) => {
+                                                const units = totalUnits * (parseFloat(tp.percentage) / 100);
+                                                return s + (parseFloat(tp.price) - pepp) * units;
+                                            }, 0);
+                                            const totalMarginSim = configuredWithData.reduce((s, tp) => s + totalMargin * (parseFloat(tp.percentage) / 100), 0);
+                                            return React.createElement('div', {
+                                                style: { backgroundColor: 'rgba(124,157,212,0.08)', border: '1px solid rgba(124,157,212,0.2)', borderRadius: '10px', padding: '1rem 1.25rem', margin: '1rem 0', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem' }
+                                            },
+                                                React.createElement('div', { style: { textAlign: 'center' } },
+                                                    React.createElement('div', { style: { color: '#A8B2C1', fontSize: '0.75rem', marginBottom: '0.3rem' } }, '% Total Configurado'),
+                                                    React.createElement('div', { style: { color: totalPct > 100 ? '#E89BA5' : '#F4D896', fontWeight: '700', fontSize: '1.1rem' } }, `${totalPct.toFixed(1)}%`)
+                                                ),
+                                                React.createElement('div', { style: { textAlign: 'center' } },
+                                                    React.createElement('div', { style: { color: '#A8B2C1', fontSize: '0.75rem', marginBottom: '0.3rem' } }, 'Profit Total Est.'),
+                                                    React.createElement('div', { style: { color: totalProfitSim >= 0 ? '#88D498' : '#E89BA5', fontWeight: '700', fontSize: '1.1rem' } },
+                                                        (totalProfitSim >= 0 ? '+' : '') + formatCurrency(totalProfitSim)
+                                                    )
+                                                ),
+                                                React.createElement('div', { style: { textAlign: 'center' } },
+                                                    React.createElement('div', { style: { color: '#A8B2C1', fontSize: '0.75rem', marginBottom: '0.3rem' } }, 'Margen a Liberar'),
+                                                    React.createElement('div', { style: { color: '#7C9DD4', fontWeight: '700', fontSize: '1.1rem' } }, formatCurrency(totalMarginSim))
+                                                )
+                                            );
+                                        })(),
 
                                         tpError && React.createElement('div', { style: styles.error }, tpError),
 
@@ -2279,173 +2817,304 @@
                                 )
                             )
                         )
+                    ),
+
+                    // MODAL EJECUTAR TP CON FECHA
+                    showExecuteModal && tpToExecute && React.createElement('div', {
+                        style: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }
+                    },
+                        React.createElement('div', {
+                            style: { backgroundColor: '#1e2130', border: '1px solid rgba(124,157,212,0.3)', borderRadius: '12px', padding: '2rem', width: '100%', maxWidth: '420px', margin: '1rem' }
+                        },
+                            React.createElement('h3', { style: { color: '#E8ECEF', margin: '0 0 0.5rem 0', fontSize: '1.2rem' } },
+                                `🎯 Ejecutar TP${tpToExecute.number} ${executeIsSpot ? 'SPOT' : 'FUTUROS'}`
+                            ),
+                            React.createElement('p', { style: { color: '#A8B2C1', fontSize: '0.9rem', margin: '0 0 1.5rem 0' } },
+                                `Precio: ${formatCurrency(tpToExecute.price)} — Vender: ${tpToExecute.percentage}%`
+                            ),
+                            React.createElement('div', { style: { marginBottom: '1.5rem' } },
+                                React.createElement('label', { style: { color: '#A8B2C1', fontSize: '0.9rem', display: 'block', marginBottom: '0.5rem' } },
+                                    '📅 Fecha y hora de ejecución'
+                                ),
+                                React.createElement('input', {
+                                    type: 'datetime-local',
+                                    value: executeDate,
+                                    onChange: (e) => setExecuteDate(e.target.value),
+                                    style: { width: '100%', padding: '0.875rem', backgroundColor: '#252936', border: '1px solid rgba(124,157,212,0.2)', borderRadius: '8px', color: '#E8ECEF', fontSize: '0.95rem', outline: 'none', boxSizing: 'border-box' }
+                                })
+                            ),
+                            React.createElement('div', { style: { display: 'flex', gap: '1rem' } },
+                                React.createElement('button', {
+                                    onClick: () => { setShowExecuteModal(false); setTpToExecute(null); },
+                                    style: { flex: 1, padding: '0.875rem', backgroundColor: 'transparent', border: '1px solid rgba(168,178,193,0.3)', borderRadius: '8px', color: '#A8B2C1', cursor: 'pointer', fontSize: '0.95rem' }
+                                }, 'Cancelar'),
+                                React.createElement('button', {
+                                    onClick: async () => {
+                                        setShowExecuteModal(false);
+                                        await handleExecuteTP(tpToExecute, executeIsSpot, executeDate);
+                                        setTpToExecute(null);
+                                    },
+                                    style: { flex: 2, padding: '0.875rem', backgroundColor: '#88D498', border: 'none', borderRadius: '8px', color: '#1a1d29', cursor: 'pointer', fontSize: '0.95rem', fontWeight: '600' }
+                                }, '✅ Confirmar Ejecución')
+                            )
+                        )
                     )
                 );
             }
 
             // VISTA OPERACIONES CERRADAS
             if (currentView === 'closed-operations') {
+                const formatDate = (date) => {
+                    if (!date || isNaN(new Date(date).getTime())) return 'N/A';
+                    return new Date(date).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: '2-digit' });
+                };
+
+                // Filtrar por fecha
+                const applyDateFilter = (items, dateField) => {
+                    return items.filter(item => {
+                        const itemDate = item[dateField];
+                        if (!itemDate) return true;
+                        const d = new Date(itemDate);
+                        if (filterDateFrom && d < new Date(filterDateFrom)) return false;
+                        if (filterDateTo && d > new Date(filterDateTo + 'T23:59:59')) return false;
+                        return true;
+                    });
+                };
+
+                const futuresExecuted = applyDateFilter(executedTPsHistory.filter(tp => tp.operationType === 'futuros'), 'executedAt');
+                const spotExecuted = applyDateFilter(executedTPsHistory.filter(tp => tp.operationType === 'spot'), 'executedAt');
+                const futuresClosed = applyDateFilter(closedOperations.filter(op => op.operationType === 'futuros'), 'closingDate');
+                const spotClosed = applyDateFilter(closedOperations.filter(op => op.operationType !== 'futuros'), 'closingDate');
+                
+                const currentExecuted = closedOpsTab === 'futuros' ? futuresExecuted : spotExecuted;
+                const currentClosed = closedOpsTab === 'futuros' ? futuresClosed : spotClosed;
+                const totalProfit = currentExecuted.reduce((sum, tp) => sum + (tp.profit || 0), 0);
+                const totalMarginUsed = currentExecuted.reduce((sum, tp) => sum + (tp.marginUsed || 0), 0);
+                const totalROI = totalMarginUsed > 0 ? (totalProfit / totalMarginUsed) * 100 : 0;
+
                 return React.createElement('div', { style: styles.app },
                     React.createElement('header', { style: styles.header },
                         React.createElement('div', { style: styles.headerContent },
                             React.createElement('div', { style: styles.headerLeft },
                                 React.createElement('div', { style: styles.logo }, 'TP'),
-                                React.createElement('h1', { style: styles.title }, 'Operaciones Cerradas')
+                                React.createElement('h1', { style: styles.title }, 'Op. Cerradas')
                             ),
                             React.createElement('div', { style: styles.headerRight },
-                                React.createElement('button', { 
-                                    onClick: () => setCurrentView('dashboard'), 
-                                    style: styles.backBtn 
-                                }, '← Dashboard'),
-                                React.createElement('button', { 
-                                    onClick: handleLogout, 
-                                    style: styles.logoutBtn 
-                                }, 'Salir')
+                                React.createElement('button', { onClick: () => setCurrentView('dashboard'), style: styles.backBtn }, '← Dashboard'),
+                                React.createElement('button', { onClick: handleLogout, style: styles.logoutBtn }, 'Salir')
                             )
                         )
                     ),
 
                     React.createElement('main', { style: styles.main },
-                        React.createElement('div', { style: styles.operationsCard },
-                            React.createElement('div', { style: styles.operationsHeader },
-                                React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' } },
-                                    React.createElement('div', null,
-                                        React.createElement('h2', { style: styles.sectionTitle }, `Historial de Operaciones (${closedOperations.length})`),
-                                        React.createElement('p', { style: { color: '#A8B2C1', fontSize: '0.9rem', margin: 0 } }, 'Operaciones completamente ejecutadas')
-                                    ),
-                                    user.email === 'admin@tradingpro.com' && closedOperations.length > 0 && 
-                                    React.createElement('button', {
-                                        onClick: () => handleCleanupClosedOperations(),
-                                        style: { padding: '0.5rem 1rem', backgroundColor: 'rgba(232, 155, 165, 0.15)', color: '#E89BA5', border: '1px solid rgba(232, 155, 165, 0.3)', borderRadius: '6px', fontSize: '0.8rem', cursor: 'pointer' }
-                                    }, '🧹 Limpiar')
+
+                        // TABS FUTUROS / SPOT
+                        React.createElement('div', { style: { display: 'flex', gap: '0.5rem', marginBottom: '1rem' } },
+                            ['futuros', 'spot'].map(tab =>
+                                React.createElement('button', {
+                                    key: tab,
+                                    onClick: () => setClosedOpsTab(tab),
+                                    style: {
+                                        padding: '0.6rem 1.5rem',
+                                        borderRadius: '8px',
+                                        border: 'none',
+                                        cursor: 'pointer',
+                                        fontWeight: '600',
+                                        fontSize: '0.9rem',
+                                        backgroundColor: closedOpsTab === tab ? '#7C9DD4' : 'rgba(124, 157, 212, 0.1)',
+                                        color: closedOpsTab === tab ? '#1a1d29' : '#7C9DD4'
+                                    }
+                                }, tab === 'futuros' ? '📈 Futuros' : '🟢 SPOT')
+                            )
+                        ),
+
+                        // FILTRO DE FECHAS
+                        React.createElement('div', {
+                            style: { display: 'flex', gap: '1rem', alignItems: 'center', marginBottom: '1.5rem', padding: '1rem', backgroundColor: 'rgba(37,41,54,0.5)', borderRadius: '10px', flexWrap: 'wrap' }
+                        },
+                            React.createElement('span', { style: { color: '#A8B2C1', fontSize: '0.85rem', fontWeight: '600' } }, '📅 Filtrar por fecha:'),
+                            React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '0.5rem' } },
+                                React.createElement('label', { style: { color: '#A8B2C1', fontSize: '0.8rem' } }, 'Desde:'),
+                                React.createElement('input', {
+                                    type: 'date',
+                                    value: filterDateFrom,
+                                    onChange: (e) => setFilterDateFrom(e.target.value),
+                                    style: { padding: '0.4rem 0.75rem', backgroundColor: '#252936', border: '1px solid rgba(124,157,212,0.2)', borderRadius: '6px', color: '#E8ECEF', fontSize: '0.85rem', outline: 'none' }
+                                })
+                            ),
+                            React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '0.5rem' } },
+                                React.createElement('label', { style: { color: '#A8B2C1', fontSize: '0.8rem' } }, 'Hasta:'),
+                                React.createElement('input', {
+                                    type: 'date',
+                                    value: filterDateTo,
+                                    onChange: (e) => setFilterDateTo(e.target.value),
+                                    style: { padding: '0.4rem 0.75rem', backgroundColor: '#252936', border: '1px solid rgba(124,157,212,0.2)', borderRadius: '6px', color: '#E8ECEF', fontSize: '0.85rem', outline: 'none' }
+                                })
+                            ),
+                            (filterDateFrom || filterDateTo) && React.createElement('button', {
+                                onClick: () => { setFilterDateFrom(''); setFilterDateTo(''); },
+                                style: { padding: '0.4rem 0.75rem', backgroundColor: 'rgba(232,155,165,0.15)', color: '#E89BA5', border: '1px solid rgba(232,155,165,0.3)', borderRadius: '6px', fontSize: '0.8rem', cursor: 'pointer' }
+                            }, '✕ Limpiar')
+                        ),
+
+                        // RESUMEN PROFIT CON ROI
+                        currentExecuted.length > 0 && React.createElement('div', {
+                            style: { padding: '1rem 1.5rem', backgroundColor: 'rgba(37,41,54,0.6)', borderRadius: '10px', marginBottom: '1.5rem', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem' }
+                        },
+                            React.createElement('div', { style: { textAlign: 'center' } },
+                                React.createElement('div', { style: { color: '#A8B2C1', fontSize: '0.75rem', marginBottom: '0.3rem' } }, `${currentExecuted.length} TP${currentExecuted.length > 1 ? 's' : ''} ejecutado${currentExecuted.length > 1 ? 's' : ''}`),
+                                React.createElement('div', { style: { color: '#7C9DD4', fontWeight: '700' } }, formatCurrency(totalMarginUsed))
+                            ),
+                            React.createElement('div', { style: { textAlign: 'center' } },
+                                React.createElement('div', { style: { color: '#A8B2C1', fontSize: '0.75rem', marginBottom: '0.3rem' } }, 'Profit Total'),
+                                React.createElement('div', { style: { color: totalProfit >= 0 ? '#88D498' : '#E89BA5', fontWeight: '700', fontSize: '1.1rem' } },
+                                    (totalProfit >= 0 ? '+' : '') + formatCurrency(totalProfit)
                                 )
                             ),
+                            React.createElement('div', { style: { textAlign: 'center' } },
+                                React.createElement('div', { style: { color: '#A8B2C1', fontSize: '0.75rem', marginBottom: '0.3rem' } }, 'ROI Total'),
+                                React.createElement('div', { style: { color: totalROI >= 0 ? '#88D498' : '#E89BA5', fontWeight: '700', fontSize: '1.1rem' } },
+                                    (totalROI >= 0 ? '+' : '') + totalROI.toFixed(2) + '%'
+                                )
+                            )
+                        ),
 
-                            closedOperations.length === 0 ? 
+                        // SECCIÓN 1: TPs EJECUTADOS (parciales y completos)
+                        React.createElement('div', { style: styles.operationsCard },
+                            React.createElement('div', { style: styles.operationsHeader },
+                                React.createElement('h2', { style: styles.sectionTitle }, `🎯 TPs Ejecutados (${currentExecuted.length})`)
+                            ),
+                            currentExecuted.length === 0 ?
                                 React.createElement('div', { style: styles.emptyState },
-                                    React.createElement('div', { style: styles.emptyStateContent },
-                                        React.createElement('h3', { style: styles.emptyStateTitle }, 
-                                            '📋 Sin operaciones cerradas'
-                                        ),
-                                        React.createElement('p', { style: styles.emptyStateText }, 
-                                            'Cuando ejecutes todos los TPs de una operación, aparecerá aquí.'
-                                        )
-                                    )
+                                    React.createElement('p', { style: { color: '#A8B2C1' } }, 'No hay TPs ejecutados aún.')
                                 ) :
                                 React.createElement('div', { style: styles.tableWrapper },
                                     React.createElement('table', { style: styles.table },
                                         React.createElement('thead', null,
                                             React.createElement('tr', { style: styles.tableHeaderRow },
-                                                React.createElement('th', { style: styles.th }, 'Fecha Apertura'),
-                                                React.createElement('th', { style: styles.th }, 'Fecha Cierre'),
-                                                React.createElement('th', { style: styles.th }, 'Duración'),
+                                                React.createElement('th', { style: styles.th }, 'Fecha'),
+                                                React.createElement('th', { style: styles.th }, 'Par'),
+                                                React.createElement('th', { style: styles.th }, 'Tipo'),
+                                                React.createElement('th', { style: styles.th }, 'TP'),
+                                                React.createElement('th', { style: styles.th }, 'Precio'),
+                                                React.createElement('th', { style: styles.th }, '%'),
+                                                React.createElement('th', { style: styles.th }, 'Unidades'),
+                                                React.createElement('th', { style: styles.th }, 'PEPP'),
+                                                React.createElement('th', { style: styles.th }, 'Margen'),
+                                                React.createElement('th', { style: styles.th }, 'Profit'),
+                                                React.createElement('th', { style: styles.th }, 'ROI'),
+                                                React.createElement('th', { style: styles.th }, 'Estado'),
+                                                React.createElement('th', { style: styles.th }, '')
+                                            )
+                                        ),
+                                        React.createElement('tbody', null,
+                                            currentExecuted.map((tp) =>
+                                                React.createElement('tr', { key: tp.id, style: styles.tableRow },
+                                                    React.createElement('td', { style: styles.td }, formatDate(tp.executedAt)),
+                                                    React.createElement('td', { style: styles.td },
+                                                        React.createElement('span', { style: styles.cryptoName }, tp.crypto)
+                                                    ),
+                                                    React.createElement('td', { style: styles.td },
+                                                        React.createElement('span', { style: { ...styles.typeBadge, backgroundColor: tp.type === 'LONG' ? 'rgba(136,212,152,0.15)' : 'rgba(232,155,165,0.15)', color: tp.type === 'LONG' ? '#88D498' : '#E89BA5' } }, tp.type)
+                                                    ),
+                                                    React.createElement('td', { style: styles.td },
+                                                        React.createElement('span', { style: { ...styles.typeBadge, backgroundColor: 'rgba(124,157,212,0.15)', color: '#7C9DD4' } }, `TP${tp.tpLevel}`)
+                                                    ),
+                                                    React.createElement('td', { style: styles.td }, formatCurrency(tp.tpPrice)),
+                                                    React.createElement('td', { style: styles.td }, `${tp.percentage}%`),
+                                                    React.createElement('td', { style: styles.td }, tp.unitsToSell.toFixed(4)),
+                                                    React.createElement('td', { style: styles.td }, formatCurrency(tp.pepp)),
+                                                    React.createElement('td', { style: styles.td },
+                                                        React.createElement('span', { style: { ...styles.typeBadge, backgroundColor: 'rgba(124,157,212,0.15)', color: '#7C9DD4' } },
+                                                            formatCurrency(tp.marginUsed || 0)
+                                                        )
+                                                    ),
+                                                    React.createElement('td', { style: styles.td },
+                                                        React.createElement('span', { style: { ...styles.typeBadge, fontWeight: '700', backgroundColor: tp.profit >= 0 ? 'rgba(136,212,152,0.15)' : 'rgba(232,155,165,0.15)', color: tp.profit >= 0 ? '#88D498' : '#E89BA5' } },
+                                                            (tp.profit >= 0 ? '+' : '') + formatCurrency(tp.profit)
+                                                        )
+                                                    ),
+                                                    React.createElement('td', { style: styles.td },
+                                                        (() => {
+                                                            const roi = tp.marginUsed > 0 ? (tp.profit / tp.marginUsed) * 100 : 0;
+                                                            return React.createElement('span', { style: { ...styles.typeBadge, fontWeight: '700', backgroundColor: roi >= 0 ? 'rgba(136,212,152,0.15)' : 'rgba(232,155,165,0.15)', color: roi >= 0 ? '#88D498' : '#E89BA5' } },
+                                                                (roi >= 0 ? '+' : '') + roi.toFixed(2) + '%'
+                                                            );
+                                                        })()
+                                                    ),
+                                                    React.createElement('td', { style: styles.td },
+                                                        React.createElement('span', { style: { ...styles.typeBadge, backgroundColor: tp.opStatus === 'closed' ? 'rgba(136,212,152,0.15)' : 'rgba(244,216,150,0.15)', color: tp.opStatus === 'closed' ? '#88D498' : '#F4D896' } },
+                                                            tp.opStatus === 'closed' ? '✅ Cerrada' : '🔄 Parcial'
+                                                        )
+                                                    ),
+                                                    React.createElement('td', { style: styles.td },
+                                                        React.createElement('button', {
+                                                            onClick: () => handleDeleteExecutedTP(tp.id),
+                                                            style: { padding: '0.25rem 0.6rem', backgroundColor: 'rgba(232,155,165,0.1)', color: '#E89BA5', border: '1px solid rgba(232,155,165,0.2)', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem' }
+                                                        }, '🗑️')
+                                                    )
+                                                )
+                                            )
+                                        )
+                                    )
+                                )
+                        ),
+
+                        // SECCIÓN 2: OPERACIONES 100% CERRADAS
+                        React.createElement('div', { style: { ...styles.operationsCard, marginTop: '1.5rem' } },
+                            React.createElement('div', { style: styles.operationsHeader },
+                                React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' } },
+                                    React.createElement('div', null,
+                                        React.createElement('h2', { style: styles.sectionTitle }, `🏁 Ops 100% Cerradas (${currentClosed.length})`),
+                                        React.createElement('p', { style: { color: '#A8B2C1', fontSize: '0.9rem', margin: 0 } }, 'Operaciones completamente ejecutadas')
+                                    ),
+                                    user.email === 'admin@tradingpro.com' && currentClosed.length > 0 &&
+                                    React.createElement('button', { onClick: () => handleCleanupClosedOperations(), style: { padding: '0.5rem 1rem', backgroundColor: 'rgba(232,155,165,0.15)', color: '#E89BA5', border: '1px solid rgba(232,155,165,0.3)', borderRadius: '6px', fontSize: '0.8rem', cursor: 'pointer' } }, '🧹 Limpiar')
+                                )
+                            ),
+                            currentClosed.length === 0 ?
+                                React.createElement('div', { style: styles.emptyState },
+                                    React.createElement('p', { style: { color: '#A8B2C1' } }, 'No hay operaciones cerradas al 100% aún.')
+                                ) :
+                                React.createElement('div', { style: styles.tableWrapper },
+                                    React.createElement('table', { style: styles.table },
+                                        React.createElement('thead', null,
+                                            React.createElement('tr', { style: styles.tableHeaderRow },
+                                                React.createElement('th', { style: styles.th }, 'Apertura'),
+                                                React.createElement('th', { style: styles.th }, 'Cierre'),
                                                 React.createElement('th', { style: styles.th }, 'Par'),
                                                 React.createElement('th', { style: styles.th }, 'Tipo'),
                                                 React.createElement('th', { style: styles.th }, 'Palanca'),
-                                                React.createElement('th', { style: {...styles.th, className: 'desktop-only'} }, 'DCA'),
-                                                React.createElement('th', { style: styles.th }, 'Margen Total'),
-                                                React.createElement('th', { style: {...styles.th, className: 'desktop-only'} }, 'Capital Prestado'),
-                                                React.createElement('th', { style: styles.th }, 'Total Ejecutado'),
+                                                React.createElement('th', { style: styles.th }, 'DCA'),
+                                                React.createElement('th', { style: styles.th }, 'Margen'),
                                                 React.createElement('th', { style: styles.th }, 'PEPP'),
                                                 React.createElement('th', { style: styles.th }, 'P&L Total'),
                                                 React.createElement('th', { style: styles.th }, 'Acciones')
                                             )
                                         ),
                                         React.createElement('tbody', null,
-                                            closedOperations.map((op) => {
-                                                const formatDate = (date) => {
-                                                    if (!date || isNaN(date.getTime())) {
-                                                        return 'N/A';
-                                                    }
-                                                    return date.toLocaleDateString('es-ES', {
-                                                        day: '2-digit',
-                                                        month: '2-digit',
-                                                        year: '2-digit'
-                                                    });
-                                                };
-
-                                                const formatDuration = (days) => {
-                                                    if (days === 0) return 'Mismo día';
-                                                    if (days === 1) return '1 día';
-                                                    if (days < 30) return `${days} días`;
-                                                    const months = Math.floor(days / 30);
-                                                    const remainingDays = days % 30;
-                                                    if (remainingDays === 0) return `${months} mes${months > 1 ? 'es' : ''}`;
-                                                    return `${months}m ${remainingDays}d`;
-                                                };
-
-                                                return React.createElement('tr', { key: op.id, style: styles.tableRow },
+                                            currentClosed.map((op) =>
+                                                React.createElement('tr', { key: op.id, style: styles.tableRow },
+                                                    React.createElement('td', { style: styles.td }, formatDate(op.openingDate)),
+                                                    React.createElement('td', { style: styles.td }, formatDate(op.closingDate)),
+                                                    React.createElement('td', { style: styles.td }, React.createElement('span', { style: styles.cryptoName }, op.crypto)),
                                                     React.createElement('td', { style: styles.td },
-                                                        React.createElement('div', { style: { fontSize: '0.9rem' } },
-                                                            formatDate(op.openingDate)
-                                                        )
-                                                    ),
-                                                    React.createElement('td', { style: styles.td },
-                                                        React.createElement('div', { style: { fontSize: '0.9rem' } },
-                                                            formatDate(op.closingDate)
-                                                        )
-                                                    ),
-                                                    React.createElement('td', { style: styles.td },
-                                                        React.createElement('span', { 
-                                                            style: { 
-                                                                ...styles.typeBadge, 
-                                                                backgroundColor: op.durationDays <= 1 ? 'rgba(244, 216, 150, 0.15)' : 'rgba(124, 157, 212, 0.15)',
-                                                                color: op.durationDays <= 1 ? '#F4D896' : '#7C9DD4'
-                                                            } 
-                                                        }, formatDuration(op.durationDays))
-                                                    ),
-                                                    React.createElement('td', { style: styles.td },
-                                                        React.createElement('span', { style: styles.cryptoName }, op.crypto)
-                                                    ),
-                                                    React.createElement('td', { style: styles.td },
-                                                        React.createElement('span', {
-                                                            style: {
-                                                                ...styles.typeBadge,
-                                                                backgroundColor: op.type === 'LONG' ? 'rgba(136, 212, 152, 0.15)' : 'rgba(232, 155, 165, 0.15)',
-                                                                color: op.type === 'LONG' ? '#88D498' : '#E89BA5'
-                                                            }
-                                                        }, op.type)
+                                                        React.createElement('span', { style: { ...styles.typeBadge, backgroundColor: op.type === 'LONG' ? 'rgba(136,212,152,0.15)' : 'rgba(232,155,165,0.15)', color: op.type === 'LONG' ? '#88D498' : '#E89BA5' } }, op.type)
                                                     ),
                                                     React.createElement('td', { style: styles.td }, op.leverage + 'x'),
-                                                    React.createElement('td', { style: {...styles.td, className: 'desktop-only'} }, 
-                                                        React.createElement('span', { 
-                                                            style: { ...styles.typeBadge, backgroundColor: 'rgba(124, 157, 212, 0.15)', color: '#7C9DD4' } 
-                                                        }, `${op.entriesCount}`)
-                                                    ),
-                                                    React.createElement('td', { style: styles.td }, 
-                                                        formatCurrency(op.realMargin)
-                                                    ),
-                                                    React.createElement('td', { style: {...styles.td, className: 'desktop-only'} }, 
-                                                        formatCurrency(op.realLeveraged)
-                                                    ),
-                                                    React.createElement('td', { style: styles.td }, 
-                                                        formatCurrency(op.realTotalExecuted)
-                                                    ),
-                                                    React.createElement('td', { style: styles.td }, 
-                                                        React.createElement('span', { style: {...styles.typeBadge, backgroundColor: 'rgba(244, 216, 150, 0.15)', color: '#F4D896'} }, 
-                                                            formatCurrency(op.pepp)
-                                                        )
-                                                    ),
-                                                    React.createElement('td', { style: styles.td }, 
-                                                        React.createElement('span', { 
-                                                            style: {
-                                                                ...styles.typeBadge,
-                                                                backgroundColor: op.totalPnL >= 0 ? 'rgba(136, 212, 152, 0.15)' : 'rgba(232, 155, 165, 0.15)',
-                                                                color: op.totalPnL >= 0 ? '#88D498' : '#E89BA5',
-                                                                fontWeight: '700'
-                                                            }
-                                                        }, 
+                                                    React.createElement('td', { style: styles.td }, React.createElement('span', { style: { ...styles.typeBadge, backgroundColor: 'rgba(124,157,212,0.15)', color: '#7C9DD4' } }, op.entriesCount)),
+                                                    React.createElement('td', { style: styles.td }, formatCurrency(op.realMargin)),
+                                                    React.createElement('td', { style: styles.td }, React.createElement('span', { style: { ...styles.typeBadge, backgroundColor: 'rgba(244,216,150,0.15)', color: '#F4D896' } }, formatCurrency(op.pepp))),
+                                                    React.createElement('td', { style: styles.td },
+                                                        React.createElement('span', { style: { ...styles.typeBadge, fontWeight: '700', backgroundColor: op.totalPnL >= 0 ? 'rgba(136,212,152,0.15)' : 'rgba(232,155,165,0.15)', color: op.totalPnL >= 0 ? '#88D498' : '#E89BA5' } },
                                                             (op.totalPnL >= 0 ? '+' : '') + formatCurrency(op.totalPnL)
                                                         )
                                                     ),
                                                     React.createElement('td', { style: styles.td },
-                                                        React.createElement('button', {
-                                                            onClick: () => handleViewClosedDetail(op),
-                                                            style: styles.actionBtn
-                                                        }, 'Ver Detalle')
+                                                        React.createElement('button', { onClick: () => handleViewClosedDetail(op), style: styles.actionBtn }, 'Ver Detalle')
                                                     )
-                                                );
-                                            })
+                                                )
+                                            )
                                         )
                                     )
                                 )
@@ -2454,7 +3123,7 @@
                 );
             }
 
-            // VISTA DETALLE OPERACIÓN CERRADA
+                        // VISTA DETALLE OPERACIÓN CERRADA
             if (currentView === 'closed-detail' && selectedClosedOperation) {
                 const totalExecutedFromEntries = closedOperationEntries.reduce((sum, entry) => sum + parseFloat(entry.executed || 0), 0);
                 const totalUnitsFromEntries = closedOperationEntries.reduce((sum, entry) => sum + parseFloat(entry.units || 0), 0);
@@ -2476,7 +3145,7 @@
                             ),
                             React.createElement('div', { style: styles.headerRight },
                                 React.createElement('button', { 
-                                    onClick: () => setCurrentView('closed-operations'), 
+                                    onClick: () => { setCurrentView('closed-operations'); loadExecutedTPsHistory(); }, 
                                     style: styles.backBtn 
                                 }, '← Historial'),
                                 React.createElement('button', { 
@@ -2650,7 +3319,7 @@
 
                                 React.createElement('div', { style: styles.detailActions },
                                     React.createElement('button', {
-                                        onClick: () => setCurrentView('closed-operations'),
+                                        onClick: () => { setCurrentView('closed-operations'); loadExecutedTPsHistory(); },
                                         style: styles.primaryBtn
                                     }, 'Volver al Historial')
                                 )
@@ -2979,13 +3648,21 @@
 
             // VISTA DETALLE OPERACIÓN SPOT
             if (currentView === 'spot-detail' && selectedOperation) {
-                const totalExecuted = operationEntries.reduce((sum, entry) => sum + parseFloat(entry.executed || 0), 0);
-                const totalMargin = operationEntries.reduce((sum, entry) => sum + parseFloat(entry.margin || 0), 0);
-                const totalUnits = operationEntries.reduce((sum, entry) => sum + parseFloat(entry.units || 0), 0);
+                const totalExecutedFromEntries = operationEntries.reduce((sum, entry) => sum + parseFloat(entry.executed || 0), 0);
                 const totalIPonderada = operationEntries.reduce((sum, entry) => sum + parseFloat(entry.i_ponderada || 0), 0);
-                
-                // PEPP (Precio Entrada Promedio Ponderado)
-                const pepp = totalExecuted > 0 ? totalIPonderada / totalExecuted : 0;
+                const totalUnitsFromEntries = operationEntries.reduce((sum, entry) => sum + parseFloat(entry.units || 0), 0);
+                const totalMarginFromEntries = operationEntries.reduce((sum, entry) => sum + parseFloat(entry.margin || 0), 0);
+
+                // Margen actual desde selectedOperation (se actualiza al ejecutar TPs)
+                const totalMargin = (selectedOperation.ownCapital || 0) + (selectedOperation.additionalMargin || 0);
+
+                // PEPP desde entradas reales (nunca cambia)
+                const pepp = totalExecutedFromEntries > 0 ? totalIPonderada / totalExecutedFromEntries : 0;
+
+                // Ratio para escalar unidades y ejecutado al estado actual
+                const capitalRatioSpot = totalMarginFromEntries > 0 ? totalMargin / totalMarginFromEntries : 1;
+                const totalUnits = totalUnitsFromEntries * capitalRatioSpot;
+                const totalExecuted = totalExecutedFromEntries * capitalRatioSpot;
                 
                 // SPOT no tiene liquidación (sin apalancamiento)
                 const noLiquidationRisk = true;
@@ -3214,13 +3891,13 @@
                                     React.createElement('div', { style: styles.tpHeader },
                                         React.createElement('h3', { style: styles.sectionTitle }, 'Take Profits SPOT'),
                                         React.createElement('button', {
-                                            onClick: () => setShowConfigureTPs(true),
+                                            onClick: handleConfigureTPs,
                                             style: styles.configureTpsBtn
                                         }, '⚙️ Configurar TPs')
                                     ),
 
                                     React.createElement('div', { style: styles.tpGrid },
-                                        operationTPs.slice(0, 3).map((tp) => {
+                                        operationTPs.map((tp) => {
                                             return React.createElement('div', { 
                                                 key: tp.number, 
                                                 style: {
@@ -3242,9 +3919,37 @@
                                                         React.createElement('span', { style: styles.tpLabel }, 'Vender:'),
                                                         React.createElement('span', { style: styles.tpValue }, `${tp.percentage}%`)
                                                     ),
+                                                    pepp > 0 && totalUnits > 0 && (() => {
+                                                        const tpUnits = totalUnits * (tp.percentage / 100);
+                                                        const tpProfit = (tp.price - pepp) * tpUnits;
+                                                        const tpMargin = totalMargin * (tp.percentage / 100);
+                                                        const tpROI = tpMargin > 0 ? (tpProfit / tpMargin) * 100 : 0;
+                                                        return React.createElement('div', { style: styles.tpProfitInfo },
+                                                            React.createElement('div', { style: styles.tpRow },
+                                                                React.createElement('span', { style: styles.tpLabel }, 'Profit:'),
+                                                                React.createElement('span', { style: { ...styles.tpValue, color: tpProfit >= 0 ? '#88D498' : '#E89BA5' } },
+                                                                    formatCurrency(tpProfit)
+                                                                )
+                                                            ),
+                                                            React.createElement('div', { style: styles.tpRow },
+                                                                React.createElement('span', { style: styles.tpLabel }, 'ROI:'),
+                                                                React.createElement('span', { style: { ...styles.tpValue, color: tpROI >= 0 ? '#88D498' : '#E89BA5', fontWeight: '700' } },
+                                                                    (tpROI >= 0 ? '+' : '') + tpROI.toFixed(2) + '%'
+                                                                )
+                                                            ),
+                                                            React.createElement('div', { style: styles.tpRow },
+                                                                React.createElement('span', { style: styles.tpLabel }, 'Unidades:'),
+                                                                React.createElement('span', { style: styles.tpValue }, tpUnits.toFixed(4))
+                                                            ),
+                                                            React.createElement('div', { style: { ...styles.tpRow, borderTop: '1px solid rgba(168,178,193,0.1)', paddingTop: '0.4rem', marginTop: '0.4rem' } },
+                                                                React.createElement('span', { style: styles.tpLabel }, 'Margen a liberar:'),
+                                                                React.createElement('span', { style: { ...styles.tpValue, color: '#7C9DD4' } }, formatCurrency(tpMargin))
+                                                            )
+                                                        );
+                                                    })(),
                                                     !tp.executed && React.createElement('div', { style: styles.tpActions },
                                                         React.createElement('button', {
-                                                            onClick: () => handleExecuteTP(tp, true),
+                                                            onClick: () => openExecuteModal(tp, true),
                                                             style: styles.executeTpBtn
                                                         }, '🚀 Ejecutar SPOT')
                                                     )
@@ -3257,85 +3962,112 @@
                                 ),
 
                                 // FORMULARIO CONFIGURAR TPS SPOT
-                                showConfigureTPs && React.createElement('div', { style: styles.configureTpsForm },
-                                    React.createElement('h4', { style: styles.formTitle }, '⚙️ Configurar Take Profits SPOT'),
-                                    React.createElement('p', { style: styles.formSubtitle }, 'Define los precios para vender por partes tu posición SPOT.'),
+                                showConfigureTPs && React.createElement('div', { style: styles.tpConfigForm },
+                                    React.createElement('h4', { style: styles.configFormTitle }, '⚙️ Configurar Take Profits SPOT'),
+                                    React.createElement('p', { style: styles.configFormSubtitle }, 'Define precios objetivo y porcentajes de venta para cada TP'),
 
-                                    React.createElement('form', { onSubmit: (e) => { e.preventDefault(); handleSaveTPs(); }, style: styles.tpConfigForm },
-                                        React.createElement('div', { style: styles.tpConfigGrid },
-                                            tpConfig.map((tp, index) => (
-                                                React.createElement('div', { key: index, style: styles.tpConfigRow },
-                                                    React.createElement('div', { style: styles.tpConfigLabel },
-                                                        React.createElement('span', { style: styles.tpConfigNumber }, `TP${index + 1}`)
-                                                    ),
-                                                    React.createElement('div', { style: styles.tpConfigInputs },
+                                    React.createElement('div', { style: styles.tpConfigGrid },
+                                        tpConfig.map((tp, index) => (
+                                            React.createElement('div', { key: tp.number, style: styles.tpConfigCard },
+                                                React.createElement('h5', { style: styles.tpConfigTitle }, 'TP' + tp.number),
+                                                React.createElement('div', { style: styles.tpConfigInputs },
+                                                    React.createElement('div', { style: styles.inputGroup },
+                                                        React.createElement('label', { style: styles.label }, 'Precio Objetivo'),
                                                         React.createElement('input', {
                                                             type: 'number',
                                                             step: '0.00000001',
-                                                            placeholder: 'Precio',
                                                             value: tp.price,
-                                                            onChange: (e) => {
-                                                                const newConfig = [...tpConfig];
-                                                                newConfig[index].price = e.target.value;
-                                                                setTpConfig(newConfig);
-                                                            },
-                                                            style: styles.tpInput
-                                                        }),
+                                                            onChange: (e) => updateTPConfig(index, 'price', e.target.value),
+                                                            style: styles.input,
+                                                            placeholder: '0.85'
+                                                        })
+                                                    ),
+                                                    React.createElement('div', { style: styles.inputGroup },
+                                                        React.createElement('label', { style: styles.label }, '% a Vender'),
                                                         React.createElement('input', {
                                                             type: 'number',
-                                                            step: '0.01',
-                                                            placeholder: '% Vender',
+                                                            min: '1',
+                                                            max: '100',
+                                                            step: '1',
                                                             value: tp.percentage,
-                                                            min: 0,
-                                                            max: 100,
-                                                            onChange: (e) => {
-                                                                const newConfig = [...tpConfig];
-                                                                newConfig[index].percentage = e.target.value;
-                                                                setTpConfig(newConfig);
-                                                            },
-                                                            style: styles.tpInput
+                                                            onChange: (e) => updateTPConfig(index, 'percentage', e.target.value),
+                                                            style: styles.input,
+                                                            placeholder: '50'
                                                         })
-                                                    )
-                                                )
-                                            ))
-                                        ),
-
-                                        // Preview total percentage for SPOT
-                                        tpConfig.some(tp => tp.percentage) && React.createElement('div', { style: styles.tpPreview },
-                                            React.createElement('div', { style: styles.tpPreviewRow },
-                                                React.createElement('span', { style: styles.tpPreviewLabel }, 'Total a vender:'),
-                                                React.createElement('span', {
-                                                    style: {
-                                                        ...styles.tpPreviewValue,
-                                                        color: tpConfig.reduce((sum, tp) => sum + parseFloat(tp.percentage || 0), 0) > 100 ? '#E89BA5' : '#88D498'
-                                                    }
-                                                }, `${tpConfig.reduce((sum, tp) => sum + parseFloat(tp.percentage || 0), 0).toFixed(1)}%`)
-                                            ),
-                                            React.createElement('div', { style: styles.tpPreviewRow },
-                                                React.createElement('span', { style: styles.tpPreviewLabel }, 'Unidades totales:'),
-                                                React.createElement('span', { style: styles.tpPreviewValue }, 
-                                                    `${totalUnits.toFixed(8)} ${selectedOperation.crypto}`
+                                                    ),
+                                                    tp.price && tp.percentage && pepp > 0 && totalUnits > 0 && (() => {
+                                                        const simUnits = totalUnits * (parseFloat(tp.percentage) / 100);
+                                                        const simProfit = (parseFloat(tp.price) - pepp) * simUnits;
+                                                        const simMargin = totalMargin * (parseFloat(tp.percentage) / 100);
+                                                        const simROI = simMargin > 0 ? (simProfit / simMargin) * 100 : 0;
+                                                        return React.createElement('div', {
+                                                            style: { marginTop: '0.75rem', padding: '0.75rem', backgroundColor: 'rgba(37,41,54,0.8)', borderRadius: '8px', borderLeft: '3px solid ' + (simProfit >= 0 ? '#88D498' : '#E89BA5') }
+                                                        },
+                                                            React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem' } },
+                                                                React.createElement('span', { style: { color: '#A8B2C1', fontSize: '0.78rem' } }, 'Profit est.:'),
+                                                                React.createElement('span', { style: { color: simProfit >= 0 ? '#88D498' : '#E89BA5', fontSize: '0.82rem', fontWeight: '600' } },
+                                                                    (simProfit >= 0 ? '+' : '') + formatCurrency(simProfit)
+                                                                )
+                                                            ),
+                                                            React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem' } },
+                                                                React.createElement('span', { style: { color: '#A8B2C1', fontSize: '0.78rem' } }, 'ROI:'),
+                                                                React.createElement('span', { style: { color: simProfit >= 0 ? '#88D498' : '#E89BA5', fontSize: '0.82rem' } },
+                                                                    (simROI >= 0 ? '+' : '') + simROI.toFixed(2) + '%'
+                                                                )
+                                                            ),
+                                                            React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between' } },
+                                                                React.createElement('span', { style: { color: '#A8B2C1', fontSize: '0.78rem' } }, 'Margen:'),
+                                                                React.createElement('span', { style: { color: '#7C9DD4', fontSize: '0.82rem' } }, formatCurrency(simMargin))
+                                                            )
+                                                        );
+                                                    })()
                                                 )
                                             )
-                                        ),
+                                        ))
+                                    ),
 
-                                        tpError && React.createElement('div', { style: styles.error }, tpError),
+                                    (() => {
+                                        const configured = tpConfig.filter(tp => tp.price && tp.percentage && pepp > 0 && totalUnits > 0);
+                                        if (configured.length === 0) return null;
+                                        const totalPct = configured.reduce((s, tp) => s + parseFloat(tp.percentage || 0), 0);
+                                        const totalProfit = configured.reduce((s, tp) => {
+                                            const u = totalUnits * (parseFloat(tp.percentage) / 100);
+                                            return s + (parseFloat(tp.price) - pepp) * u;
+                                        }, 0);
+                                        const totalMgn = configured.reduce((s, tp) => s + totalMargin * (parseFloat(tp.percentage) / 100), 0);
+                                        return React.createElement('div', {
+                                            style: { backgroundColor: 'rgba(124,157,212,0.08)', border: '1px solid rgba(124,157,212,0.2)', borderRadius: '10px', padding: '1rem', margin: '1rem 0', display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '0.75rem' }
+                                        },
+                                            React.createElement('div', { style: { textAlign: 'center' } },
+                                                React.createElement('div', { style: { color: '#A8B2C1', fontSize: '0.72rem', marginBottom: '0.25rem' } }, '% Total Config.'),
+                                                React.createElement('div', { style: { color: totalPct > 100 ? '#E89BA5' : '#F4D896', fontWeight: '700' } }, totalPct.toFixed(1) + '%')
+                                            ),
+                                            React.createElement('div', { style: { textAlign: 'center' } },
+                                                React.createElement('div', { style: { color: '#A8B2C1', fontSize: '0.72rem', marginBottom: '0.25rem' } }, 'Profit Total Est.'),
+                                                React.createElement('div', { style: { color: totalProfit >= 0 ? '#88D498' : '#E89BA5', fontWeight: '700' } },
+                                                    (totalProfit >= 0 ? '+' : '') + formatCurrency(totalProfit)
+                                                )
+                                            ),
+                                            React.createElement('div', { style: { textAlign: 'center' } },
+                                                React.createElement('div', { style: { color: '#A8B2C1', fontSize: '0.72rem', marginBottom: '0.25rem' } }, 'Margen a Liberar'),
+                                                React.createElement('div', { style: { color: '#7C9DD4', fontWeight: '700' } }, formatCurrency(totalMgn))
+                                            )
+                                        );
+                                    })(),
 
-                                        React.createElement('div', { style: styles.tpConfigActions },
-                                            React.createElement('button', {
-                                                type: 'button',
-                                                onClick: () => setShowConfigureTPs(false),
-                                                style: styles.cancelBtn
-                                            }, 'Cancelar'),
-                                            React.createElement('button', {
-                                                type: 'submit',
-                                                disabled: savingTPs,
-                                                style: {
-                                                    ...styles.saveConfigBtn,
-                                                    opacity: savingTPs ? 0.6 : 1
-                                                }
-                                            }, savingTPs ? 'Guardando...' : 'Guardar TPs SPOT')
-                                        )
+                                    tpError && React.createElement('div', { style: styles.error }, tpError),
+
+                                    React.createElement('div', { style: styles.tpConfigActions },
+                                        React.createElement('button', {
+                                            type: 'button',
+                                            onClick: () => setShowConfigureTPs(false),
+                                            style: styles.cancelBtn
+                                        }, 'Cancelar'),
+                                        React.createElement('button', {
+                                            onClick: handleSaveTPs,
+                                            disabled: savingTPs,
+                                            style: { ...styles.saveTPsBtn, opacity: savingTPs ? 0.6 : 1 }
+                                        }, savingTPs ? 'Guardando...' : 'Guardar TPs SPOT')
                                     )
                                 ),
 
@@ -3345,6 +4077,47 @@
                                         style: styles.primaryBtn
                                     }, 'Volver al Dashboard')
                                 )
+                            )
+                        )
+                    ),
+
+                    // MODAL EJECUTAR TP CON FECHA
+                    showExecuteModal && tpToExecute && React.createElement('div', {
+                        style: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }
+                    },
+                        React.createElement('div', {
+                            style: { backgroundColor: '#1e2130', border: '1px solid rgba(124,157,212,0.3)', borderRadius: '12px', padding: '2rem', width: '100%', maxWidth: '420px', margin: '1rem' }
+                        },
+                            React.createElement('h3', { style: { color: '#E8ECEF', margin: '0 0 0.5rem 0', fontSize: '1.2rem' } },
+                                `🎯 Ejecutar TP${tpToExecute.number} ${executeIsSpot ? 'SPOT' : 'FUTUROS'}`
+                            ),
+                            React.createElement('p', { style: { color: '#A8B2C1', fontSize: '0.9rem', margin: '0 0 1.5rem 0' } },
+                                `Precio: ${formatCurrency(tpToExecute.price)} — Vender: ${tpToExecute.percentage}%`
+                            ),
+                            React.createElement('div', { style: { marginBottom: '1.5rem' } },
+                                React.createElement('label', { style: { color: '#A8B2C1', fontSize: '0.9rem', display: 'block', marginBottom: '0.5rem' } },
+                                    '📅 Fecha y hora de ejecución'
+                                ),
+                                React.createElement('input', {
+                                    type: 'datetime-local',
+                                    value: executeDate,
+                                    onChange: (e) => setExecuteDate(e.target.value),
+                                    style: { width: '100%', padding: '0.875rem', backgroundColor: '#252936', border: '1px solid rgba(124,157,212,0.2)', borderRadius: '8px', color: '#E8ECEF', fontSize: '0.95rem', outline: 'none', boxSizing: 'border-box' }
+                                })
+                            ),
+                            React.createElement('div', { style: { display: 'flex', gap: '1rem' } },
+                                React.createElement('button', {
+                                    onClick: () => { setShowExecuteModal(false); setTpToExecute(null); },
+                                    style: { flex: 1, padding: '0.875rem', backgroundColor: 'transparent', border: '1px solid rgba(168,178,193,0.3)', borderRadius: '8px', color: '#A8B2C1', cursor: 'pointer', fontSize: '0.95rem' }
+                                }, 'Cancelar'),
+                                React.createElement('button', {
+                                    onClick: async () => {
+                                        setShowExecuteModal(false);
+                                        await handleExecuteTP(tpToExecute, executeIsSpot, executeDate);
+                                        setTpToExecute(null);
+                                    },
+                                    style: { flex: 2, padding: '0.875rem', backgroundColor: '#88D498', border: 'none', borderRadius: '8px', color: '#1a1d29', cursor: 'pointer', fontSize: '0.95rem', fontWeight: '600' }
+                                }, '✅ Confirmar Ejecución')
                             )
                         )
                     )
@@ -3685,115 +4458,113 @@
 
                                 activeAnalyticsTab === 'profits' && React.createElement('div', { style: styles.tabContent },
                                     React.createElement('div', { style: { padding: '1.5rem' } },
-                                        React.createElement('h3', { 
-                                            style: { color: '#E8ECEF', fontSize: '1.2rem', marginBottom: '1rem' } 
-                                        }, '🎯 Proyección de Ganancias'),
-                                        
-                                        React.createElement('div', { 
-                                            style: { 
-                                                display: 'grid',
-                                                gridTemplateColumns: '1fr 1fr',
-                                                gap: '1rem',
-                                                marginBottom: '1.5rem'
-                                            }
-                                        },
-                                            ['TP1', 'TP2', 'TP3', 'TP4', 'TP5'].map((tp, index) => {
-                                                // Calculate potential gains based on actual operations
-                                                const futuresCapital = operations.reduce((sum, op) => sum + op.ownCapital + op.additionalMargin, 0);
-                                                const spotCapital = spotOperations.reduce((sum, op) => sum + op.ownCapital + op.additionalMargin, 0);
-                                                
-                                                // Estimated ROI per TP level: 5%, 10%, 15%, 20%, 30%
-                                                const roiLevels = [0.05, 0.10, 0.15, 0.20, 0.30];
-                                                const futuresGain = Math.round(futuresCapital * roiLevels[index]);
-                                                const spotGain = Math.round(spotCapital * roiLevels[index]);
-                                                return React.createElement('div', {
-                                                    key: tp,
-                                                    style: {
-                                                        padding: '1rem',
-                                                        backgroundColor: 'rgba(37, 41, 54, 0.6)',
-                                                        borderRadius: '8px',
-                                                        gridColumn: index >= 4 ? '1 / -1' : undefined
-                                                    }
-                                                },
-                                                    React.createElement('h4', { 
-                                                        style: { color: '#E8ECEF', margin: '0 0 0.5rem 0' } 
-                                                    }, tp),
-                                                    React.createElement('div', { 
-                                                        style: { fontSize: '0.85rem', color: '#7C9DD4' } 
-                                                    }, `Futuros: +$${futuresGain.toLocaleString()}`),
-                                                    React.createElement('div', { 
-                                                        style: { fontSize: '0.85rem', color: '#88D498' } 
-                                                    }, `SPOT: +$${spotGain.toLocaleString()}`)
-                                                );
-                                            })
-                                        ),
-                                        
-                                        React.createElement('p', { 
-                                            style: { color: '#A8B2C1', fontSize: '0.9rem', lineHeight: '1.5' } 
-                                        }, 'Las proyecciones muestran el potencial de ganancia acumulativa. SPOT ofrece ganancias mayores debido al capital base más alto, mientras que Futuros proporciona ROI más eficiente por el apalancamiento.')
+                                        React.createElement('h3', { style: { color: '#E8ECEF', fontSize: '1.1rem', marginBottom: '1.25rem' } }, '🎯 Ganancias por TP'),
+                                        (() => {
+                                            const allTPs = window.chartData && window.chartData.realTPs ? window.chartData.realTPs.filter(t => t.price > 0) : [];
+                                            if (allTPs.length === 0) return React.createElement('p', { style: { color: '#A8B2C1', fontSize: '0.9rem' } }, '📋 Configura Take Profits en tus operaciones para ver las ganancias proyectadas.');
+                                            const levels = [...new Set(allTPs.map(t => t.level))].sort((a,b) => a-b);
+                                            // Renombrar niveles secuencialmente: TP1, TP2... independiente del nivel en Supabase
+                                            const levelLabels = levels.reduce((acc, l, i) => { acc[l] = `TP${i+1}`; return acc; }, {});
+                                            const thStyle = { padding: '0.5rem 0.75rem', backgroundColor: 'rgba(124,157,212,0.15)', color: '#7C9DD4', textAlign: 'center', fontWeight: '600', border: '1px solid rgba(124,157,212,0.1)', fontSize: '0.8rem' };
+                                            const tdStyle = { padding: '0.5rem 0.75rem', color: '#88D498', textAlign: 'center', border: '1px solid rgba(168,178,193,0.08)', fontSize: '0.82rem' };
+                                            const tdLabelStyle = { padding: '0.5rem 0.75rem', color: '#A8B2C1', fontWeight: '600', border: '1px solid rgba(168,178,193,0.08)', backgroundColor: 'rgba(37,41,54,0.4)', fontSize: '0.82rem' };
+                                            const tdTotalStyle = { padding: '0.5rem 0.75rem', color: '#F4D896', fontWeight: '700', textAlign: 'center', border: '1px solid rgba(168,178,193,0.08)', backgroundColor: 'rgba(37,41,54,0.5)', fontSize: '0.82rem' };
+                                            const rows = ['futuros', 'spot'];
+                                            const getProfit = (type, level) => {
+                                                return allTPs.filter(t => t.level === level && t.operationData && t.operationData.operationType === type)
+                                                    .reduce((s, t) => s + (t.projected_profit || 0), 0);
+                                            };
+                                            return React.createElement('div', { style: { overflowX: 'auto' } },
+                                                React.createElement('table', { style: { width: '100%', borderCollapse: 'collapse' } },
+                                                    React.createElement('thead', null,
+                                                        React.createElement('tr', null,
+                                                            React.createElement('th', { style: thStyle }, ''),
+                                                            ...levels.map(l => React.createElement('th', { key: l, style: thStyle }, levelLabels[l])),
+                                                            React.createElement('th', { style: thStyle }, 'Total')
+                                                        )
+                                                    ),
+                                                    React.createElement('tbody', null,
+                                                        rows.map(type => {
+                                                            const rowValues = levels.map(l => getProfit(type, l));
+                                                            const rowTotal = rowValues.reduce((s,v) => s+v, 0);
+                                                            if (rowTotal === 0) return null;
+                                                            return React.createElement('tr', { key: type },
+                                                                React.createElement('td', { style: tdLabelStyle }, type === 'futuros' ? '📈 Futuros' : '🟢 SPOT'),
+                                                                ...rowValues.map((v, i) => React.createElement('td', { key: i, style: tdStyle }, v > 0 ? `+${formatCurrency(v)}` : '-')),
+                                                                React.createElement('td', { style: tdTotalStyle }, `+${formatCurrency(rowTotal)}`)
+                                                            );
+                                                        }),
+                                                        React.createElement('tr', null,
+                                                            React.createElement('td', { style: { ...tdLabelStyle, color: '#F4D896' } }, 'Totales'),
+                                                            ...levels.map(l => {
+                                                                const colTotal = rows.reduce((s, type) => s + getProfit(type, l), 0);
+                                                                return React.createElement('td', { key: l, style: tdTotalStyle }, colTotal > 0 ? `+${formatCurrency(colTotal)}` : '-');
+                                                            }),
+                                                            React.createElement('td', { style: { ...tdTotalStyle, color: '#88D498', fontSize: '0.9rem' } },
+                                                                `+${formatCurrency(rows.reduce((s, type) => s + levels.reduce((ss, l) => ss + getProfit(type, l), 0), 0))}`
+                                                            )
+                                                        )
+                                                    )
+                                                )
+                                            );
+                                        })()
                                     )
                                 ),
 
                                 activeAnalyticsTab === 'capital' && React.createElement('div', { style: styles.tabContent },
                                     React.createElement('div', { style: { padding: '1.5rem' } },
-                                        React.createElement('h3', { 
-                                            style: { color: '#E8ECEF', fontSize: '1.2rem', marginBottom: '1rem' } 
-                                        }, '🔓 Capital Progresivo'),
-                                        
-                                        React.createElement('div', { style: { marginBottom: '1.5rem' } },
-                                            React.createElement('div', { 
-                                                style: { 
-                                                    padding: '1rem',
-                                                    backgroundColor: 'rgba(124, 157, 212, 0.1)',
-                                                    borderRadius: '8px',
-                                                    marginBottom: '1rem'
-                                                }
-                                            },
-                                                React.createElement('h4', { style: { color: '#7C9DD4', margin: '0 0 0.5rem 0' } }, 'Futuros - Liberación Gradual'),
-                                                React.createElement('p', { style: { color: '#A8B2C1', fontSize: '0.85rem', margin: 0 } }, 
-                                                    (() => {
-                                                        const futuresCapital = operations.reduce((sum, op) => sum + op.ownCapital + op.additionalMargin, 0);
-                                                        if (futuresCapital === 0) return 'Sin operaciones Futuros activas';
-                                                        const progression = [0.2, 0.4, 0.6, 0.8, 1.0].map(ratio => `$${Math.round(futuresCapital * ratio).toLocaleString()}`);
-                                                        return `TP1: ${progression[0]} → TP2: ${progression[1]} → TP3: ${progression[2]} → TP4: ${progression[3]} → TP5: ${progression[4]}`;
-                                                    })()
+                                        React.createElement('h3', { style: { color: '#E8ECEF', fontSize: '1.1rem', marginBottom: '1.25rem' } }, '🔓 Capital Liberado por TP'),
+                                        (() => {
+                                            const allTPs = window.chartData && window.chartData.realTPs ? window.chartData.realTPs.filter(t => t.price > 0) : [];
+                                            if (allTPs.length === 0) return React.createElement('p', { style: { color: '#A8B2C1', fontSize: '0.9rem' } }, '📋 Configura Take Profits en tus operaciones para ver el capital que se liberará.');
+                                            const levels = [...new Set(allTPs.map(t => t.level))].sort((a,b) => a-b);
+                                            const levelLabels = levels.reduce((acc, l, i) => { acc[l] = `TP${i+1}`; return acc; }, {});
+                                            const thStyle = { padding: '0.5rem 0.75rem', backgroundColor: 'rgba(124,157,212,0.15)', color: '#7C9DD4', textAlign: 'center', fontWeight: '600', border: '1px solid rgba(124,157,212,0.1)', fontSize: '0.8rem' };
+                                            const tdStyle = { padding: '0.5rem 0.75rem', color: '#7C9DD4', textAlign: 'center', border: '1px solid rgba(168,178,193,0.08)', fontSize: '0.82rem' };
+                                            const tdLabelStyle = { padding: '0.5rem 0.75rem', color: '#A8B2C1', fontWeight: '600', border: '1px solid rgba(168,178,193,0.08)', backgroundColor: 'rgba(37,41,54,0.4)', fontSize: '0.82rem' };
+                                            const tdTotalStyle = { padding: '0.5rem 0.75rem', color: '#F4D896', fontWeight: '700', textAlign: 'center', border: '1px solid rgba(168,178,193,0.08)', backgroundColor: 'rgba(37,41,54,0.5)', fontSize: '0.82rem' };
+                                            const rows = ['futuros', 'spot'];
+                                            const getCapital = (type, level) => {
+                                                return allTPs.filter(t => t.level === level && t.operationData && t.operationData.operationType === type)
+                                                    .reduce((s, t) => {
+                                                        const opCapital = ((t.operationData.ownCapital || 0) + (t.operationData.additionalMargin || 0));
+                                                        return s + opCapital * (t.percentage / 100);
+                                                    }, 0);
+                                            };
+                                            return React.createElement('div', { style: { overflowX: 'auto' } },
+                                                React.createElement('table', { style: { width: '100%', borderCollapse: 'collapse' } },
+                                                    React.createElement('thead', null,
+                                                        React.createElement('tr', null,
+                                                            React.createElement('th', { style: thStyle }, ''),
+                                                            ...levels.map(l => React.createElement('th', { key: l, style: thStyle }, levelLabels[l])),
+                                                            React.createElement('th', { style: thStyle }, 'Total')
+                                                        )
+                                                    ),
+                                                    React.createElement('tbody', null,
+                                                        rows.map(type => {
+                                                            const rowValues = levels.map(l => getCapital(type, l));
+                                                            const rowTotal = rowValues.reduce((s,v) => s+v, 0);
+                                                            if (rowTotal === 0) return null;
+                                                            return React.createElement('tr', { key: type },
+                                                                React.createElement('td', { style: tdLabelStyle }, type === 'futuros' ? '📈 Futuros' : '🟢 SPOT'),
+                                                                ...rowValues.map((v, i) => React.createElement('td', { key: i, style: tdStyle }, v > 0 ? formatCurrency(v) : '-')),
+                                                                React.createElement('td', { style: tdTotalStyle }, formatCurrency(rowTotal))
+                                                            );
+                                                        }),
+                                                        React.createElement('tr', null,
+                                                            React.createElement('td', { style: { ...tdLabelStyle, color: '#F4D896' } }, 'Totales'),
+                                                            ...levels.map(l => {
+                                                                const colTotal = rows.reduce((s, type) => s + getCapital(type, l), 0);
+                                                                return React.createElement('td', { key: l, style: tdTotalStyle }, colTotal > 0 ? formatCurrency(colTotal) : '-');
+                                                            }),
+                                                            React.createElement('td', { style: { ...tdTotalStyle, color: '#7C9DD4', fontSize: '0.9rem' } },
+                                                                formatCurrency(rows.reduce((s, type) => s + levels.reduce((ss, l) => ss + getCapital(type, l), 0), 0))
+                                                            )
+                                                        )
+                                                    )
                                                 )
-                                            ),
-                                            React.createElement('div', { 
-                                                style: { 
-                                                    padding: '1rem',
-                                                    backgroundColor: 'rgba(136, 212, 152, 0.1)',
-                                                    borderRadius: '8px'
-                                                }
-                                            },
-                                                React.createElement('h4', { style: { color: '#88D498', margin: '0 0 0.5rem 0' } }, 'SPOT - Liberación Progresiva'),
-                                                React.createElement('p', { style: { color: '#A8B2C1', fontSize: '0.85rem', margin: 0 } }, 
-                                                    (() => {
-                                                        const spotCapital = spotOperations.reduce((sum, op) => sum + op.ownCapital + op.additionalMargin, 0);
-                                                        if (spotCapital === 0) return 'Sin operaciones SPOT activas';
-                                                        const progression = [0.2, 0.4, 0.6, 0.8, 1.0].map(ratio => `$${Math.round(spotCapital * ratio).toLocaleString()}`);
-                                                        return `TP1: ${progression[0]} → TP2: ${progression[1]} → TP3: ${progression[2]} → TP4: ${progression[3]} → TP5: ${progression[4]}`;
-                                                    })()
-                                                )
-                                            )
-                                        ),
-                                        
-                                        React.createElement('p', { 
-                                            style: { color: '#A8B2C1', fontSize: '0.9rem', lineHeight: '1.5' } 
-                                        }, (() => {
-                                            const hasSpot = spotOperations.length > 0;
-                                            const hasFutures = operations.length > 0;
-                                            
-                                            if (!hasSpot && !hasFutures) {
-                                                return 'Sin operaciones activas. El capital liberado aparecerá cuando ejecutes TPs de operaciones abiertas.';
-                                            } else if (hasSpot && hasFutures) {
-                                                return 'El capital liberado te permite reinvertir progresivamente. La estrategia SPOT libera mayor capital absoluto, mientras que Futuros ofrece liberación más rápida proporcionalmente.';
-                                            } else if (hasSpot) {
-                                                return 'Tus operaciones SPOT liberarán capital progresivamente conforme ejecutes los Take Profits, sin riesgo de liquidación.';
-                                            } else {
-                                                return 'Tus operaciones Futuros liberarán capital con apalancamiento, ofreciendo ROI más eficiente pero con mayor riesgo.';
-                                            }
-                                        })())
+                                            );
+                                        })()
                                     )
                                 )
                             )
@@ -3816,7 +4587,7 @@
                                 style: styles.fixBtn
                             }, '🔧 Revisar'),
                             React.createElement('button', {
-                                onClick: () => setCurrentView('closed-operations'),
+                                onClick: () => { setCurrentView('closed-operations'); loadExecutedTPsHistory(); },
                                 style: styles.closedOperationsBtn
                             }, '📋 Historial'),
                             React.createElement('span', { style: styles.userEmail }, user.email),
@@ -3961,13 +4732,25 @@
                                                         ),
                                                         React.createElement('td', { style: styles.td }, op.leverage + 'x'),
                                                         React.createElement('td', { style: styles.td }, 
-                                                            formatCurrency(op.ownCapital)
+                                                            formatCurrency(op.ownCapital + (op.additionalMargin || 0))
                                                         ),
                                                         React.createElement('td', { style: styles.td }, 
-                                                            formatCurrency(op.borrowedCapital)
+                                                            (() => {
+                                                                // Calcular prestado dinámicamente (SIN hardcoded)
+                                                                const initialBorrowed = op.ownCapital * (op.leverage - 1); // 250 * 2 = 500
+                                                                const dcaBorrowed = (op.additionalMargin || 0) * (op.leverage - 1); // 100 * 2 = 200
+                                                                const totalBorrowed = initialBorrowed + dcaBorrowed; // 500 + 200 = 700
+                                                                return formatCurrency(totalBorrowed);
+                                                            })()
                                                         ),
                                                         React.createElement('td', { style: styles.td }, 
-                                                            formatCurrency(op.totalInvestment)
+                                                            (() => {
+                                                                // Calcular total ejecutado dinámicamente (SIN hardcoded)
+                                                                const initialExecuted = op.ownCapital * op.leverage; // 250 * 3 = 750
+                                                                const dcaExecuted = (op.additionalMargin || 0) * op.leverage; // 100 * 3 = 300
+                                                                const totalExecuted = initialExecuted + dcaExecuted; // 750 + 300 = 1050
+                                                                return formatCurrency(totalExecuted);
+                                                            })()
                                                         ),
                                                         React.createElement('td', { style: styles.td },
                                                             React.createElement('div', { 
@@ -5247,6 +6030,13 @@
         // Chart initialization for Visual Analytics page
         let analyticsCharts = {};
         
+        // Global variables for chart data (updated from React)
+        window.chartData = {
+            spotCapital: 0,
+            futuresCapital: 0,
+            availableLiquidity: 98500
+        };
+        
         const initAnalyticsCharts = () => {
             if (document.getElementById('distributionChart')) {
                 console.log('📊 Initializing Analytics Charts...');
@@ -5271,9 +6061,9 @@
                             labels: ['SPOT', 'Futuros', 'Liquidez'],
                             datasets: [{
                                 data: [
-                                    spotOperations.reduce((sum, op) => sum + op.ownCapital + op.additionalMargin, 0), // SPOT capital
-                                    operations.reduce((sum, op) => sum + op.ownCapital + op.additionalMargin, 0),     // Futuros capital  
-                                    portfolio.availableLiquidity                                                        // Available liquidity
+                                    Math.max(window.chartData.spotCapital, 0.1), // SPOT capital (min 0.1 for visibility)
+                                    Math.max(window.chartData.futuresCapital, 0.1), // Futuros capital (min 0.1 for visibility)
+                                    Math.max(window.chartData.availableLiquidity, 1) // Available liquidity (min 1)
                                 ],
                                 backgroundColor: ['rgba(136, 212, 152, 0.8)', 'rgba(124, 157, 212, 0.8)', 'rgba(168, 178, 193, 0.6)'],
                                 borderColor: ['#88D498', '#7C9DD4', '#A8B2C1'],
@@ -5299,24 +6089,58 @@
                     });
                 }
                 
-                // CHART 2: TP Profits  
+                // CHART 2: TP Profits (Dynamic based on configured TPs)
                 const ctx2 = document.getElementById('profitsChart');
                 if (ctx2) {
+                    // Check if TPs are configured
+                    const hasTPs = window.chartData && window.chartData.totalTPs > 0;
+                    
+                    let futuresData, spotData;
+                    if (hasTPs && window.chartData.realTPs) {
+                        // Use existing projected_profit OR calculate if system hasn't calculated it yet
+                        console.log('📊 Usando datos del sistema para TPs:', window.chartData.realTPs);
+                        futuresData = [0, 0, 0, 0, 0]; // Default zeros
+                        spotData = [0, 0, 0, 0, 0]; // Default zeros
+                        
+                        window.chartData.realTPs.forEach(tp => {
+                            if (tp.level && tp.level <= 5) {
+                                const profit = tp.projected_profit || 0;
+                                if (profit > 0) {
+                                    // ✅ FIX: += para acumular TODAS las operaciones del mismo nivel
+                                    if (tp.operationData && tp.operationData.operationType === 'futuros') {
+                                        futuresData[tp.level - 1] += Math.round(profit);
+                                        console.log(`✅ TP${tp.level} FUTUROS acumulado: $${futuresData[tp.level - 1]}`);
+                                    } else if (tp.operationData && tp.operationData.operationType === 'spot') {
+                                        spotData[tp.level - 1] += Math.round(profit);
+                                        console.log(`✅ TP${tp.level} SPOT acumulado: $${spotData[tp.level - 1]}`);
+                                    }
+                                }
+                            }
+                        });
+                        
+                        console.log('📊 Ganancias finales FUTUROS:', futuresData);
+                        console.log('📊 Ganancias finales SPOT:', spotData);
+                    } else {
+                        // Show zeros when no TPs
+                        futuresData = [0, 0, 0, 0, 0];
+                        spotData = [0, 0, 0, 0, 0];
+                    }
+                    
                     analyticsCharts.profits = new Chart(ctx2, {
                         type: 'bar',
                         data: {
                             labels: ['TP1', 'TP2', 'TP3', 'TP4', 'TP5'],
                             datasets: [{
                                 label: 'Futuros',
-                                data: [250, 400, 600, 800, 1200],
-                                backgroundColor: 'rgba(124, 157, 212, 0.8)',
+                                data: futuresData,
+                                backgroundColor: hasTPs ? 'rgba(124, 157, 212, 0.8)' : 'rgba(124, 157, 212, 0.3)',
                                 borderColor: '#7C9DD4',
                                 borderWidth: 1,
                                 borderRadius: 4
                             }, {
                                 label: 'SPOT',
-                                data: [625, 1250, 2000, 2750, 3750],
-                                backgroundColor: 'rgba(136, 212, 152, 0.8)',
+                                data: spotData,
+                                backgroundColor: hasTPs ? 'rgba(136, 212, 152, 0.8)' : 'rgba(136, 212, 152, 0.3)',
                                 borderColor: '#88D498',
                                 borderWidth: 1,
                                 borderRadius: 4
@@ -5347,16 +6171,61 @@
                     });
                 }
                 
-                // CHART 3: Capital Released
+                // CHART 3: Capital Released (Dynamic based on TPs)
                 const ctx3 = document.getElementById('releasedChart');
                 if (ctx3) {
+                    const hasTPs = window.chartData && window.chartData.totalTPs > 0;
+                    
+                    let futuresCapitalData, spotCapitalData;
+                    if (hasTPs && window.chartData.realTPs) {
+                        futuresCapitalData = [0]; // Inicio = 0
+                        let cumulativeRelease = 0;
+                        
+                        for (let i = 1; i <= 5; i++) {
+                            // ✅ FIX: filter() para obtener TODOS los TPs del nivel i, luego sumar
+                            const tpsAtLevel = window.chartData.realTPs.filter(tp => 
+                                tp.level === i && tp.price > 0 && tp.operationData && tp.operationData.operationType !== 'spot'
+                            );
+                            let levelRelease = 0;
+                            tpsAtLevel.forEach(tp => {
+                                const opCapital = (tp.operationData.ownCapital || 0) + (tp.operationData.additionalMargin || 0);
+                                levelRelease += opCapital * (tp.percentage / 100);
+                                console.log(`💰 TP${i} ${tp.operationData.crypto}: $${Math.round(opCapital * (tp.percentage / 100))}`);
+                            });
+                            cumulativeRelease += levelRelease;
+                            futuresCapitalData.push(Math.round(cumulativeRelease));
+                        }
+                        
+                        // SPOT capital liberado
+                        spotCapitalData = [0];
+                        let cumulativeReleaseSpot = 0;
+                        for (let i = 1; i <= 5; i++) {
+                            const tpsAtLevel = window.chartData.realTPs.filter(tp => 
+                                tp.level === i && tp.price > 0 && tp.operationData && tp.operationData.operationType === 'spot'
+                            );
+                            let levelRelease = 0;
+                            tpsAtLevel.forEach(tp => {
+                                const opCapital = (tp.operationData.ownCapital || 0) + (tp.operationData.additionalMargin || 0);
+                                levelRelease += opCapital * (tp.percentage / 100);
+                            });
+                            cumulativeReleaseSpot += levelRelease;
+                            spotCapitalData.push(Math.round(cumulativeReleaseSpot));
+                        }
+                        
+                        console.log('📊 Capital liberado Futuros:', futuresCapitalData);
+                        console.log('📊 Capital liberado SPOT:', spotCapitalData);
+                    } else {
+                        futuresCapitalData = [0, 0, 0, 0, 0, 0];
+                        spotCapitalData = [0, 0, 0, 0, 0, 0];
+                    }
+                    
                     analyticsCharts.released = new Chart(ctx3, {
                         type: 'line',
                         data: {
                             labels: ['Inicio', 'TP1', 'TP2', 'TP3', 'TP4', 'TP5'],
                             datasets: [{
                                 label: 'Futuros',
-                                data: [0, 200, 400, 600, 800, 1000],
+                                data: futuresCapitalData,
                                 borderColor: '#7C9DD4',
                                 backgroundColor: 'rgba(124, 157, 212, 0.2)',
                                 fill: true,
@@ -5365,7 +6234,7 @@
                                 pointRadius: 3
                             }, {
                                 label: 'SPOT',
-                                data: [0, 2500, 5000, 7500, 10000, 12500],
+                                data: spotCapitalData,
                                 borderColor: '#88D498', 
                                 backgroundColor: 'rgba(136, 212, 152, 0.2)',
                                 fill: true,
