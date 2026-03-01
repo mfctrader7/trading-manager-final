@@ -205,6 +205,12 @@
                         window.chartData.realTPs = allTPs;
                     }
                     
+                    // If no operations, explicitly clear chartData TPs
+                    if (allOperations.length === 0 && window.chartData) {
+                        window.chartData.totalTPs = 0;
+                        window.chartData.realTPs = [];
+                    }
+                    
                     console.log('📊 TPs configurados detectados (datos directos):', {
                         total: totalTPs,
                         tps: allTPs
@@ -291,6 +297,7 @@
                 
                 return () => clearInterval(checkInterval);
             }, [currentView]);
+
             const [showConfigureTPs, setShowConfigureTPs] = useState(false);
             const [showExecuteModal, setShowExecuteModal] = useState(false);
             const [tpToExecute, setTpToExecute] = useState(null);
@@ -330,6 +337,20 @@
             const [selectedClosedOperation, setSelectedClosedOperation] = useState(null);
             const [executedTPsHistory, setExecutedTPsHistory] = useState([]);
             const [closedOpsTab, setClosedOpsTab] = useState('futuros'); // tab for closed ops view
+            const [assets, setAssets] = useState([]);
+            const [loadingAssets, setLoadingAssets] = useState(false);
+            const [showAddAsset, setShowAddAsset] = useState(false);
+            const [editingAsset, setEditingAsset] = useState(null);
+            const [assetForm, setAssetForm] = useState({ symbol: '', name: '', category: '', notes: '' });
+            const [assetSearch, setAssetSearch] = useState('');
+            const [assetSearching, setAssetSearching] = useState(false);
+            const [assetPrices, setAssetPrices] = useState({});
+            const [loadingPrices, setLoadingPrices] = useState(false);
+            const [assetsViewMode, setAssetsViewMode] = useState('grid'); // 'grid' | 'list'
+            const [assetsPriceTimer, setAssetsPriceTimer] = useState(null);
+            const [assetsSort, setAssetsSort] = useState('symbol'); // 'symbol' | 'rank' | 'price' | 'change24h'
+            const [livePrices, setLivePrices] = useState({}); // { SYMBOL: price }
+            const [liveLastUpdate, setLiveLastUpdate] = useState(null);
             const [filterDateFrom, setFilterDateFrom] = useState('');
             const [filterDateTo, setFilterDateTo] = useState('');
             const [closedOperationEntries, setClosedOperationEntries] = useState([]);
@@ -403,18 +424,40 @@
                         throw opsError;
                     }
 
-                    const formattedOps = operationsData ? operationsData.map(op => ({
-                        id: op.id,
-                        crypto: op.crypto,
-                        type: op.type,
-                        operationType: op.operation_type || 'futuros',
-                        leverage: op.leverage || 1,
-                        ownCapital: parseFloat(op.own_capital) || 0,
-                        borrowedCapital: parseFloat(op.borrowed_capital) || 0,
-                        totalInvestment: parseFloat(op.total_investment) || 0,
-                        additionalMargin: parseFloat(op.additional_margin) || 0,
-                        createdAt: op.created_at
-                    })) : [];
+                    // Enrich operations with PEPP and totalUnits from entries
+                    const formattedOps = [];
+                    for (const op of (operationsData || [])) {
+                        const { data: opEntries } = await supabaseClient
+                            .from('entries')
+                            .select('executed, units, i_ponderada, margin')
+                            .eq('operation_id', op.id);
+                        let pepp = 0, totalUnits = 0;
+                        if (opEntries && opEntries.length > 0) {
+                            const totalExec = opEntries.reduce((s, e) => s + parseFloat(e.executed || 0), 0);
+                            const totalIPond = opEntries.reduce((s, e) => s + parseFloat(e.i_ponderada || 0), 0);
+                            totalUnits = opEntries.reduce((s, e) => s + parseFloat(e.units || 0), 0);
+                            pepp = totalExec > 0 ? totalIPond / totalExec : 0;
+                            // Apply capital ratio for partial executions
+                            const currentCap = (parseFloat(op.own_capital) || 0) + (parseFloat(op.additional_margin) || 0);
+                            const totalMarginEntries = opEntries.reduce((s, e) => s + parseFloat(e.margin || 0), 0);
+                            const ratio = totalMarginEntries > 0 ? currentCap / totalMarginEntries : 1;
+                            totalUnits = totalUnits * ratio;
+                        }
+                        formattedOps.push({
+                            id: op.id,
+                            crypto: op.crypto,
+                            type: op.type,
+                            operationType: op.operation_type || 'futuros',
+                            leverage: op.leverage || 1,
+                            ownCapital: parseFloat(op.own_capital) || 0,
+                            borrowedCapital: parseFloat(op.borrowed_capital) || 0,
+                            totalInvestment: parseFloat(op.total_investment) || 0,
+                            additionalMargin: parseFloat(op.additional_margin) || 0,
+                            createdAt: op.created_at,
+                            pepp,
+                            totalUnits
+                        });
+                    }
 
                     setOperations(formattedOps);
 
@@ -691,18 +734,39 @@
 
                     if (spotError) throw spotError;
 
-                    const formattedSpotOps = spotOpsData ? spotOpsData.map(op => ({
-                        id: op.id,
-                        crypto: op.crypto,
-                        type: op.type,
-                        operationType: op.operation_type || 'spot',
-                        leverage: 1, // SPOT siempre es 1x
-                        ownCapital: parseFloat(op.own_capital) || 0,
-                        borrowedCapital: 0, // SPOT sin apalancamiento
-                        totalInvestment: parseFloat(op.own_capital) || 0,
-                        additionalMargin: parseFloat(op.additional_margin) || 0,
-                        createdAt: op.created_at
-                    })) : [];
+                    // Enrich SPOT operations with PEPP and totalUnits from entries
+                    const formattedSpotOps = [];
+                    for (const op of (spotOpsData || [])) {
+                        const { data: opEntries } = await supabaseClient
+                            .from('entries')
+                            .select('executed, units, i_ponderada, margin')
+                            .eq('operation_id', op.id);
+                        let pepp = 0, totalUnits = 0;
+                        if (opEntries && opEntries.length > 0) {
+                            const totalExec = opEntries.reduce((s, e) => s + parseFloat(e.executed || 0), 0);
+                            const totalIPond = opEntries.reduce((s, e) => s + parseFloat(e.i_ponderada || 0), 0);
+                            totalUnits = opEntries.reduce((s, e) => s + parseFloat(e.units || 0), 0);
+                            pepp = totalExec > 0 ? totalIPond / totalExec : 0;
+                            const currentCap = (parseFloat(op.own_capital) || 0) + (parseFloat(op.additional_margin) || 0);
+                            const totalMarginEntries = opEntries.reduce((s, e) => s + parseFloat(e.margin || 0), 0);
+                            const ratio = totalMarginEntries > 0 ? currentCap / totalMarginEntries : 1;
+                            totalUnits = totalUnits * ratio;
+                        }
+                        formattedSpotOps.push({
+                            id: op.id,
+                            crypto: op.crypto,
+                            type: op.type,
+                            operationType: op.operation_type || 'spot',
+                            leverage: 1,
+                            ownCapital: parseFloat(op.own_capital) || 0,
+                            borrowedCapital: 0,
+                            totalInvestment: parseFloat(op.own_capital) || 0,
+                            additionalMargin: parseFloat(op.additional_margin) || 0,
+                            createdAt: op.created_at,
+                            pepp,
+                            totalUnits
+                        });
+                    }
 
                     setSpotOperations(formattedSpotOps);
                     console.log('📈 Operaciones SPOT cargadas:', formattedSpotOps);
@@ -756,6 +820,195 @@
                 }
             };
 
+            // ============ ASSET MANAGEMENT FUNCTIONS ============
+
+            const loadAssets = async () => {
+                setLoadingAssets(true);
+                try {
+                    const { data, error } = await supabaseClient
+                        .from('assets')
+                        .select('*')
+                        .eq('user_id', REAL_USER_ID)
+                        .order('symbol', { ascending: true });
+                    if (error) throw error;
+                    setAssets(data || []);
+                    if (data && data.length > 0) {
+                        fetchAssetPrices(data);
+                    }
+                } catch (err) {
+                    console.error('Error loading assets:', err);
+                } finally {
+                    setLoadingAssets(false);
+                }
+            };
+
+            const COINGECKO_BASE = 'https://api.coingecko.com/api/v3';
+
+            const cgFetch = async (url) => {
+                // Try direct first, fallback to cors proxy
+                try {
+                    const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+                    if (res.ok) return await res.json();
+                } catch (e) {}
+                // Fallback: corsproxy.io
+                try {
+                    const proxy = 'https://corsproxy.io/?' + encodeURIComponent(url);
+                    const res = await fetch(proxy);
+                    if (res.ok) return await res.json();
+                } catch (e) {}
+                throw new Error('No se pudo conectar con CoinGecko');
+            };
+
+            const fetchAssetPrices = async (assetList) => {
+                setLoadingPrices(true);
+                try {
+                    const symbols = assetList.map(a => a.coingecko_id).filter(Boolean).join(',');
+                    if (!symbols) return;
+                    const data = await cgFetch(
+                        `${COINGECKO_BASE}/simple/price?ids=${symbols}&vs_currencies=usd&include_24hr_change=true&include_market_cap=true`
+                    );
+                    setAssetPrices(data);
+                } catch (err) {
+                    console.error('Error fetching prices:', err);
+                    alert('No se pudo obtener precios. CoinGecko puede estar limitando las solicitudes. Intenta en unos segundos.');
+                } finally {
+                    setLoadingPrices(false);
+                }
+            };
+
+            const searchCoinGecko = async (query) => {
+                if (!query || query.length < 2) return;
+                setAssetSearching(true);
+                try {
+                    const data = await cgFetch(`${COINGECKO_BASE}/search?query=${encodeURIComponent(query)}`);
+                    const coin = data.coins && data.coins[0];
+                    if (coin) {
+                        const detail = await cgFetch(`${COINGECKO_BASE}/coins/${coin.id}?localization=false&tickers=false&community_data=false&developer_data=false`);
+                        setAssetForm(prev => ({
+                            ...prev,
+                            name: detail.name || coin.name,
+                            coingecko_id: coin.id,
+                            symbol: (detail.symbol || coin.symbol || '').toUpperCase(),
+                            market_cap_rank: detail.market_cap_rank || null,
+                            ath: detail.market_data?.ath?.usd || null,
+                            image: detail.image?.small || coin.thumb || ''
+                        }));
+                    } else {
+                        alert('No se encontró el activo en CoinGecko. Prueba con otro nombre.');
+                    }
+                } catch (err) {
+                    console.error('CoinGecko search error:', err);
+                    alert('Error buscando en CoinGecko: ' + err.message);
+                } finally {
+                    setAssetSearching(false);
+                }
+            };
+
+            const fetchLivePrices = async (currentAssets) => {
+                try {
+                    const allOps = [...operations, ...spotOperations];
+                    if (allOps.length === 0) return;
+                    const assetList = currentAssets || assets;
+                    const symbols = [...new Set(allOps.map(op => op.crypto.toUpperCase()))];
+                    const relevantAssets = assetList.filter(a => symbols.includes(a.symbol.toUpperCase()));
+                    const cgIds = relevantAssets.map(a => a.coingecko_id).filter(Boolean).join(',');
+                    if (!cgIds) return;
+                    const data = await cgFetch(
+                        'https://api.coingecko.com/api/v3/simple/price?ids=' + cgIds + '&vs_currencies=usd'
+                    );
+                    const priceMap = {};
+                    relevantAssets.forEach(a => {
+                        if (data[a.coingecko_id]) {
+                            priceMap[a.symbol.toUpperCase()] = data[a.coingecko_id].usd;
+                        }
+                    });
+                    setLivePrices(priceMap);
+                    setLiveLastUpdate(new Date());
+                } catch (err) {
+                    console.error('Error fetching live prices:', err);
+                }
+            };
+
+            // Auto-refresh prices when entering assets view, then every 5 minutes
+            useEffect(() => {
+                if (currentView === 'assets' && assets.length > 0) {
+                    fetchAssetPrices(assets);
+                    const timer = setInterval(() => {
+                        fetchAssetPrices(assets);
+                    }, 5 * 60 * 1000);
+                    return () => clearInterval(timer);
+                }
+            }, [currentView, assets.length]);
+
+            // Auto-fetch live P&L prices on dashboard, every 3 minutes
+            useEffect(() => {
+                if (currentView === 'dashboard' && assets.length > 0 && (operations.length > 0 || spotOperations.length > 0)) {
+                    fetchLivePrices();
+                    const timer = setInterval(() => fetchLivePrices(), 3 * 60 * 1000);
+                    return () => clearInterval(timer);
+                }
+            }, [currentView, operations.length, spotOperations.length, assets.length]);
+
+            const handleSaveAsset = async () => {
+                if (!assetForm.symbol || !assetForm.name) {
+                    alert('Símbolo y nombre son obligatorios');
+                    return;
+                }
+                try {
+                    const payload = {
+                        user_id: REAL_USER_ID,
+                        symbol: assetForm.symbol.toUpperCase(),
+                        name: assetForm.name,
+                        category: assetForm.category || '',
+                        notes: assetForm.notes || '',
+                        coingecko_id: assetForm.coingecko_id || '',
+                        market_cap_rank: assetForm.market_cap_rank || null,
+                        ath: assetForm.ath || null,
+                        image: assetForm.image || ''
+                    };
+                    if (editingAsset) {
+                        const { error } = await supabaseClient.from('assets').update(payload).eq('id', editingAsset.id);
+                        if (error) throw error;
+                    } else {
+                        const { error } = await supabaseClient.from('assets').insert(payload);
+                        if (error) throw error;
+                    }
+                    setShowAddAsset(false);
+                    setEditingAsset(null);
+                    setAssetForm({ symbol: '', name: '', category: '', notes: '' });
+                    setAssetSearch('');
+                    await loadAssets();
+                } catch (err) {
+                    alert('Error guardando activo: ' + err.message);
+                }
+            };
+
+            const handleDeleteAsset = async (id) => {
+                if (!confirm('¿Eliminar este activo del listado?')) return;
+                try {
+                    const { error } = await supabaseClient.from('assets').delete().eq('id', id);
+                    if (error) throw error;
+                    await loadAssets();
+                } catch (err) {
+                    alert('Error eliminando activo: ' + err.message);
+                }
+            };
+
+            const handleEditAsset = (asset) => {
+                setEditingAsset(asset);
+                setAssetForm({
+                    symbol: asset.symbol,
+                    name: asset.name,
+                    category: asset.category || '',
+                    notes: asset.notes || '',
+                    coingecko_id: asset.coingecko_id || '',
+                    market_cap_rank: asset.market_cap_rank || '',
+                    ath: asset.ath || '',
+                    image: asset.image || ''
+                });
+                setShowAddAsset(true);
+            };
+
             const handleLogin = async (e) => {
                 e.preventDefault();
                 setAuthError('');
@@ -772,6 +1025,7 @@
                         await loadOperations();
                         await loadClosedOperations();
                         await loadSpotOperations();
+                        await loadAssets();
                     }
                     return;
                 }
@@ -1177,6 +1431,8 @@
                     if (error) throw error;
                     alert('✅ Operación eliminada correctamente');
                     await loadOperations();
+                    await loadSpotOperations();
+                    checkConfiguredTPsWithData(operations, spotOperations);
                 } catch (error) {
                     alert('Error: ' + error.message);
                 }
@@ -1196,7 +1452,9 @@
 
                     if (error) throw error;
                     alert('✅ Operación SPOT eliminada correctamente');
+                    await loadOperations();
                     await loadSpotOperations();
+                    checkConfiguredTPsWithData(operations, spotOperations);
                 } catch (error) {
                     alert('Error: ' + error.message);
                 }
@@ -1965,15 +2223,27 @@
 
                                 React.createElement('form', { onSubmit: handleCreateOperation, style: styles.form },
                                     React.createElement('div', { style: styles.inputGroup },
-                                        React.createElement('label', { style: styles.label }, 'Criptomoneda'),
-                                        React.createElement('input', {
-                                            type: 'text',
-                                            value: newOperation.crypto,
-                                            onChange: (e) => setNewOperation({...newOperation, crypto: e.target.value}),
-                                            style: styles.input,
-                                            placeholder: 'BTC, ETH, SOL...',
-                                            required: true
-                                        })
+                                        React.createElement('label', { style: styles.label }, 'Activo'),
+                                        assets.length > 0 ?
+                                            React.createElement('select', {
+                                                value: newOperation.crypto,
+                                                onChange: (e) => setNewOperation({...newOperation, crypto: e.target.value}),
+                                                style: styles.select,
+                                                required: true
+                                            },
+                                                React.createElement('option', { value: '' }, '-- Selecciona un activo --'),
+                                                assets.map(a => React.createElement('option', { key: a.id, value: a.symbol },
+                                                    a.symbol + ' — ' + a.name + (a.market_cap_rank ? ' (#' + a.market_cap_rank + ')' : '')
+                                                ))
+                                            ) :
+                                            React.createElement('input', {
+                                                type: 'text',
+                                                value: newOperation.crypto,
+                                                onChange: (e) => setNewOperation({...newOperation, crypto: e.target.value.toUpperCase()}),
+                                                style: styles.input,
+                                                placeholder: 'BTC, ETH, SOL...',
+                                                required: true
+                                            })
                                     ),
 
                                     React.createElement('div', { style: styles.row },
@@ -3509,15 +3779,27 @@
                                 React.createElement('form', { onSubmit: handleCreateSpotOperation, style: styles.form },
                                     React.createElement('div', { style: styles.inputRow },
                                         React.createElement('div', { style: styles.inputGroup },
-                                            React.createElement('label', { style: styles.label }, 'Criptomoneda'),
-                                            React.createElement('input', {
-                                                type: 'text',
-                                                placeholder: 'BTC, ETH, ADA...',
-                                                style: styles.input,
-                                                value: newSpotOperation.crypto,
-                                                onChange: (e) => setNewSpotOperation({...newSpotOperation, crypto: e.target.value.toUpperCase()}),
-                                                required: true
-                                            })
+                                            React.createElement('label', { style: styles.label }, 'Activo'),
+                                            assets.length > 0 ?
+                                                React.createElement('select', {
+                                                    value: newSpotOperation.crypto,
+                                                    onChange: (e) => setNewSpotOperation({...newSpotOperation, crypto: e.target.value}),
+                                                    style: styles.select,
+                                                    required: true
+                                                },
+                                                    React.createElement('option', { value: '' }, '-- Selecciona un activo --'),
+                                                    assets.map(a => React.createElement('option', { key: a.id, value: a.symbol },
+                                                        a.symbol + ' — ' + a.name + (a.market_cap_rank ? ' (#' + a.market_cap_rank + ')' : '')
+                                                    ))
+                                                ) :
+                                                React.createElement('input', {
+                                                    type: 'text',
+                                                    placeholder: 'BTC, ETH, ADA...',
+                                                    style: styles.input,
+                                                    value: newSpotOperation.crypto,
+                                                    onChange: (e) => setNewSpotOperation({...newSpotOperation, crypto: e.target.value.toUpperCase()}),
+                                                    required: true
+                                                })
                                         ),
                                         React.createElement('div', { style: styles.inputGroup },
                                             React.createElement('label', { style: styles.label }, 'Tipo de Operación'),
@@ -4573,6 +4855,344 @@
                 );
             }
 
+            // VISTA ACTIVOS
+            if (currentView === 'assets') {
+                const CATEGORIES = ['IA', 'Meme', 'DeFi', 'L1', 'L2', 'GameFi', 'RWA', 'Infraestructura', 'Exchange', 'Otro'];
+                const filteredAssets = assets
+                    .filter(a =>
+                        a.symbol.toLowerCase().includes(assetSearch.toLowerCase()) ||
+                        a.name.toLowerCase().includes(assetSearch.toLowerCase()) ||
+                        (a.category || '').toLowerCase().includes(assetSearch.toLowerCase())
+                    )
+                    .sort((a, b) => {
+                        if (assetsSort === 'rank') {
+                            const ra = a.market_cap_rank || 99999;
+                            const rb = b.market_cap_rank || 99999;
+                            return ra - rb;
+                        }
+                        if (assetsSort === 'price') {
+                            const pa = assetPrices[a.coingecko_id]?.usd || 0;
+                            const pb = assetPrices[b.coingecko_id]?.usd || 0;
+                            return pb - pa;
+                        }
+                        if (assetsSort === 'change24h') {
+                            const ca = assetPrices[a.coingecko_id]?.usd_24h_change || -99999;
+                            const cb = assetPrices[b.coingecko_id]?.usd_24h_change || -99999;
+                            return cb - ca;
+                        }
+                        return a.symbol.localeCompare(b.symbol); // default: alphabetical
+                    });
+
+                const cardStyle = { backgroundColor: 'rgba(37,41,54,0.8)', border: '1px solid rgba(168,178,193,0.1)', borderRadius: '12px', padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' };
+                const labelStyle = { color: '#A8B2C1', fontSize: '0.75rem', marginBottom: '0.2rem' };
+                const valueStyle = { color: '#E8ECEF', fontWeight: '600', fontSize: '0.95rem' };
+                const inputStyle = { width: '100%', padding: '0.7rem 1rem', backgroundColor: '#252936', border: '1px solid rgba(124,157,212,0.2)', borderRadius: '8px', color: '#E8ECEF', fontSize: '0.9rem', outline: 'none', boxSizing: 'border-box' };
+                const badgeStyle = (color) => ({ display: 'inline-block', padding: '0.2rem 0.6rem', borderRadius: '20px', fontSize: '0.75rem', fontWeight: '600', backgroundColor: color + '22', color: color, border: '1px solid ' + color + '44' });
+
+                const categoryColors = { 'IA': '#88D498', 'Meme': '#E89BA5', 'DeFi': '#7C9DD4', 'L1': '#F4D896', 'L2': '#B8A5E0', 'GameFi': '#F4A460', 'RWA': '#87CEEB', 'Infraestructura': '#98FB98', 'Exchange': '#DDA0DD', 'Otro': '#A8B2C1' };
+
+                return React.createElement('div', { style: styles.app },
+                    React.createElement('header', { style: styles.header },
+                        React.createElement('div', { style: styles.headerContent },
+                            React.createElement('div', { style: styles.headerLeft },
+                                React.createElement('div', { style: styles.logo }, '💎'),
+                                React.createElement('h1', { style: styles.title }, 'Activos')
+                            ),
+                            React.createElement('div', { style: styles.headerRight },
+                                React.createElement('button', { onClick: () => setCurrentView('dashboard'), style: styles.backBtn }, '← Dashboard'),
+                                React.createElement('button', { onClick: handleLogout, style: styles.logoutBtn }, 'Salir')
+                            )
+                        )
+                    ),
+                    React.createElement('main', { style: styles.main },
+
+                        // HEADER ROW
+                        React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' } },
+                            React.createElement('div', { style: { display: 'flex', gap: '1rem', alignItems: 'center', flex: 1 } },
+                                React.createElement('input', {
+                                    type: 'text',
+                                    placeholder: '🔍 Buscar activo...',
+                                    value: assetSearch,
+                                    onChange: (e) => setAssetSearch(e.target.value),
+                                    style: { ...inputStyle, maxWidth: '240px' }
+                                }),
+                                React.createElement('select', {
+                                    value: assetsSort,
+                                    onChange: (e) => setAssetsSort(e.target.value),
+                                    style: { ...inputStyle, maxWidth: '170px', cursor: 'pointer' }
+                                },
+                                    React.createElement('option', { value: 'symbol' }, '🔤 A-Z'),
+                                    React.createElement('option', { value: 'rank' }, '🏆 Top (Rank)'),
+                                    React.createElement('option', { value: 'price' }, '💰 Mayor precio'),
+                                    React.createElement('option', { value: 'change24h' }, '📈 Mayor cambio 24h')
+                                ),
+                                loadingPrices && React.createElement('span', { style: { color: '#A8B2C1', fontSize: '0.8rem' } }, '🔄 Actualizando...')
+                            ),
+                            React.createElement('div', { style: { display: 'flex', gap: '0.75rem' } },
+                                React.createElement('button', {
+                                    onClick: () => { if (assets.length > 0) fetchAssetPrices(assets); },
+                                    style: { ...styles.newOperationBtn, backgroundColor: 'rgba(124,157,212,0.15)', color: '#7C9DD4', border: '1px solid rgba(124,157,212,0.3)' }
+                                }, '🔄 Refrescar Precios'),
+                                React.createElement('div', { style: { display: 'flex', border: '1px solid rgba(168,178,193,0.2)', borderRadius: '8px', overflow: 'hidden' } },
+                                    React.createElement('button', {
+                                        onClick: () => setAssetsViewMode('grid'),
+                                        style: { padding: '0.5rem 0.85rem', border: 'none', cursor: 'pointer', fontSize: '0.9rem', backgroundColor: assetsViewMode === 'grid' ? 'rgba(124,157,212,0.3)' : 'transparent', color: assetsViewMode === 'grid' ? '#7C9DD4' : '#A8B2C1' }
+                                    }, '⊞'),
+                                    React.createElement('button', {
+                                        onClick: () => setAssetsViewMode('list'),
+                                        style: { padding: '0.5rem 0.85rem', border: 'none', cursor: 'pointer', fontSize: '0.9rem', backgroundColor: assetsViewMode === 'list' ? 'rgba(124,157,212,0.3)' : 'transparent', color: assetsViewMode === 'list' ? '#7C9DD4' : '#A8B2C1' }
+                                    }, '☰')
+                                ),
+                                React.createElement('button', {
+                                    onClick: () => { setShowAddAsset(true); setEditingAsset(null); setAssetForm({ symbol: '', name: '', category: '', notes: '' }); },
+                                    style: styles.newOperationBtn
+                                }, '+ Nuevo Activo')
+                            )
+                        ),
+
+                        // FORM AÑADIR/EDITAR
+                        showAddAsset && React.createElement('div', { style: { backgroundColor: 'rgba(37,41,54,0.9)', border: '1px solid rgba(124,157,212,0.2)', borderRadius: '12px', padding: '1.5rem', marginBottom: '1.5rem' } },
+                            React.createElement('h3', { style: { color: '#E8ECEF', margin: '0 0 1.25rem 0' } }, editingAsset ? '✏️ Editar Activo' : '➕ Nuevo Activo'),
+
+                            // BUSCADOR COINGECKO
+                            React.createElement('div', { style: { marginBottom: '1rem' } },
+                                React.createElement('label', { style: { ...labelStyle, display: 'block', marginBottom: '0.4rem' } }, 'Buscar en CoinGecko (escribe el nombre o símbolo):'),
+                                React.createElement('div', { style: { display: 'flex', gap: '0.75rem' } },
+                                    React.createElement('input', {
+                                        type: 'text',
+                                        placeholder: 'ej: bitcoin, pepe, ethereum...',
+                                        value: assetForm.symbol || '',
+                                        onChange: (e) => setAssetForm(prev => ({ ...prev, symbol: e.target.value })),
+                                        style: { ...inputStyle, flex: 1 }
+                                    }),
+                                    React.createElement('button', {
+                                        onClick: () => searchCoinGecko(assetForm.symbol),
+                                        disabled: assetSearching,
+                                        style: { ...styles.newOperationBtn, minWidth: '140px', opacity: assetSearching ? 0.6 : 1 }
+                                    }, assetSearching ? '🔄 Buscando...' : '🔍 Auto-completar')
+                                )
+                            ),
+
+                            // PREVIEW SI HAY DATOS DE COINGECKO
+                            assetForm.coingecko_id && React.createElement('div', { style: { backgroundColor: 'rgba(136,212,152,0.08)', border: '1px solid rgba(136,212,152,0.2)', borderRadius: '8px', padding: '1rem', marginBottom: '1rem', display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' } },
+                                assetForm.image && React.createElement('img', { src: assetForm.image, style: { width: '40px', height: '40px', borderRadius: '50%' }, alt: '' }),
+                                React.createElement('div', null,
+                                    React.createElement('div', { style: { color: '#88D498', fontWeight: '700', fontSize: '1rem' } }, assetForm.name + ' (' + assetForm.symbol + ')'),
+                                    React.createElement('div', { style: { color: '#A8B2C1', fontSize: '0.82rem' } },
+                                        'Top: #' + (assetForm.market_cap_rank || '?') + ' · ATH: $' + (assetForm.ath ? parseFloat(assetForm.ath).toLocaleString() : '?')
+                                    )
+                                )
+                            ),
+
+                            // CAMPOS MANUALES
+                            React.createElement('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' } },
+                                React.createElement('div', null,
+                                    React.createElement('label', { style: { ...labelStyle, display: 'block', marginBottom: '0.4rem' } }, 'Símbolo *'),
+                                    React.createElement('input', {
+                                        type: 'text',
+                                        value: assetForm.symbol || '',
+                                        onChange: (e) => setAssetForm(prev => ({ ...prev, symbol: e.target.value.toUpperCase() })),
+                                        style: inputStyle,
+                                        placeholder: 'BTC'
+                                    })
+                                ),
+                                React.createElement('div', null,
+                                    React.createElement('label', { style: { ...labelStyle, display: 'block', marginBottom: '0.4rem' } }, 'Nombre completo *'),
+                                    React.createElement('input', {
+                                        type: 'text',
+                                        value: assetForm.name || '',
+                                        onChange: (e) => setAssetForm(prev => ({ ...prev, name: e.target.value })),
+                                        style: inputStyle,
+                                        placeholder: 'Bitcoin'
+                                    })
+                                ),
+                                React.createElement('div', null,
+                                    React.createElement('label', { style: { ...labelStyle, display: 'block', marginBottom: '0.4rem' } }, 'Categoría / Narrativa'),
+                                    React.createElement('select', {
+                                        value: assetForm.category || '',
+                                        onChange: (e) => setAssetForm(prev => ({ ...prev, category: e.target.value })),
+                                        style: { ...inputStyle }
+                                    },
+                                        React.createElement('option', { value: '' }, '-- Seleccionar --'),
+                                        CATEGORIES.map(c => React.createElement('option', { key: c, value: c }, c))
+                                    )
+                                ),
+                                React.createElement('div', null,
+                                    React.createElement('label', { style: { ...labelStyle, display: 'block', marginBottom: '0.4rem' } }, 'Notas personales'),
+                                    React.createElement('input', {
+                                        type: 'text',
+                                        value: assetForm.notes || '',
+                                        onChange: (e) => setAssetForm(prev => ({ ...prev, notes: e.target.value })),
+                                        style: inputStyle,
+                                        placeholder: 'ej: Hold largo plazo...'
+                                    })
+                                )
+                            ),
+
+                            React.createElement('div', { style: { display: 'flex', gap: '1rem' } },
+                                React.createElement('button', {
+                                    onClick: () => { setShowAddAsset(false); setEditingAsset(null); },
+                                    style: { ...styles.newOperationBtn, backgroundColor: 'transparent', border: '1px solid rgba(168,178,193,0.3)', color: '#A8B2C1' }
+                                }, 'Cancelar'),
+                                React.createElement('button', {
+                                    onClick: handleSaveAsset,
+                                    style: styles.newOperationBtn
+                                }, editingAsset ? '💾 Guardar Cambios' : '✅ Agregar Activo')
+                            )
+                        ),
+
+                        // STATS BAR
+                        assets.length > 0 && React.createElement('div', { style: { display: 'flex', gap: '1rem', marginBottom: '1rem', flexWrap: 'wrap' } },
+                            React.createElement('div', { style: { padding: '0.5rem 1rem', backgroundColor: 'rgba(37,41,54,0.6)', borderRadius: '8px', color: '#A8B2C1', fontSize: '0.85rem' } },
+                                React.createElement('span', { style: { color: '#F4D896', fontWeight: '700' } }, assets.length), ' activos registrados'
+                            ),
+                            loadingPrices && React.createElement('div', { style: { padding: '0.5rem 1rem', backgroundColor: 'rgba(124,157,212,0.1)', borderRadius: '8px', color: '#7C9DD4', fontSize: '0.85rem' } },
+                                '🔄 Actualizando precios...'
+                            ),
+                            !loadingPrices && Object.keys(assetPrices).length > 0 && React.createElement('div', { style: { padding: '0.5rem 1rem', backgroundColor: 'rgba(136,212,152,0.08)', borderRadius: '8px', color: '#88D498', fontSize: '0.85rem' } },
+                                '✅ Precios en tiempo real · Auto-refresco cada 5 min'
+                            )
+                        ),
+
+                        // GRID / LIST DE ACTIVOS
+                        loadingAssets ? React.createElement('div', { style: { textAlign: 'center', padding: '3rem', color: '#A8B2C1' } }, '🔄 Cargando activos...') :
+                        filteredAssets.length === 0 ?
+                            React.createElement('div', { style: { textAlign: 'center', padding: '3rem', color: '#A8B2C1' } },
+                                React.createElement('div', { style: { fontSize: '3rem', marginBottom: '1rem' } }, '💎'),
+                                React.createElement('p', null, assets.length === 0 ? 'No tienes activos registrados. ¡Agrega el primero!' : 'No se encontraron activos con ese filtro.')
+                            ) :
+                        assetsViewMode === 'list' ? 
+                            React.createElement('div', { style: { backgroundColor: 'rgba(37,41,54,0.6)', borderRadius: '12px', overflow: 'hidden', border: '1px solid rgba(168,178,193,0.08)' } },
+                                React.createElement('table', { style: { width: '100%', borderCollapse: 'collapse' } },
+                                    React.createElement('thead', null,
+                                        React.createElement('tr', { style: { backgroundColor: 'rgba(124,157,212,0.08)' } },
+                                            React.createElement('th', { style: { ...styles.th, textAlign: 'left' } }, 'Activo'),
+                                            React.createElement('th', { style: styles.th }, 'Categoría'),
+                                            React.createElement('th', { style: styles.th }, 'Rank'),
+                                            React.createElement('th', { style: styles.th }, 'Precio'),
+                                            React.createElement('th', { style: styles.th }, '24h'),
+                                            React.createElement('th', { style: styles.th }, 'ATH'),
+                                            React.createElement('th', { style: styles.th }, 'Acciones')
+                                        )
+                                    ),
+                                    React.createElement('tbody', null,
+                                        filteredAssets.map(asset => {
+                                            const priceData = assetPrices[asset.coingecko_id];
+                                            const price = priceData ? priceData.usd : null;
+                                            const change24h = priceData ? priceData.usd_24h_change : null;
+                                            const catColor = categoryColors[asset.category] || '#A8B2C1';
+                                            return React.createElement('tr', { key: asset.id, style: { borderTop: '1px solid rgba(168,178,193,0.06)', transition: 'background 0.15s' } },
+                                                React.createElement('td', { style: { ...styles.td, textAlign: 'left' } },
+                                                    React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '0.6rem' } },
+                                                        asset.image ? React.createElement('img', { src: asset.image, style: { width: '28px', height: '28px', borderRadius: '50%' }, alt: '' })
+                                                        : React.createElement('div', { style: { width: '28px', height: '28px', borderRadius: '50%', backgroundColor: 'rgba(124,157,212,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#7C9DD4', fontWeight: '700', fontSize: '0.75rem' } }, asset.symbol[0]),
+                                                        React.createElement('div', null,
+                                                            React.createElement('div', { style: { color: '#E8ECEF', fontWeight: '700', fontSize: '0.9rem' } }, asset.symbol),
+                                                            React.createElement('div', { style: { color: '#A8B2C1', fontSize: '0.75rem' } }, asset.name)
+                                                        )
+                                                    )
+                                                ),
+                                                React.createElement('td', { style: styles.td },
+                                                    asset.category ? React.createElement('span', { style: { padding: '0.2rem 0.5rem', borderRadius: '12px', fontSize: '0.75rem', fontWeight: '600', backgroundColor: catColor + '22', color: catColor } }, asset.category) : '-'
+                                                ),
+                                                React.createElement('td', { style: { ...styles.td, color: '#7C9DD4' } }, asset.market_cap_rank ? '#' + asset.market_cap_rank : '-'),
+                                                React.createElement('td', { style: { ...styles.td, fontWeight: '700' } }, price !== null ? formatCurrency(price) : '—'),
+                                                React.createElement('td', { style: { ...styles.td, color: change24h === null ? '#A8B2C1' : change24h >= 0 ? '#88D498' : '#E89BA5', fontWeight: '600' } },
+                                                    change24h !== null ? (change24h >= 0 ? '+' : '') + change24h.toFixed(2) + '%' : '—'
+                                                ),
+                                                React.createElement('td', { style: { ...styles.td, color: '#F4D896' } }, asset.ath ? formatCurrency(parseFloat(asset.ath)) : '—'),
+                                                React.createElement('td', { style: styles.td },
+                                                    React.createElement('div', { style: { display: 'flex', gap: '0.4rem', justifyContent: 'center' } },
+                                                        React.createElement('button', { onClick: () => handleEditAsset(asset), style: { background: 'none', border: '1px solid rgba(168,178,193,0.2)', borderRadius: '6px', color: '#A8B2C1', cursor: 'pointer', padding: '0.2rem 0.5rem', fontSize: '0.8rem' } }, '✏️'),
+                                                        React.createElement('button', { onClick: () => handleDeleteAsset(asset.id), style: { background: 'none', border: '1px solid rgba(232,155,165,0.2)', borderRadius: '6px', color: '#E89BA5', cursor: 'pointer', padding: '0.2rem 0.5rem', fontSize: '0.8rem' } }, '🗑️')
+                                                    )
+                                                )
+                                            );
+                                        })
+                                    )
+                                )
+                            ) :
+                            React.createElement('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '1rem' } },
+                                filteredAssets.map(asset => {
+                                    const priceData = assetPrices[asset.coingecko_id];
+                                    const price = priceData ? priceData.usd : null;
+                                    const change24h = priceData ? priceData.usd_24h_change : null;
+                                    const catColor = categoryColors[asset.category] || '#A8B2C1';
+
+                                    // P&L flotante basado en operaciones activas
+                                    const relatedOps = [...operations, ...spotOperations].filter(op =>
+                                        op.crypto && op.crypto.toUpperCase() === asset.symbol.toUpperCase()
+                                    );
+
+                                    return React.createElement('div', { key: asset.id, style: cardStyle },
+                                        // Header
+                                        React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' } },
+                                            React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '0.75rem' } },
+                                                asset.image ? React.createElement('img', { src: asset.image, style: { width: '36px', height: '36px', borderRadius: '50%' }, alt: '' })
+                                                : React.createElement('div', { style: { width: '36px', height: '36px', borderRadius: '50%', backgroundColor: 'rgba(124,157,212,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#7C9DD4', fontWeight: '700' } }, asset.symbol[0]),
+                                                React.createElement('div', null,
+                                                    React.createElement('div', { style: { color: '#E8ECEF', fontWeight: '700', fontSize: '1rem' } }, asset.symbol),
+                                                    React.createElement('div', { style: { color: '#A8B2C1', fontSize: '0.8rem' } }, asset.name)
+                                                )
+                                            ),
+                                            React.createElement('div', { style: { display: 'flex', gap: '0.4rem' } },
+                                                React.createElement('button', { onClick: () => handleEditAsset(asset), style: { background: 'none', border: '1px solid rgba(168,178,193,0.2)', borderRadius: '6px', color: '#A8B2C1', cursor: 'pointer', padding: '0.25rem 0.5rem', fontSize: '0.8rem' } }, '✏️'),
+                                                React.createElement('button', { onClick: () => handleDeleteAsset(asset.id), style: { background: 'none', border: '1px solid rgba(232,155,165,0.2)', borderRadius: '6px', color: '#E89BA5', cursor: 'pointer', padding: '0.25rem 0.5rem', fontSize: '0.8rem' } }, '🗑️')
+                                            )
+                                        ),
+
+                                        // Categoría + Rank
+                                        React.createElement('div', { style: { display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' } },
+                                            asset.category && React.createElement('span', { style: badgeStyle(catColor) }, asset.category),
+                                            asset.market_cap_rank && React.createElement('span', { style: badgeStyle('#7C9DD4') }, '#' + asset.market_cap_rank)
+                                        ),
+
+                                        // Precio y cambio 24h
+                                        React.createElement('div', { style: { borderTop: '1px solid rgba(168,178,193,0.08)', paddingTop: '0.75rem' } },
+                                            React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' } },
+                                                React.createElement('span', { style: labelStyle }, 'Precio Actual'),
+                                                change24h !== null && React.createElement('span', { style: { color: change24h >= 0 ? '#88D498' : '#E89BA5', fontSize: '0.8rem', fontWeight: '600' } },
+                                                    (change24h >= 0 ? '+' : '') + change24h.toFixed(2) + '% 24h'
+                                                )
+                                            ),
+                                            React.createElement('div', { style: { color: '#E8ECEF', fontWeight: '700', fontSize: '1.1rem' } },
+                                                price !== null ? formatCurrency(price) : (asset.coingecko_id ? '🔄 Cargando...' : 'Sin precio')
+                                            )
+                                        ),
+
+                                        // ATH
+                                        asset.ath && React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between' } },
+                                            React.createElement('span', { style: labelStyle }, 'ATH'),
+                                            React.createElement('span', { style: { color: '#F4D896', fontSize: '0.9rem', fontWeight: '600' } }, formatCurrency(parseFloat(asset.ath))),
+                                        ),
+
+                                        // P&L flotante si hay operaciones
+                                        relatedOps.length > 0 && price !== null && React.createElement('div', { style: { borderTop: '1px solid rgba(168,178,193,0.08)', paddingTop: '0.75rem' } },
+                                            React.createElement('div', { style: labelStyle }, 'P&L No Realizado (' + relatedOps.length + ' op.)'),
+                                            (() => {
+                                                let totalPnL = 0;
+                                                let totalUnitsAll = 0;
+                                                relatedOps.forEach(op => {
+                                                    // Need entries for this op — use PEPP from op if available
+                                                    const opMargin = (op.ownCapital || 0) + (op.additionalMargin || 0);
+                                                    // Approximate: can't get exact PEPP without entries, show placeholder
+                                                    totalUnitsAll += opMargin;
+                                                });
+                                                return React.createElement('div', { style: { color: '#A8B2C1', fontSize: '0.82rem' } }, 'Ver detalle en operación');
+                                            })()
+                                        ),
+
+                                        // Notas
+                                        asset.notes && React.createElement('div', { style: { color: '#A8B2C1', fontSize: '0.82rem', fontStyle: 'italic', borderTop: '1px solid rgba(168,178,193,0.06)', paddingTop: '0.5rem' } },
+                                            '💬 ' + asset.notes
+                                        )
+                                    );
+                                })
+                            )
+                    )
+                );
+            }
+
             // VISTA DASHBOARD
             return React.createElement('div', { style: styles.app },
                 React.createElement('header', { style: styles.header },
@@ -4654,6 +5274,26 @@
                                     }
                                 }, '📊 Análisis Visual'),
                                 React.createElement('button', {
+                                    onClick: () => fetchLivePrices(),
+                                    title: liveLastUpdate ? 'Actualizado: ' + liveLastUpdate.toLocaleTimeString('es-ES') : 'Actualizar P&L',
+                                    style: {
+                                        ...styles.newOperationBtn,
+                                        backgroundColor: 'rgba(244,216,150,0.12)',
+                                        color: '#F4D896',
+                                        border: '1px solid rgba(244,216,150,0.25)',
+                                        fontSize: '0.82rem'
+                                    }
+                                }, liveLastUpdate ? '🔄 P&L · ' + liveLastUpdate.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) : '🔄 P&L Vivo'),
+                                React.createElement('button', {
+                                    onClick: () => { setCurrentView('assets'); loadAssets(); },
+                                    style: {
+                                        ...styles.newOperationBtn,
+                                        backgroundColor: 'rgba(244, 216, 150, 0.15)',
+                                        color: '#F4D896',
+                                        border: '1px solid rgba(244, 216, 150, 0.3)'
+                                    }
+                                }, '💎 Activos'),
+                                React.createElement('button', {
                                     onClick: () => setCurrentView(activeTab === 'futuros' ? 'new-operation' : 'new-spot-operation'),
                                     style: styles.newOperationBtn
                                 }, '+ Nueva Operación')
@@ -4703,6 +5343,7 @@
                                                     React.createElement('th', { style: styles.th }, 'Capital'),
                                                     React.createElement('th', { style: styles.th }, 'Prestado'),
                                                     React.createElement('th', { style: styles.th }, 'Total'),
+                                                    React.createElement('th', { style: { ...styles.th, color: '#88D498' } }, '📊 P&L Vivo'),
                                                     React.createElement('th', { style: styles.th }, 'Acciones')
                                                 )
                                             ),
@@ -4752,6 +5393,28 @@
                                                                 return formatCurrency(totalExecuted);
                                                             })()
                                                         ),
+                                                        // P&L VIVO FUTUROS
+                                                        (() => {
+                                                            const livePrice = livePrices[op.crypto.toUpperCase()];
+                                                            if (!livePrice) return React.createElement('td', { style: { ...styles.td, color: '#A8B2C1', fontSize: '0.8rem' } }, '—');
+                                                            const pepp = op.pepp || 0;
+                                                            const totalUnits = op.totalUnits || 0;
+                                                            if (!pepp || !totalUnits) return React.createElement('td', { style: { ...styles.td, color: '#A8B2C1', fontSize: '0.8rem' } }, '...');
+                                                            const margin = (op.ownCapital || 0) + (op.additionalMargin || 0);
+                                                            const pnl = (livePrice - pepp) * totalUnits * (op.type === 'SHORT' ? -1 : 1);
+                                                            const pnlPct = margin > 0 ? (pnl / margin) * 100 : 0;
+                                                            const isPos = pnl >= 0;
+                                                            return React.createElement('td', { style: styles.td },
+                                                                React.createElement('div', { style: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.1rem' } },
+                                                                    React.createElement('span', { style: { color: isPos ? '#88D498' : '#E89BA5', fontWeight: '700', fontSize: '0.88rem' } },
+                                                                        (isPos ? '+' : '') + formatCurrency(pnl)
+                                                                    ),
+                                                                    React.createElement('span', { style: { color: isPos ? '#88D498' : '#E89BA5', fontSize: '0.75rem' } },
+                                                                        (isPos ? '+' : '') + pnlPct.toFixed(2) + '%'
+                                                                    )
+                                                                )
+                                                            );
+                                                        })(),
                                                         React.createElement('td', { style: styles.td },
                                                             React.createElement('div', { 
                                                                 style: { display: 'flex', gap: '0.5rem', flexWrap: 'wrap' } 
@@ -4795,6 +5458,7 @@
                                                     React.createElement('th', { style: styles.th }, 'Operación'),
                                                     React.createElement('th', { style: styles.th }, 'Capital'),
                                                     React.createElement('th', { style: styles.th }, 'Total'),
+                                                    React.createElement('th', { style: { ...styles.th, color: '#88D498' } }, '📊 P&L Vivo'),
                                                     React.createElement('th', { style: styles.th }, 'Acciones')
                                                 )
                                             ),
@@ -4822,6 +5486,28 @@
                                                         React.createElement('td', { style: styles.td }, 
                                                             formatCurrency(operation.totalInvestment + operation.additionalMargin)
                                                         ),
+                                                        // P&L VIVO SPOT
+                                                        (() => {
+                                                            const livePrice = livePrices[operation.crypto.toUpperCase()];
+                                                            if (!livePrice) return React.createElement('td', { style: { ...styles.td, color: '#A8B2C1', fontSize: '0.8rem' } }, '—');
+                                                            const pepp = operation.pepp || 0;
+                                                            const totalUnits = operation.totalUnits || 0;
+                                                            if (!pepp || !totalUnits) return React.createElement('td', { style: { ...styles.td, color: '#A8B2C1', fontSize: '0.8rem' } }, '...');
+                                                            const margin = (operation.ownCapital || 0) + (operation.additionalMargin || 0);
+                                                            const pnl = (livePrice - pepp) * totalUnits;
+                                                            const pnlPct = margin > 0 ? (pnl / margin) * 100 : 0;
+                                                            const isPos = pnl >= 0;
+                                                            return React.createElement('td', { style: styles.td },
+                                                                React.createElement('div', { style: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.1rem' } },
+                                                                    React.createElement('span', { style: { color: isPos ? '#88D498' : '#E89BA5', fontWeight: '700', fontSize: '0.88rem' } },
+                                                                        (isPos ? '+' : '') + formatCurrency(pnl)
+                                                                    ),
+                                                                    React.createElement('span', { style: { color: isPos ? '#88D498' : '#E89BA5', fontSize: '0.75rem' } },
+                                                                        (isPos ? '+' : '') + pnlPct.toFixed(2) + '%'
+                                                                    )
+                                                                )
+                                                            );
+                                                        })(),
                                                         React.createElement('td', { style: styles.td },
                                                             React.createElement('div', { style: styles.actionButtons },
                                                                 React.createElement('button', {
