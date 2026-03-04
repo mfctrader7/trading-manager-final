@@ -198,7 +198,7 @@
             const [symSearchResults, setSymSearchResults] = useState([]);
             const [symSearchDone, setSymSearchDone] = useState(false);
             const [chartSymbol, setChartSymbol] = useState('BTC');
-            const [chartInterval, setChartInterval] = useState('D');
+            const [chartInterval, setChartInterval] = useState('1d');
 
             // DCA saved simulations state
             const [dcaSaved, setDcaSaved] = useState([]);
@@ -6402,10 +6402,26 @@
                             });
                         }
 
-                        // Fetch candles from Binance
-                        const url = 'https://api.binance.com/api/v3/klines?symbol=' + symbol + 'USDT&interval=' + interval + '&limit=500';
-                        const res = await fetch(url);
-                        const data = await res.json();
+                        // Fetch candles - try multiple sources
+                        let data = null;
+                        const urls = [
+                            'https://api.binance.com/api/v3/klines?symbol=' + symbol + 'USDT&interval=' + interval + '&limit=500',
+                            'https://api1.binance.com/api/v3/klines?symbol=' + symbol + 'USDT&interval=' + interval + '&limit=500',
+                            'https://api2.binance.com/api/v3/klines?symbol=' + symbol + 'USDT&interval=' + interval + '&limit=500',
+                            'https://corsproxy.io/?' + encodeURIComponent('https://api.binance.com/api/v3/klines?symbol=' + symbol + 'USDT&interval=' + interval + '&limit=500'),
+                            'https://api.allorigins.win/get?url=' + encodeURIComponent('https://api.binance.com/api/v3/klines?symbol=' + symbol + 'USDT&interval=' + interval + '&limit=500'),
+                        ];
+                        for (let i = 0; i < urls.length; i++) {
+                            try {
+                                const res = await fetch(urls[i]);
+                                if (res.ok) {
+                                    const raw = await res.json();
+                                    // allorigins wraps in {contents: "..."}
+                                    data = raw.contents ? JSON.parse(raw.contents) : raw;
+                                    if (Array.isArray(data) && data.length > 0) break;
+                                }
+                            } catch(e) { continue; }
+                        }
 
                         if (!Array.isArray(data) || data.length === 0) {
                             container.innerHTML = '<div style="color:#F4A9A8;text-align:center;padding:3rem">No se encontraron datos para ' + symbol + '</div>';
