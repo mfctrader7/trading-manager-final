@@ -1116,16 +1116,26 @@
             const COINGECKO_BASE = 'https://api.coingecko.com/api/v3';
 
             const cgFetch = async (url) => {
-                // Try direct first, fallback to cors proxy
+                // Always append API key
+                const sep = url.includes('?') ? '&' : '?';
+                const urlWithKey = url + sep + 'x_cg_demo_api_key=' + COINGECKO_API_KEY;
+                const headers = { 'Accept': 'application/json', 'x-cg-demo-api-key': COINGECKO_API_KEY };
+                // Try direct with API key in headers + query param
                 try {
-                    const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+                    const res = await fetch(urlWithKey, { headers });
                     if (res.ok) return await res.json();
                 } catch (e) {}
-                // Fallback: corsproxy.io
+                // Fallback: corsproxy.io with API key
                 try {
-                    const proxy = 'https://corsproxy.io/?' + encodeURIComponent(url);
-                    const res = await fetch(proxy);
+                    const proxy = 'https://corsproxy.io/?' + encodeURIComponent(urlWithKey);
+                    const res = await fetch(proxy, { headers });
                     if (res.ok) return await res.json();
+                } catch (e) {}
+                // Fallback 2: allorigins
+                try {
+                    const proxy2 = 'https://api.allorigins.win/get?url=' + encodeURIComponent(urlWithKey);
+                    const res = await fetch(proxy2);
+                    if (res.ok) { const d = await res.json(); return JSON.parse(d.contents); }
                 } catch (e) {}
                 throw new Error('No se pudo conectar con CoinGecko');
             };
