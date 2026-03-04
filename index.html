@@ -6371,7 +6371,25 @@
                 const btnOn  = { background: 'rgba(124,157,212,0.25)', border: '1px solid rgba(124,157,212,0.5)', color: '#7C9DD4', borderRadius: '6px', padding: '0.3rem 0.7rem', cursor: 'pointer', fontSize: '0.82rem', fontWeight: '700' };
                 const btnOff = { background: 'rgba(168,178,193,0.05)', border: '1px solid rgba(168,178,193,0.15)', color: '#A8B2C1', borderRadius: '6px', padding: '0.3rem 0.7rem', cursor: 'pointer', fontSize: '0.82rem' };
 
-                const widgetSrc = 'https://s.tradingview.com/widgetembed/?frameElementId=tv_chart&symbol=BINGX%3A' + chartSymbol + 'USDT&interval=' + chartInterval + '&theme=dark&style=1&locale=es&toolbar_bg=%231a1d29&studies=RSI%40tv-basicstudies%1FMACD%40tv-basicstudies&hide_top_toolbar=0&save_image=1';
+                // Widget oficial TradingView - Advanced Chart
+                const widgetConfig = JSON.stringify({
+                    autosize: true,
+                    symbol: 'BINGX:' + chartSymbol + 'USDT',
+                    interval: chartInterval,
+                    timezone: 'Etc/UTC',
+                    theme: 'dark',
+                    style: '1',
+                    locale: 'es',
+                    backgroundColor: 'rgba(26, 29, 41, 1)',
+                    gridColor: 'rgba(58, 63, 82, 0.5)',
+                    hide_top_toolbar: false,
+                    hide_legend: false,
+                    save_image: true,
+                    studies: ['STD;RSI', 'STD;MACD'],
+                    support_host: 'https://www.tradingview.com'
+                });
+
+                const iframeSrc = 'https://www.tradingview.com/widgetembed/?hideideas=1&overrides=%7B%7D&enabled_features=%5B%5D&disabled_features=%5B%5D&locale=es&utm_source=trading-manager-final.vercel.app&utm_medium=widget&utm_campaign=chart&utm_term=BINGX%3A' + chartSymbol + 'USDT&theme=dark&style=1&interval=' + chartInterval + '&timezone=Etc%2FUTC&studies=RSI%40tv-basicstudies%1FMACD%40tv-basicstudies&show_popup_button=1&popup_width=1000&popup_height=650';
 
                 return React.createElement('div', { style: styles.app },
                     React.createElement('header', { style: styles.header },
@@ -6409,25 +6427,52 @@
                                     }, iv.label);
                                 })
                             ),
-                            React.createElement('div', { style: { marginLeft: 'auto', color: '#555e7a', fontSize: '0.78rem' } },
-                                'BingX: ' + chartSymbol + 'USDT'
+                            React.createElement('div', { style: { marginLeft: 'auto' } },
+                                React.createElement('a', {
+                                    href: 'https://www.tradingview.com/chart/?symbol=BINGX:' + chartSymbol + 'USDT',
+                                    target: '_blank',
+                                    style: { color: '#7C9DD4', fontSize: '0.78rem', textDecoration: 'none' }
+                                }, 'Abrir en TradingView →')
                             )
                         ),
 
-                        // iframe widget - carga instantanea
-                        React.createElement('div', { style: { background: '#1a1d29', border: '1px solid #3a3f52', borderRadius: '12px', overflow: 'hidden', height: '620px' } },
-                            React.createElement('iframe', {
-                                key: chartSymbol + chartInterval,
-                                src: widgetSrc,
-                                style: { width: '100%', height: '100%', border: 'none' },
-                                allowFullScreen: true,
-                                allow: 'fullscreen'
-                            })
-                        )
+                        // TradingView Advanced Chart Widget
+                        React.createElement('div', {
+                            style: { background: '#1a1d29', border: '1px solid #3a3f52', borderRadius: '12px', overflow: 'hidden', height: '620px', position: 'relative' },
+                            ref: function(el) {
+                                if (!el) return;
+                                const key = chartSymbol + '_' + chartInterval;
+                                if (el.dataset.key === key) return;
+                                el.dataset.key = key;
+                                el.innerHTML = '';
+                                const div = document.createElement('div');
+                                div.id = 'tv_' + key;
+                                div.style.height = '100%';
+                                el.appendChild(div);
+                                const s = document.createElement('script');
+                                s.type = 'text/javascript';
+                                s.src = 'https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js';
+                                s.async = true;
+                                s.innerHTML = JSON.stringify({
+                                    autosize: true,
+                                    symbol: 'BINGX:' + chartSymbol + 'USDT',
+                                    interval: chartInterval,
+                                    timezone: 'Etc/UTC',
+                                    theme: 'dark',
+                                    style: '1',
+                                    locale: 'es',
+                                    backgroundColor: 'rgba(26,29,41,1)',
+                                    hide_top_toolbar: false,
+                                    save_image: true,
+                                    studies: ['STD;RSI', 'STD;MACD'],
+                                    support_host: 'https://www.tradingview.com'
+                                });
+                                div.appendChild(s);
+                            }
+                        })
                     )
                 );
             }
-
 
             if (currentView === 'reportes-historial') {
                 return React.createElement('div', { style: styles.app },
