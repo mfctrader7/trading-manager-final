@@ -1223,6 +1223,28 @@
                 }
             }, [currentView, assets.length]);
 
+            // Cleanup chart when leaving graficos view
+            useEffect(function() {
+                if (currentView !== 'graficos') {
+                    // Find ALL chart containers and destroy them
+                    document.querySelectorAll('[data-chart-container]').forEach(function(container) {
+                        if (container._chart) { 
+                            try { container._chart.remove(); } catch(e) {}
+                            container._chart = null; 
+                        }
+                        if (container._ro) { container._ro.disconnect(); container._ro = null; }
+                        container.innerHTML = '';
+                        container.dataset.key = '';
+                    });
+                    // Also destroy any stray canvas elements left by LightweightCharts
+                    document.querySelectorAll('canvas').forEach(function(c) {
+                        if (c.closest('#root') && !c.closest('[data-chart-container]')) {
+                            c.remove();
+                        }
+                    });
+                }
+            }, [currentView]);
+
             // Auto-fetch live P&L prices - triggers when assets/ops load (fixes Vercel timing)
             useEffect(() => {
                 if (assets.length > 0 && (operations.length > 0 || spotOperations.length > 0)) {
@@ -6373,148 +6395,14 @@
             // VISTA ACTIVOS
             if (currentView === 'graficos') {
                 const allSymbols = Object.keys(COINGECKO_IDS).sort();
-
-                const intervals = [
-                    { label: '1m', value: '1m', seconds: 60 },
-                    { label: '5m', value: '5m', seconds: 300 },
-                    { label: '15m', value: '15m', seconds: 900 },
-                    { label: '1h', value: '1h', seconds: 3600 },
-                    { label: '4h', value: '4h', seconds: 14400 },
-                    { label: '1D', value: '1d', seconds: 86400 },
-                    { label: '1W', value: '1w', seconds: 604800 },
-                ];
-
-                const btnOn  = { background: 'rgba(124,157,212,0.25)', border: '1px solid rgba(124,157,212,0.5)', color: '#7C9DD4', borderRadius: '6px', padding: '0.3rem 0.7rem', cursor: 'pointer', fontSize: '0.82rem', fontWeight: '700' };
-                const btnOff = { background: 'rgba(168,178,193,0.05)', border: '1px solid rgba(168,178,193,0.15)', color: '#A8B2C1', borderRadius: '6px', padding: '0.3rem 0.7rem', cursor: 'pointer', fontSize: '0.82rem' };
-
-                const loadChart = async function(symbol, interval, container) {
-                    if (!container) return;
-                    container.innerHTML = '<div style="color:#A8B2C1;text-align:center;padding:3rem">Cargando grafico...</div>';
-                    try {
-                        // Load Lightweight Charts library
-                        if (!window.LightweightCharts) {
-                            await new Promise(function(resolve, reject) {
-                                const s = document.createElement('script');
-                                s.src = 'https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js';
-                                s.onload = resolve;
-                                s.onerror = reject;
-                                document.head.appendChild(s);
-                            });
-                        }
-
-                        // Fetch candles - try multiple sources
-                        let data = null;
-                        const urls = [
-                            'https://api.binance.com/api/v3/klines?symbol=' + symbol + 'USDT&interval=' + interval + '&limit=500',
-                            'https://api1.binance.com/api/v3/klines?symbol=' + symbol + 'USDT&interval=' + interval + '&limit=500',
-                            'https://api2.binance.com/api/v3/klines?symbol=' + symbol + 'USDT&interval=' + interval + '&limit=500',
-                            'https://api.allorigins.win/get?url=' + encodeURIComponent('https://api.binance.com/api/v3/klines?symbol=' + symbol + 'USDT&interval=' + interval + '&limit=500'),
-                            'https://corsproxy.io/?' + encodeURIComponent('https://api.binance.com/api/v3/klines?symbol=' + symbol + 'USDT&interval=' + interval + '&limit=500'),
-                            'https://thingproxy.freeboard.io/fetch/https://api.binance.com/api/v3/klines?symbol=' + symbol + 'USDT&interval=' + interval + '&limit=500',
-                        ];
-                        for (let i = 0; i < urls.length; i++) {
-                            try {
-                                const res = await fetch(urls[i]);
-                                if (res.ok) {
-                                    const raw = await res.json();
-                                    // allorigins wraps in {contents: "..."}
-                                    data = raw.contents ? JSON.parse(raw.contents) : raw;
-                                    if (Array.isArray(data) && data.length > 0) break;
-                                }
-                            } catch(e) { continue; }
-                        }
-
-                        if (!Array.isArray(data) || data.length === 0) {
-                            container.innerHTML = '<div style="color:#F4A9A8;text-align:center;padding:3rem">No se encontraron datos para ' + symbol + '</div>';
-                            return;
-                        }
-
-                        const candles = data.map(function(d) {
-                            return { time: Math.floor(d[0] / 1000), open: parseFloat(d[1]), high: parseFloat(d[2]), low: parseFloat(d[3]), close: parseFloat(d[4]) };
-                        });
-
-                        container.innerHTML = '';
-                        const chart = LightweightCharts.createChart(container, {
-                            width: container.clientWidth,
-                            height: 580,
-                            layout: { background: { color: '#1a1d29' }, textColor: '#A8B2C1' },
-                            grid: { vertLines: { color: '#2a2d3e' }, horzLines: { color: '#2a2d3e' } },
-                            crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
-                            rightPriceScale: { borderColor: '#3a3f52' },
-                            timeScale: { borderColor: '#3a3f52', timeVisible: true, secondsVisible: false },
-                        });
-
-                        const candleSeries = chart.addCandlestickSeries({
-                            upColor: '#88D498', downColor: '#F4A9A8',
-                            borderUpColor: '#88D498', borderDownColor: '#F4A9A8',
-                            wickUpColor: '#88D498', wickDownColor: '#F4A9A8',
-                        });
-                        candleSeries.setData(candles);
-                        chart.timeScale().fitContent();
-
-                        // Auto resize
-                        const ro = new ResizeObserver(function() {
-                            chart.applyOptions({ width: container.clientWidth });
-                        });
-                        ro.observe(container);
-
-                    } catch(err) {
-                        container.innerHTML = '<div style="color:#F4A9A8;text-align:center;padding:3rem">Error cargando grafico: ' + err.message + '</div>';
-                    }
-                };
-
-                return React.createElement('div', { style: styles.app },
-                    React.createElement('header', { style: styles.header },
-                        React.createElement('div', { style: styles.headerContent },
-                            React.createElement('div', { style: styles.headerLeft },
-                                React.createElement('div', { style: styles.logo }, 'TP'),
-                                React.createElement('h1', { style: styles.title }, 'Graficos')
-                            ),
-                            React.createElement('div', { style: styles.headerRight },
-                                React.createElement('button', { onClick: () => setCurrentView('dashboard'), style: styles.backBtn }, 'Dashboard'),
-                                React.createElement('button', { onClick: handleLogout, style: styles.logoutBtn }, 'Salir')
-                            )
-                        )
-                    ),
-                    React.createElement('main', { style: { ...styles.main, maxWidth: '1400px', margin: '0 auto', padding: '1rem' } },
-
-                        // Controls bar
-                        React.createElement('div', { style: { display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap', marginBottom: '1rem', background: '#252836', border: '1px solid #3a3f52', borderRadius: '10px', padding: '0.8rem 1.2rem' } },
-                            React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '0.5rem' } },
-                                React.createElement('span', { style: { color: '#A8B2C1', fontSize: '0.82rem' } }, 'Activo:'),
-                                React.createElement('select', {
-                                    value: chartSymbol,
-                                    onChange: function(e) { setChartSymbol(e.target.value); },
-                                    style: { ...styles.input, width: '110px', padding: '0.3rem 0.6rem', fontSize: '0.88rem' }
-                                }, allSymbols.map(function(s) { return React.createElement('option', { key: s, value: s }, s); }))
-                            ),
-                            React.createElement('div', { style: { width: '1px', height: '24px', background: '#3a3f52' } }),
-                            React.createElement('div', { style: { display: 'flex', gap: '0.4rem', alignItems: 'center' } },
-                                React.createElement('span', { style: { color: '#A8B2C1', fontSize: '0.82rem', marginRight: '0.3rem' } }, 'Temporalidad:'),
-                                intervals.map(function(iv) {
-                                    return React.createElement('button', {
-                                        key: iv.value,
-                                        onClick: function() { setChartInterval(iv.value); },
-                                        style: chartInterval === iv.value ? btnOn : btnOff
-                                    }, iv.label);
-                                })
-                            ),
-                            React.createElement('div', { style: { marginLeft: 'auto', color: '#555e7a', fontSize: '0.78rem' } }, 'Binance: ' + chartSymbol + 'USDT')
-                        ),
-
-                        // Chart container
-                        React.createElement('div', {
-                            style: { background: '#1a1d29', border: '1px solid #3a3f52', borderRadius: '12px', overflow: 'hidden', minHeight: '600px' },
-                            ref: function(el) {
-                                if (!el) return;
-                                const key = chartSymbol + '_' + chartInterval;
-                                if (el.dataset.key === key) return;
-                                el.dataset.key = key;
-                                loadChart(chartSymbol, chartInterval, el);
-                            }
-                        })
-                    )
-                );
+                // Register setCurrentView so the overlay close button can call it
+                window._reactSetView = setCurrentView;
+                // Open the chart overlay (outside React)
+                if (typeof window.openChart === 'function') {
+                    window.openChart(allSymbols, chartSymbol, chartInterval);
+                }
+                // Return null - the overlay handles the UI
+                return null;
             }
 
             if (currentView === 'reportes-historial') {
@@ -9334,6 +9222,164 @@
             }
             lastAnalyticsCheck = isAnalytics;
         }, 500);
+
+
+    </script>
+    <!-- Chart overlay - outside React, controlled by JS -->
+    <div id="chart-overlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:#1a1d29; z-index:999; flex-direction:column;">
+        <div id="chart-overlay-header" style="background:#252836; border-bottom:1px solid #3a3f52; padding:0.8rem 1.2rem; display:flex; align-items:center; gap:1rem; flex-wrap:wrap;">
+            <button onclick="window.closeChart()" style="background:rgba(168,178,193,0.1); border:1px solid rgba(168,178,193,0.2); color:#A8B2C1; borderRadius:8px; padding:0.4rem 0.9rem; cursor:pointer; fontSize:0.88rem;">← Dashboard</button>
+            <select id="chart-symbol-select" style="background:#1a1d29; border:1px solid #3a3f52; color:#E8ECEF; borderRadius:6px; padding:0.3rem 0.6rem; fontSize:0.88rem;"></select>
+            <div id="chart-interval-btns" style="display:flex; gap:0.4rem;"></div>
+            <span id="chart-source-label" style="color:#555e7a; fontSize:0.78rem; margin-left:auto;"></span>
+        </div>
+        <div id="chart-container" style="flex:1; width:100%;"></div>
+    </div>
+
+    <script>
+    (function() {
+        var _chart = null;
+        var _ro = null;
+        var _currentSymbol = 'BTC';
+        var _currentInterval = '1d';
+        var _symbols = [];
+        var _intervals = [
+            {label:'1m',value:'1m'},{label:'5m',value:'5m'},{label:'15m',value:'15m'},
+            {label:'1h',value:'1h'},{label:'4h',value:'4h'},{label:'1D',value:'1d'},{label:'1W',value:'1w'}
+        ];
+
+        window.openChart = function(symbols, symbol, interval) {
+            _symbols = symbols || [];
+            _currentSymbol = symbol || 'BTC';
+            _currentInterval = interval || '1d';
+
+            // Build symbol select
+            var sel = document.getElementById('chart-symbol-select');
+            sel.innerHTML = '';
+            _symbols.forEach(function(s) {
+                var opt = document.createElement('option');
+                opt.value = s; opt.textContent = s;
+                if (s === _currentSymbol) opt.selected = true;
+                sel.appendChild(opt);
+            });
+            sel.onchange = function() { _currentSymbol = this.value; renderChart(); updateIntervalBtns(); };
+
+            // Build interval buttons
+            updateIntervalBtns();
+
+            // Show overlay
+            var overlay = document.getElementById('chart-overlay');
+            overlay.style.display = 'flex';
+            document.getElementById('root').style.display = 'none';
+
+            renderChart();
+        };
+
+        window.closeChart = function() {
+            destroyChart();
+            document.getElementById('chart-overlay').style.display = 'none';
+            document.getElementById('root').style.display = 'block';
+            // Notify React
+            if (window._reactSetView) window._reactSetView('dashboard');
+        };
+
+        function updateIntervalBtns() {
+            var container = document.getElementById('chart-interval-btns');
+            container.innerHTML = '';
+            _intervals.forEach(function(iv) {
+                var btn = document.createElement('button');
+                btn.textContent = iv.label;
+                btn.style.cssText = _currentInterval === iv.value
+                    ? 'background:rgba(124,157,212,0.25);border:1px solid rgba(124,157,212,0.5);color:#7C9DD4;border-radius:6px;padding:0.3rem 0.7rem;cursor:pointer;font-size:0.82rem;font-weight:700;'
+                    : 'background:rgba(168,178,193,0.05);border:1px solid rgba(168,178,193,0.15);color:#A8B2C1;border-radius:6px;padding:0.3rem 0.7rem;cursor:pointer;font-size:0.82rem;';
+                btn.onclick = function() { _currentInterval = iv.value; updateIntervalBtns(); renderChart(); };
+                container.appendChild(btn);
+            });
+            document.getElementById('chart-source-label').textContent = 'Binance: ' + _currentSymbol + 'USDT';
+        }
+
+        function destroyChart() {
+            if (_chart) { try { _chart.remove(); } catch(e) {} _chart = null; }
+            if (_ro) { _ro.disconnect(); _ro = null; }
+            var c = document.getElementById('chart-container');
+            if (c) c.innerHTML = '';
+        }
+
+        async function renderChart() {
+            var container = document.getElementById('chart-container');
+            if (!container) return;
+            destroyChart();
+            container.innerHTML = '<div style="color:#A8B2C1;text-align:center;padding:3rem;font-size:1rem;">Cargando grafico...</div>';
+            document.getElementById('chart-source-label').textContent = 'Binance: ' + _currentSymbol + 'USDT';
+
+            try {
+                if (!window.LightweightCharts) {
+                    await new Promise(function(res, rej) {
+                        var s = document.createElement('script');
+                        s.src = 'https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js';
+                        s.onload = res; s.onerror = rej;
+                        document.head.appendChild(s);
+                    });
+                }
+
+                var sym = _currentSymbol + 'USDT';
+                var iv = _currentInterval;
+                var urls = [
+                    'https://api.binance.com/api/v3/klines?symbol=' + sym + '&interval=' + iv + '&limit=500',
+                    'https://api1.binance.com/api/v3/klines?symbol=' + sym + '&interval=' + iv + '&limit=500',
+                    'https://api.allorigins.win/get?url=' + encodeURIComponent('https://api.binance.com/api/v3/klines?symbol=' + sym + '&interval=' + iv + '&limit=500'),
+                    'https://corsproxy.io/?' + encodeURIComponent('https://api.binance.com/api/v3/klines?symbol=' + sym + '&interval=' + iv + '&limit=500'),
+                ];
+
+                var data = null;
+                for (var i = 0; i < urls.length; i++) {
+                    try {
+                        var res = await fetch(urls[i]);
+                        if (res.ok) {
+                            var raw = await res.json();
+                            data = raw.contents ? JSON.parse(raw.contents) : raw;
+                            if (Array.isArray(data) && data.length > 0) break;
+                        }
+                    } catch(e) { continue; }
+                }
+
+                if (!data || !Array.isArray(data) || data.length === 0) {
+                    container.innerHTML = '<div style="color:#F4A9A8;text-align:center;padding:3rem;">No se encontraron datos para ' + _currentSymbol + '</div>';
+                    return;
+                }
+
+                var candles = data.map(function(d) {
+                    return { time: Math.floor(d[0]/1000), open: parseFloat(d[1]), high: parseFloat(d[2]), low: parseFloat(d[3]), close: parseFloat(d[4]) };
+                });
+
+                container.innerHTML = '';
+                _chart = LightweightCharts.createChart(container, {
+                    width: container.clientWidth, height: container.clientHeight || window.innerHeight - 80,
+                    layout: { background: { color: '#1a1d29' }, textColor: '#A8B2C1' },
+                    grid: { vertLines: { color: '#2a2d3e' }, horzLines: { color: '#2a2d3e' } },
+                    crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+                    rightPriceScale: { borderColor: '#3a3f52' },
+                    timeScale: { borderColor: '#3a3f52', timeVisible: true, secondsVisible: false },
+                });
+
+                var series = _chart.addCandlestickSeries({
+                    upColor: '#88D498', downColor: '#F4A9A8',
+                    borderUpColor: '#88D498', borderDownColor: '#F4A9A8',
+                    wickUpColor: '#88D498', wickDownColor: '#F4A9A8',
+                });
+                series.setData(candles);
+                _chart.timeScale().fitContent();
+
+                _ro = new ResizeObserver(function() {
+                    if (_chart) _chart.applyOptions({ width: container.clientWidth, height: container.clientHeight || window.innerHeight - 80 });
+                });
+                _ro.observe(container);
+
+            } catch(err) {
+                container.innerHTML = '<div style="color:#F4A9A8;text-align:center;padding:3rem;">Error: ' + err.message + '</div>';
+            }
+        }
+    })();
     </script>
 </body>
 </html>
