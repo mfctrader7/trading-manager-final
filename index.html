@@ -10795,7 +10795,7 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                     if (newOps >= slotsAvailable) break;
 
                     try {
-                        const result = await runEMAForSymbol(symbol, cfg, userId);
+                        const result = await runEMAForSymbolBingX(symbol, cfg);
                         if (!result || !result.crosses || result.crosses.length === 0) continue;
 
                         const lastCross = result.crosses[0];
