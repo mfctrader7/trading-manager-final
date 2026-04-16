@@ -10654,7 +10654,10 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
             };
 
             const bingxGetKlines = async (symbol, interval, limit) => {
-                const bingxSymbol = symbol.includes('-') ? symbol : symbol + '-USDT-SWAP';
+                // BingX klines use BTC-USDT format (not BTC-USDT-SWAP)
+                var cleanSym = symbol.replace('-SWAP','').replace('-USDT-SWAP','-USDT');
+                if (!cleanSym.includes('-')) cleanSym = cleanSym + '-USDT';
+                const bingxSymbol = cleanSym;
                 const data = await bingxRequest('GET', '/openApi/swap/v3/quote/klines', {
                     symbol: bingxSymbol, interval, limit: (limit || 300).toString()
                 });
@@ -10748,6 +10751,8 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                     var long = [], short = [], none = [];
                     for (var si = 0; si < assets.length; si++) {
                         var symbol = assets[si];
+                        // Small delay to avoid rate limiting (200ms between requests)
+                        if (si > 0) await new Promise(function(r){ setTimeout(r, 200); });
                         try {
                             var result = await runEMAForSymbolBingX(symbol, cfg);
                             var crossStatus = null;
