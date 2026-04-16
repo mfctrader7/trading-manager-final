@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -10824,6 +10823,8 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                 botAddLog('Bot detenido', 'warn');
             };
 
+                        };
+
             const atCycleEstado = (current) => {
                 const cycle = [null, 'bullish', 'bearish', 'lateral'];
                 const idx = cycle.indexOf(current);
@@ -13820,8 +13821,6 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                 minWidth: '200px'
             },
         };
-
-        } // end TradingApp
 
         ReactDOM.render(React.createElement(TradingApp), document.getElementById('root'));
         
