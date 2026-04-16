@@ -1,0 +1,5 @@
+{
+  "rewrites": [
+    { "source": "/api/bingx", "destination": "/api/bingx" }
+  ]
+}
