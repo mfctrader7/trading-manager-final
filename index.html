@@ -10685,7 +10685,7 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                         high: parseFloat(k.high || k.h || k[2]),
                         low: parseFloat(k.low || k.l || k[3])
                     };
-                }).filter(function(k) { return !isNaN(k.close); });
+                }).filter(function(k) { return !isNaN(k.close); }).reverse(); // BingX returns newest first, we need oldest first
             };
 
             const tfToBingx = (tf) => {
