@@ -10755,13 +10755,7 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                         if (si > 0) await new Promise(function(r){ setTimeout(r, 200); });
                         try {
                             var result = await runEMAForSymbolBingX(symbol, cfg);
-                            var crossStatus = null;
-                            if (result.crosses && result.crosses.length > 0) {
-                                var lc = result.crosses[0];
-                                var alreadyDone = await isCrossAlreadyProcessed(symbol, lc.signal, lc.date, lc.hour, cfg.tf, cfg.ema1, cfg.ema2);
-                                var opRes = await supabaseClient.from('ema_bot_operations').select('id').eq('user_id', userId).eq('symbol', symbol).eq('direction', lc.signal).eq('cross_date', lc.date).eq('cross_hour', lc.hour).eq('status','open').limit(1);
-                                crossStatus = (opRes.data && opRes.data.length > 0) ? 'operating' : alreadyDone ? 'processed' : 'new';
-                            }
+                            var crossStatus = result.crosses && result.crosses.length > 0 ? 'new' : null;
                             var item = { symbol: symbol, signal: result.signal, lastPrice: result.lastPrice, crossDate: result.crosses[0] ? result.crosses[0].date : null, crossHour: result.crosses[0] ? result.crosses[0].hour : null, crossPrice: result.crosses[0] ? result.crosses[0].price : null, crossStatus: crossStatus, error: result.error };
                             if (result.signal === 'LONG') long.push(item);
                             else if (result.signal === 'SHORT') short.push(item);
