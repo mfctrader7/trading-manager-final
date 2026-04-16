@@ -10755,8 +10755,15 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                         if (si > 0) await new Promise(function(r){ setTimeout(r, 200); });
                         try {
                             var result = await runEMAForSymbolBingX(symbol, cfg);
-                            var crossStatus = result.crosses && result.crosses.length > 0 ? 'new' : null;
-                            var item = { symbol: symbol, signal: result.signal, lastPrice: result.lastPrice, crossDate: result.crosses[0] ? result.crosses[0].date : null, crossHour: result.crosses[0] ? result.crosses[0].hour : null, crossPrice: result.crosses[0] ? result.crosses[0].price : null, crossStatus: crossStatus, error: result.error };
+                            // Check if most recent cross was in last 48h
+                            var crossStatus = null;
+                            var lastCross = result.crosses && result.crosses.length > 0 ? result.crosses[0] : null;
+                            if (lastCross) {
+                                var crossTs = new Date(lastCross.date + 'T' + String(lastCross.hour).padStart(2,'0') + ':00:00Z').getTime();
+                                var hoursAgo = (Date.now() - crossTs) / 3600000;
+                                crossStatus = hoursAgo <= 48 ? 'new' : 'old';
+                            }
+                            var item = { symbol: symbol, signal: result.signal, lastPrice: result.lastPrice, crossDate: lastCross ? lastCross.date : null, crossHour: lastCross ? lastCross.hour : null, crossPrice: lastCross ? lastCross.price : null, crossStatus: crossStatus, hoursAgo: lastCross ? Math.round((Date.now() - new Date(lastCross.date + 'T' + String(lastCross.hour).padStart(2,'0') + ':00:00Z').getTime()) / 3600000) : null, error: result.error };
                             if (result.signal === 'LONG') long.push(item);
                             else if (result.signal === 'SHORT') short.push(item);
                             else none.push(item);
@@ -11108,7 +11115,7 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                             ),
                             (function(){
                                 var items = marketScan[marketScanTab] || [];
-                                var stMap = {operating:{label:'🟢 Operando',color:'#88D498',bg:'rgba(136,212,152,0.08)'},new:{label:'🔵 Nuevo cruce',color:'#7C9DD4',bg:'rgba(124,157,212,0.08)'},processed:{label:'✅ Ya operado',color:'#555e7a',bg:'rgba(168,178,193,0.04)'}};
+                                var stMap = {operating:{label:'🟢 Operando',color:'#88D498',bg:'rgba(136,212,152,0.08)'},new:{label:'🔵 Cruce reciente',color:'#7C9DD4',bg:'rgba(124,157,212,0.08)'},old:{label:'📈 En tendencia',color:'#A8B2C1',bg:'rgba(168,178,193,0.04)'},processed:{label:'✅ Ya operado',color:'#555e7a',bg:'rgba(168,178,193,0.04)'}};
                                 var stDef = {label:'⚪ Sin cruce',color:'#555e7a',bg:'rgba(168,178,193,0.04)'};
                                 var dirColor = marketScanTab==='long'?'#88D498':marketScanTab==='short'?'#F4A9A8':'#A8B2C1';
                                 if (botAssets.length===0) return React.createElement('div', {style:{color:'#555e7a',fontSize:'0.83rem',textAlign:'center',padding:'1.5rem'}}, 'Seleccioná activos y presioná Escanear');
@@ -11123,7 +11130,7 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                                                 React.createElement('span', {style:{fontWeight:'800',fontSize:'0.88rem',color:'#E8ECEF'}}, item.symbol),
                                                 item.lastPrice ? React.createElement('span', {style:{fontSize:'0.78rem',color:dirColor,fontWeight:'600'}}, formatCurrency(item.lastPrice)) : React.createElement('span', {style:{fontSize:'0.72rem',color:'#555e7a'}}, '—')
                                             ),
-                                            React.createElement('div', {style:{fontSize:'0.72rem',color:st.color,fontWeight:'600',marginBottom:item.crossDate?'0.3rem':0}}, st.label),
+                                            React.createElement('div', {style:{fontSize:'0.72rem',color:st.color,fontWeight:'600',marginBottom:item.crossDate?'0.3rem':0}}, st.label + (item.hoursAgo !== null ? ' · ' + (item.hoursAgo < 1 ? '<1h' : item.hoursAgo + 'h') + ' atrás' : '')),
                                             item.crossDate && React.createElement('div', {style:{fontSize:'0.7rem',color:'#555e7a'}}, item.crossDate + (item.crossHour!==null?' '+String(item.crossHour).padStart(2,'0')+':00':'') + (item.crossPrice?' · '+formatCurrency(item.crossPrice):'')),
                                             item.error && React.createElement('div', {style:{fontSize:'0.68rem',color:'#F4A9A8',marginTop:'0.2rem'}}, item.error)
                                         );
