@@ -10564,7 +10564,7 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                 setBotOpsLoading(true);
                 try {
                     const userId = DEFAULT_ADMIN_USER_ID;
-                    const { data, error } = await supabase
+                    const { data, error } = await supabaseClient
                         .from('ema_bot_operations')
                         .select('*')
                         .eq('user_id', userId)
@@ -10578,7 +10578,7 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
 
             const isCrossAlreadyProcessed = async (symbol, direction, crossDate, crossHour, tf, ema1, ema2) => {
                 const userId = DEFAULT_ADMIN_USER_ID;
-                const { data } = await supabase
+                const { data } = await supabaseClient
                     .from('ema_bot_crosses')
                     .select('id')
                     .eq('user_id', userId)
@@ -10595,7 +10595,7 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
 
             const markCrossProcessed = async (symbol, direction, crossDate, crossHour, tf, ema1, ema2, crossPrice) => {
                 const userId = DEFAULT_ADMIN_USER_ID;
-                await supabase.from('ema_bot_crosses').insert({
+                await supabaseClient.from('ema_bot_crosses').insert({
                     user_id: userId, symbol, direction, cross_date: crossDate,
                     cross_hour: crossHour, tf, ema1, ema2, cross_price: crossPrice
                 });
@@ -10636,7 +10636,7 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                 }
 
                 // Guardar en Supabase
-                const { data } = await supabase.from('ema_bot_operations').insert({
+                const { data } = await supabaseClient.from('ema_bot_operations').insert({
                     user_id: userId, symbol, direction,
                     tf: cfg.tf, ema1: cfg.ema1, ema2: cfg.ema2,
                     cross_date: crossDate, cross_hour: crossHour,
@@ -10759,7 +10759,7 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                             if (result.crosses && result.crosses.length > 0) {
                                 var lc = result.crosses[0];
                                 var alreadyDone = await isCrossAlreadyProcessed(symbol, lc.signal, lc.date, lc.hour, cfg.tf, cfg.ema1, cfg.ema2);
-                                var opRes = await supabase.from('ema_bot_operations').select('id').eq('user_id', userId).eq('symbol', symbol).eq('direction', lc.signal).eq('cross_date', lc.date).eq('cross_hour', lc.hour).eq('status','open').limit(1);
+                                var opRes = await supabaseClient.from('ema_bot_operations').select('id').eq('user_id', userId).eq('symbol', symbol).eq('direction', lc.signal).eq('cross_date', lc.date).eq('cross_hour', lc.hour).eq('status','open').limit(1);
                                 crossStatus = (opRes.data && opRes.data.length > 0) ? 'operating' : alreadyDone ? 'processed' : 'new';
                             }
                             var item = { symbol: symbol, signal: result.signal, lastPrice: result.lastPrice, crossDate: result.crosses[0] ? result.crosses[0].date : null, crossHour: result.crosses[0] ? result.crosses[0].hour : null, crossPrice: result.crosses[0] ? result.crosses[0].price : null, crossStatus: crossStatus, error: result.error };
@@ -10782,7 +10782,7 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                 const userId = DEFAULT_ADMIN_USER_ID;
 
                 // Contar operaciones abiertas
-                const { data: openOps } = await supabase
+                const { data: openOps } = await supabaseClient
                     .from('ema_bot_operations')
                     .select('id, symbol, direction')
                     .eq('user_id', userId)
