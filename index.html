@@ -10450,7 +10450,6 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                     };
                 }).filter(k => !isNaN(k.close));
             };
-            };
 
             // Mapeo de TF del bot al formato BingX
             const tfToBingx = (tf) => {
@@ -13821,6 +13820,8 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                 minWidth: '200px'
             },
         };
+
+        } // end TradingApp
 
         ReactDOM.render(React.createElement(TradingApp), document.getElementById('root'));
         
