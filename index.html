@@ -10658,7 +10658,19 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                 const data = await bingxRequest('GET', '/openApi/swap/v3/quote/klines', {
                     symbol: bingxSymbol, interval, limit: (limit || 300).toString()
                 });
-                return (data && data.data ? data.data : []).map(function(k) {
+                // BingX returns {code, data: [...]} or {code, data: {klines: [...]}}
+                var raw = [];
+                if (data && Array.isArray(data.data)) {
+                    raw = data.data;
+                } else if (data && data.data && Array.isArray(data.data.klines)) {
+                    raw = data.data.klines;
+                } else if (Array.isArray(data)) {
+                    raw = data;
+                } else {
+                    console.warn('BingX klines unexpected format:', JSON.stringify(data).slice(0,200));
+                    return [];
+                }
+                return raw.map(function(k) {
                     var ts = parseInt(k.time || k.t || k[0]);
                     var d = new Date(ts);
                     return {
