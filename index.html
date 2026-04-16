@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -410,7 +411,6 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
             const [emaError, setEmaError] = useState('');
             // EMA Bot
             // BingX — todas las llamadas van por el proxy /api/bingx (Vercel serverless)
-            // Las API keys están en variables de entorno de Vercel, no en el HTML
             const BINGX_PROXY = '/api/bingx';
             const [botConfig, setBotConfig] = useState({
                 ema1: 12, ema2: 25, tf: '1h', session: 'open_day',
@@ -10419,82 +10419,33 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                 return 0; // open_day
             };
 
-            // Obtener velas de BingX via proxy
-            const bingxGetKlines = async (symbol, interval, limit = 300) => {
-                const bingxSymbol = symbol.includes('-') ? symbol : symbol + '-USDT-SWAP';
-                const res = await fetch(BINGX_PROXY, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        path: '/openApi/swap/v3/quote/klines',
-                        method: 'GET',
-                        symbol: bingxSymbol,
-                        interval,
-                        limit: limit.toString()
-                    })
-                });
-                const data = await res.json();
-                const raw = data?.data || [];
-                return raw.map(k => {
-                    const ts = parseInt(k.time || k.t || k[0]);
-                    const d = new Date(ts);
-                    return {
-                        ts,
-                        date: d.toISOString().slice(0, 10),
-                        hour: d.getUTCHours(),
-                        close: parseFloat(k.close || k.c || k[4]),
-                        open:  parseFloat(k.open  || k.o || k[1]),
-                        high:  parseFloat(k.high  || k.h || k[2]),
-                        low:   parseFloat(k.low   || k.l || k[3]),
-                    };
-                }).filter(k => !isNaN(k.close));
-            };
-
-            // Mapeo de TF del bot al formato BingX
-            const tfToBingx = (tf) => {
-                const map = { '1m':'1m', '3m':'3m', '5m':'5m', '15m':'15m', '30m':'30m',
-                              '1h':'1h', '2h':'2h', '4h':'4h', '6h':'6h', '8h':'8h',
-                              '12h':'12h', '1d':'1d', '1w':'1w' };
-                return map[tf] || '1h';
-            };
-
             const runEMAForSymbol = async (symbol, config) => {
                 const { ema1, ema2, tf } = config;
                 const maxPeriod = Math.max(ema1, ema2);
                 const neededCandles = Math.max(maxPeriod * 4 + 100, 300);
-
                 let candles = [];
                 try {
                     candles = await bingxGetKlines(symbol, tfToBingx(tf), neededCandles);
                 } catch(e) {
-                    return { symbol, signal: null, ema1val: null, ema2val: null, crossDate: null, crossPrice: null, crosses: [], error: 'Error BingX: ' + e.message };
+                    return { symbol, signal: null, ema1val: null, ema2val: null, crossDate: null, crossHour: null, crossPrice: null, lastPrice: null, crosses: [], error: 'Error BingX: ' + e.message };
                 }
-
                 if (candles.length < maxPeriod + 2) {
-                    return { symbol, signal: null, ema1val: null, ema2val: null, crossDate: null, crossPrice: null, crosses: [], error: 'Sin datos suficientes (' + candles.length + ' velas)' };
+                    return { symbol, signal: null, ema1val: null, ema2val: null, crossDate: null, crossHour: null, crossPrice: null, lastPrice: null, crosses: [], error: 'Sin datos suficientes (' + candles.length + ')' };
                 }
-
                 const closes = candles.map(c => c.close);
                 const ema1arr = calcEMA(closes, ema1);
                 const ema2arr = calcEMA(closes, ema2);
-
                 const ema2map = {};
                 ema2arr.forEach(e => { ema2map[e.idx] = e.value; });
                 const ema2aligned = ema1arr.map(e => ({ idx: e.idx, value: ema2map[e.idx] || null })).filter(e => e.value !== null);
                 const ema1aligned = ema1arr.filter(e => ema2map[e.idx] !== undefined);
-
                 const lastE1 = ema1aligned[ema1aligned.length - 1];
                 const lastE2 = ema2aligned[ema2aligned.length - 1];
-                const currentSignal = lastE1 && lastE2
-                    ? (lastE1.value > lastE2.value ? 'LONG' : 'SHORT')
-                    : null;
-
+                const currentSignal = lastE1 && lastE2 ? (lastE1.value > lastE2.value ? 'LONG' : 'SHORT') : null;
                 const crosses = detectCrosses(ema1aligned, ema2aligned, candles);
                 const lastCross = crosses[0] || null;
-
                 return {
-                    symbol,
-                    signal: currentSignal,
+                    symbol, signal: currentSignal,
                     ema1val: lastE1 ? lastE1.value : null,
                     ema2val: lastE2 ? lastE2.value : null,
                     crossDate: lastCross ? lastCross.date : null,
@@ -10503,7 +10454,6 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                     lastPrice: candles[candles.length - 1]?.close || null,
                     crosses: crosses.slice(0, 10),
                     candleCount: candles.length,
-                    lastCandle: candles[candles.length - 1] || null,
                     error: null
                 };
             };
@@ -10537,19 +10487,33 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
             // EMA BOT — FUNCIONES
             // ============================================================
 
-            // bingxSign ya no se usa — la firma la hace el proxy en Vercel
-            const bingxSign = async () => null;
+            const bingxSign = async () => null; // firma la hace el proxy en Vercel
 
             const bingxRequest = async (method, path, params = {}) => {
-                // Todo pasa por el proxy /api/bingx — sin firma en el browser
-                const body = JSON.stringify({ path, method, ...params });
                 const res = await fetch(BINGX_PROXY, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body
+                    body: JSON.stringify({ path, method, ...params })
                 });
                 return res.json();
             };
+
+            const bingxGetKlines = async (symbol, interval, limit = 300) => {
+                const bingxSymbol = symbol.includes('-') ? symbol : symbol + '-USDT-SWAP';
+                const res = await fetch(BINGX_PROXY, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path: '/openApi/swap/v3/quote/klines', method: 'GET', symbol: bingxSymbol, interval, limit: limit.toString() })
+                });
+                const data = await res.json();
+                return (data?.data || []).map(k => {
+                    const ts = parseInt(k.time || k.t || k[0]);
+                    const d = new Date(ts);
+                    return { ts, date: d.toISOString().slice(0,10), hour: d.getUTCHours(), close: parseFloat(k.close||k.c||k[4]), open: parseFloat(k.open||k.o||k[1]), high: parseFloat(k.high||k.h||k[2]), low: parseFloat(k.low||k.l||k[3]) };
+                }).filter(k => !isNaN(k.close));
+            };
+
+            const tfToBingx = (tf) => ({ '1m':'1m','3m':'3m','5m':'5m','15m':'15m','30m':'30m','1h':'1h','2h':'2h','4h':'4h','6h':'6h','8h':'8h','12h':'12h','1d':'1d','1w':'1w' }[tf] || '1h');
 
             const bingxGetBalance = async () => {
                 const data = await bingxRequest('GET', '/openApi/swap/v2/user/balance');
@@ -10682,42 +10646,25 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                 try {
                     const userId = DEFAULT_ADMIN_USER_ID;
                     const long = [], short = [], none = [];
-
                     for (const symbol of assets) {
                         try {
                             const result = await runEMAForSymbol(symbol, cfg);
-                            if (result.error) { none.push({ symbol, error: result.error, lastPrice: null, crossDate: null, crossHour: null, crossPrice: null, signal: null }); continue; }
-
-                            // Check if last cross is already processed
+                            if (result.error) { none.push({ symbol, error: result.error, lastPrice: null, crossDate: null, crossHour: null, crossPrice: null, signal: null, crossStatus: null }); continue; }
                             let crossStatus = null;
                             if (result.crosses && result.crosses.length > 0) {
                                 const lc = result.crosses[0];
                                 const already = await isCrossAlreadyProcessed(symbol, lc.signal, lc.date, lc.hour, cfg.tf, cfg.ema1, cfg.ema2);
-                                // Check if there's an open operation for this cross
-                                const { data: openOp } = await supabase.from('ema_bot_operations').select('id,status').eq('user_id', userId).eq('symbol', symbol).eq('direction', lc.signal).eq('cross_date', lc.date).eq('cross_hour', lc.hour).eq('status','open').limit(1);
+                                const { data: openOp } = await supabase.from('ema_bot_operations').select('id').eq('user_id', userId).eq('symbol', symbol).eq('direction', lc.signal).eq('cross_date', lc.date).eq('cross_hour', lc.hour).eq('status','open').limit(1);
                                 crossStatus = openOp && openOp.length > 0 ? 'operating' : already ? 'processed' : 'new';
                             }
-
-                            const item = {
-                                symbol,
-                                signal: result.signal,
-                                lastPrice: result.lastPrice,
-                                crossDate: result.crosses?.[0]?.date || null,
-                                crossHour: result.crosses?.[0]?.hour || null,
-                                crossPrice: result.crosses?.[0]?.price || null,
-                                crossStatus, // 'new' | 'operating' | 'processed' | null
-                                ema1val: result.ema1val,
-                                ema2val: result.ema2val,
-                            };
-
+                            const item = { symbol, signal: result.signal, lastPrice: result.lastPrice, crossDate: result.crosses?.[0]?.date || null, crossHour: result.crosses?.[0]?.hour || null, crossPrice: result.crosses?.[0]?.price || null, crossStatus, ema1val: result.ema1val, ema2val: result.ema2val };
                             if (result.signal === 'LONG') long.push(item);
                             else if (result.signal === 'SHORT') short.push(item);
                             else none.push(item);
                         } catch(e) {
-                            none.push({ symbol, error: e.message, lastPrice: null, signal: null });
+                            none.push({ symbol, error: e.message, lastPrice: null, signal: null, crossStatus: null });
                         }
                     }
-
                     setMarketScan({ long, short, none });
                     setMarketScanTs(new Date());
                 } finally {
@@ -10725,7 +10672,7 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                 }
             };
 
-            const botCycle = async (cfg, assets) => {
+                        const botCycle = async (cfg, assets) => {
                 botAddLog('Iniciando ciclo — ' + assets.length + ' activos', 'info');
                 const userId = DEFAULT_ADMIN_USER_ID;
 
@@ -10934,275 +10881,14 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
             // ============================================================
             // VISTA ANÁLISIS TÉCNICO
             // ============================================================
-
-                        // ============================================================
-
-                        if (currentView === 'analisis-tecnico') {
-                const styles2 = {
-                    card: { background: '#252836', border: '1px solid #3a3f52', borderRadius: '12px', padding: '1.2rem', marginBottom: '1.2rem' },
-                    sectionTitle: { color: '#E8ECEF', fontSize: '0.95rem', fontWeight: '700', margin: '0 0 1rem' },
-                    label: { color: '#A8B2C1', fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.05em' },
-                    input: { background: '#1a1d29', border: '1px solid #3a3f52', borderRadius: '6px', color: '#E8ECEF', padding: '0.35rem 0.6rem', fontSize: '0.82rem', width: '100%', outline: 'none' },
-                    th: { color: '#555e7a', fontSize: '0.68rem', textTransform: 'uppercase', padding: '0.5rem 0.6rem', textAlign: 'center', fontWeight: '700', letterSpacing: '0.04em', borderBottom: '1px solid #3a3f52', whiteSpace: 'nowrap' },
-                    td: { padding: '0.35rem 0.4rem', textAlign: 'center', borderBottom: '1px solid rgba(58,63,82,0.4)', verticalAlign: 'middle' },
-                };
-
-                const sentFields = [
-                    { key: 'fear_greed_estado', label: 'Fear & Greed', numKey: 'fear_greed_valor', numPlaceholder: '0-100' },
-                    { key: 'btc_dominancia_estado', label: 'BTC Dom.', numKey: 'btc_dominancia_valor', numPlaceholder: '%' },
-                    { key: 'btc_eth_estado', label: 'BTC/ETH', numKey: null },
-                    { key: 'altcoin_season_estado', label: 'Altcoin Season', numKey: 'altcoin_season_valor', numPlaceholder: '0-100' },
-                    { key: 'usdt_dominancia_estado', label: 'USDT Dom.', numKey: null },
-                    { key: 'usdc_dominancia_estado', label: 'USDC Dom.', numKey: null },
-                    { key: 'open_interest_estado', label: 'Open Interest', numKey: null },
-                    { key: 'funding_rate_estado', label: 'Funding Rate', numKey: null },
-                    { key: 'etf_flujo_estado', label: 'ETF Net Flow', numKey: 'etf_net_flow', numPlaceholder: 'M$' },
-                    { key: 'bolsa_asia_estado', label: 'Bolsa Asia', numKey: null },
-                    { key: 'bolsa_europa_estado', label: 'Bolsa Europa', numKey: null },
-                    { key: 'bolsa_usa_estado', label: 'Bolsa USA', numKey: null },
-                    { key: 'macro_calendario_estado', label: 'Macro/Noticias', numKey: null },
-                ];
-
-                return React.createElement('div', { style: { background: '#1a1d29', minHeight: '100vh', color: '#E8ECEF' } },
-                    // HEADER
-                    React.createElement('header', { style: { background: '#252836', borderBottom: '1px solid #3a3f52', padding: '0.85rem 1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem' } },
-                        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '0.75rem' } },
-                            React.createElement('span', { style: { fontSize: '1.3rem' } }, '📊'),
-                            React.createElement('h1', { style: { margin: 0, fontSize: '1.05rem', fontWeight: '700', color: '#E8ECEF' } }, 'Análisis Técnico'),
-                            React.createElement('span', { style: { color: '#555e7a', fontSize: '0.78rem' } }, '— Mercado Cripto')
-                        ),
-                        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' } },
-                            // Fecha selector
-                            React.createElement('input', { type: 'date', value: atFecha, onChange: e => { setAtFecha(e.target.value); atCargarFecha(e.target.value); }, style: { background: '#1a1d29', border: '1px solid #3a3f52', borderRadius: '6px', color: '#E8ECEF', padding: '0.35rem 0.6rem', fontSize: '0.82rem' } }),
-                            React.createElement('button', { onClick: atGuardar, disabled: atSaving, style: { background: atSaved ? 'rgba(136,212,152,0.2)' : 'rgba(124,157,212,0.2)', border: '1px solid '+(atSaved ? 'rgba(136,212,152,0.4)' : 'rgba(124,157,212,0.4)'), color: atSaved ? '#88D498' : '#7C9DD4', borderRadius: '7px', padding: '0.4rem 1rem', cursor: 'pointer', fontSize: '0.82rem', fontWeight: '700' } },
-                                atSaving ? '⏳ Guardando...' : atSaved ? '✅ Guardado' : '💾 Guardar'
-                            ),
-                            React.createElement('button', { onClick: () => setCurrentView('dashboard'), style: { background: 'rgba(168,178,193,0.08)', border: '1px solid rgba(168,178,193,0.2)', color: '#A8B2C1', borderRadius: '7px', padding: '0.4rem 0.9rem', cursor: 'pointer', fontSize: '0.82rem' } }, '← Dashboard'),
-                            React.createElement('button', { onClick: handleLogout, style: { background: 'rgba(244,169,168,0.1)', border: '1px solid rgba(244,169,168,0.2)', color: '#F4A9A8', borderRadius: '7px', padding: '0.4rem 0.9rem', cursor: 'pointer', fontSize: '0.82rem' } }, 'Salir')
-                        )
-                    ),
-
-                    // SUBTABS
-                    React.createElement('div', { style: { background: '#252836', borderBottom: '1px solid #3a3f52', padding: '0 1.5rem', display: 'flex', gap: '0.25rem' } },
-                        ['analisis','historial'].map(tab => React.createElement('button', {
-                            key: tab, onClick: () => setAtSubTab(tab),
-                            style: { background: 'none', border: 'none', borderBottom: atSubTab === tab ? '2px solid #7C9DD4' : '2px solid transparent', color: atSubTab === tab ? '#7C9DD4' : '#A8B2C1', padding: '0.75rem 1rem', cursor: 'pointer', fontSize: '0.85rem', fontWeight: atSubTab === tab ? '700' : '400', textTransform: 'capitalize' }
-                        }, tab === 'analisis' ? '📊 Análisis del Día' : '📅 Historial'))
-                    ),
-
-                    React.createElement('main', { style: { maxWidth: '1400px', margin: '0 auto', padding: '1.2rem 1rem' } },
-                        atError && React.createElement('div', { style: { background: 'rgba(244,169,168,0.1)', border: '1px solid rgba(244,169,168,0.3)', borderRadius: '8px', padding: '0.75rem 1rem', marginBottom: '1rem', color: '#F4A9A8', fontSize: '0.85rem' } }, atError),
-                        atLoading && React.createElement('div', { style: { textAlign: 'center', color: '#A8B2C1', padding: '3rem', fontSize: '1rem' } }, '⏳ Cargando...'),
-
-                        // ===== TAB: ANÁLISIS =====
-                        !atLoading && atSubTab === 'analisis' && React.createElement('div', null,
-
-                            // BLOQUE 1: SENTIMIENTO GLOBAL
-                            React.createElement('div', { style: styles2.card },
-                                React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' } },
-                                    React.createElement('h2', { style: { ...styles2.sectionTitle, margin: 0 } }, '🌍 Sentimiento Global'),
-                                    React.createElement('div', { style: { display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' } },
-                                        React.createElement('div', { style: { display: 'flex', gap: '0.4rem', alignItems: 'center' } },
-                                            React.createElement('span', { style: { color: '#A8B2C1', fontSize: '0.75rem' } }, 'Cripto:'),
-                                            atEstadoBtn(atSentimiento.sentimiento_cripto, () => setAtSentimiento({ ...atSentimiento, sentimiento_cripto: atCycleEstado(atSentimiento.sentimiento_cripto) }))
-                                        ),
-                                        React.createElement('div', { style: { display: 'flex', gap: '0.4rem', alignItems: 'center' } },
-                                            React.createElement('span', { style: { color: '#A8B2C1', fontSize: '0.75rem' } }, 'Macro:'),
-                                            atEstadoBtn(atSentimiento.sentimiento_macro, () => setAtSentimiento({ ...atSentimiento, sentimiento_macro: atCycleEstado(atSentimiento.sentimiento_macro) }))
-                                        )
-                                    )
-                                ),
-
-                                React.createElement('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '0.75rem' } },
-                                    sentFields.map(f => React.createElement('div', { key: f.key, style: { background: '#1a1d29', border: '1px solid #3a3f52', borderRadius: '8px', padding: '0.65rem 0.75rem', display: 'flex', flexDirection: 'column', gap: '0.4rem' } },
-                                        React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } },
-                                            React.createElement('span', { style: styles2.label }, f.label),
-                                            atEstadoBtn(atSentimiento[f.key], () => setAtSentimiento({ ...atSentimiento, [f.key]: atCycleEstado(atSentimiento[f.key]) }), true)
-                                        ),
-                                        f.numKey && React.createElement('input', { type: 'number', step: 'any', value: atSentimiento[f.numKey] || '', onChange: e => setAtSentimiento({ ...atSentimiento, [f.numKey]: e.target.value }), placeholder: f.numPlaceholder, style: { ...styles2.input, padding: '0.25rem 0.5rem', fontSize: '0.78rem', marginTop: '0.1rem' } })
-                                    ))
-                                ),
-
-                                React.createElement('div', { style: { marginTop: '0.85rem' } },
-                                    React.createElement('textarea', { value: atSentimiento.notas || '', onChange: e => setAtSentimiento({ ...atSentimiento, notas: e.target.value }), placeholder: 'Notas del día, contexto macro, eventos relevantes...', rows: 2, style: { ...styles2.input, resize: 'vertical', fontSize: '0.82rem' } })
-                                )
-                            ),
-
-                            // BLOQUE 2: TABLA MONEDAS
-                            React.createElement('div', { style: styles2.card },
-                                React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1rem', flexWrap: 'wrap' } },
-                                    React.createElement('h2', { style: { ...styles2.sectionTitle, margin: 0 } }, '💹 Estructura de Mercado'),
-                                    React.createElement('span', { style: { color: '#555e7a', fontSize: '0.75rem' } }, 'Click en cada celda para ciclar: — → ▲ → ▼ → ↔')
-                                ),
-
-                                React.createElement('div', { style: { overflowX: 'auto' } },
-                                    React.createElement('table', { style: { width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem', minWidth: '900px' } },
-                                        React.createElement('thead', null,
-                                            // Fila de grupos
-                                            React.createElement('tr', null,
-                                                React.createElement('th', { style: { ...styles2.th, textAlign: 'left', width: '70px' } }, 'MONEDA'),
-                                                React.createElement('th', { colSpan: AT_TFS_SWING.length + 1, style: { ...styles2.th, background: 'rgba(167,139,250,0.08)', color: '#A78BFA', borderBottom: '2px solid rgba(167,139,250,0.3)' } }, '🔵 SWING'),
-                                                React.createElement('th', { colSpan: AT_TFS_DAY.length + 1, style: { ...styles2.th, background: 'rgba(124,157,212,0.08)', color: '#7C9DD4', borderBottom: '2px solid rgba(124,157,212,0.3)' } }, '🟦 DAY TRADING'),
-                                                React.createElement('th', { colSpan: AT_TFS_SCALP.length + 1, style: { ...styles2.th, background: 'rgba(244,216,150,0.08)', color: '#F4D896', borderBottom: '2px solid rgba(244,216,150,0.3)' } }, '🟡 SCALPING')
-                                            ),
-                                            // Fila de temporalidades
-                                            React.createElement('tr', null,
-                                                React.createElement('th', { style: styles2.th }),
-                                                ...AT_TFS_SWING.map(tf => React.createElement('th', { key: tf, style: { ...styles2.th, background: 'rgba(167,139,250,0.04)' } }, AT_LABELS_TF[tf])),
-                                                React.createElement('th', { style: { ...styles2.th, background: 'rgba(167,139,250,0.04)', color: '#A78BFA', fontSize: '0.63rem' } }, 'SCORE'),
-                                                ...AT_TFS_DAY.map(tf => React.createElement('th', { key: tf, style: { ...styles2.th, background: 'rgba(124,157,212,0.04)' } }, AT_LABELS_TF[tf])),
-                                                React.createElement('th', { style: { ...styles2.th, background: 'rgba(124,157,212,0.04)', color: '#7C9DD4', fontSize: '0.63rem' } }, 'SCORE'),
-                                                ...AT_TFS_SCALP.map(tf => React.createElement('th', { key: tf, style: { ...styles2.th, background: 'rgba(244,216,150,0.04)' } }, AT_LABELS_TF[tf])),
-                                                React.createElement('th', { style: { ...styles2.th, background: 'rgba(244,216,150,0.04)', color: '#F4D896', fontSize: '0.63rem' } }, 'SCORE')
-                                            )
-                                        ),
-                                        React.createElement('tbody', null,
-                                            AT_MONEDAS.map((sim, idx) => {
-                                                const row = atMonedas[sim] || emptyMonedaRow();
-                                                const swingScore = atScoreGrupo(row, AT_TFS_SWING);
-                                                const dayScore   = atScoreGrupo(row, AT_TFS_DAY);
-                                                const scalpScore = atScoreGrupo(row, AT_TFS_SCALP);
-                                                return React.createElement('tr', { key: sim, style: { background: idx % 2 === 0 ? 'rgba(255,255,255,0.015)' : 'transparent' } },
-                                                    // Nombre moneda
-                                                    React.createElement('td', { style: { ...styles2.td, textAlign: 'left', fontWeight: '700', color: '#E8ECEF', fontSize: '0.82rem', paddingLeft: '0.6rem', whiteSpace: 'nowrap' } }, sim),
-                                                    // SWING TFs
-                                                    ...AT_TFS_SWING.map(tf => React.createElement('td', { key: tf, style: { ...styles2.td, background: 'rgba(167,139,250,0.02)' } },
-                                                        atEstadoBtn(row['tf_'+tf], () => { const nr = { ...row, ['tf_'+tf]: atCycleEstado(row['tf_'+tf]) }; setAtMonedas({ ...atMonedas, [sim]: nr }); }, true)
-                                                    )),
-                                                    React.createElement('td', { style: { ...styles2.td, background: 'rgba(167,139,250,0.05)' } },
-                                                        swingScore ? React.createElement('span', { style: { color: AT_COLORES[swingScore].text, fontWeight: '800', fontSize: '0.75rem' } }, AT_COLORES[swingScore].label) : React.createElement('span', { style: { color: '#3a3f52' } }, '·')
-                                                    ),
-                                                    // DAY TFs
-                                                    ...AT_TFS_DAY.map(tf => React.createElement('td', { key: tf, style: { ...styles2.td, background: 'rgba(124,157,212,0.02)' } },
-                                                        atEstadoBtn(row['tf_'+tf], () => { const nr = { ...row, ['tf_'+tf]: atCycleEstado(row['tf_'+tf]) }; setAtMonedas({ ...atMonedas, [sim]: nr }); }, true)
-                                                    )),
-                                                    React.createElement('td', { style: { ...styles2.td, background: 'rgba(124,157,212,0.05)' } },
-                                                        dayScore ? React.createElement('span', { style: { color: AT_COLORES[dayScore].text, fontWeight: '800', fontSize: '0.75rem' } }, AT_COLORES[dayScore].label) : React.createElement('span', { style: { color: '#3a3f52' } }, '·')
-                                                    ),
-                                                    // SCALP TFs
-                                                    ...AT_TFS_SCALP.map(tf => React.createElement('td', { key: tf, style: { ...styles2.td, background: 'rgba(244,216,150,0.02)' } },
-                                                        atEstadoBtn(row['tf_'+tf], () => { const nr = { ...row, ['tf_'+tf]: atCycleEstado(row['tf_'+tf]) }; setAtMonedas({ ...atMonedas, [sim]: nr }); }, true)
-                                                    )),
-                                                    React.createElement('td', { style: { ...styles2.td, background: 'rgba(244,216,150,0.05)' } },
-                                                        scalpScore ? React.createElement('span', { style: { color: AT_COLORES[scalpScore].text, fontWeight: '800', fontSize: '0.75rem' } }, AT_COLORES[scalpScore].label) : React.createElement('span', { style: { color: '#3a3f52' } }, '·')
-                                                    )
-                                                );
-                                            })
-                                        )
-                                    )
-                                ),
-
-                                // Leyenda
-                                React.createElement('div', { style: { display: 'flex', gap: '1.2rem', marginTop: '0.85rem', flexWrap: 'wrap' } },
-                                    [['▲','#88D498','Alcista'],['▼','#F4A9A8','Bajista'],['↔','#F4D896','Lateral'],['—','#555e7a','Sin definir']].map(([sym,col,lbl]) =>
-                                        React.createElement('div', { key: lbl, style: { display: 'flex', gap: '0.35rem', alignItems: 'center' } },
-                                            React.createElement('span', { style: { color: col, fontWeight: '800', fontSize: '0.85rem' } }, sym),
-                                            React.createElement('span', { style: { color: '#A8B2C1', fontSize: '0.75rem' } }, lbl)
-                                        )
-                                    )
-                                )
-                            )
-                        ),
-
-                        // ===== TAB: HISTORIAL =====
-                        !atLoading && atSubTab === 'historial' && React.createElement('div', null,
-                            atHistorialLoading && React.createElement('div', { style: { textAlign: 'center', color: '#A8B2C1', padding: '2rem' } }, '⏳ Cargando historial...'),
-
-                            !atHistorialLoading && atHistorialDetalle === null && React.createElement('div', { style: styles2.card },
-                                React.createElement('h2', { style: styles2.sectionTitle }, '📅 Historial de Análisis'),
-                                atHistorialDias.length === 0
-                                    ? React.createElement('div', { style: { textAlign: 'center', color: '#555e7a', padding: '2rem' } }, 'No hay análisis guardados aún.')
-                                    : React.createElement('div', { style: { overflowX: 'auto' } },
-                                        React.createElement('table', { style: { width: '100%', borderCollapse: 'collapse' } },
-                                            React.createElement('thead', null,
-                                                React.createElement('tr', null,
-                                                    ['Fecha','Sentimiento Cripto','Sentimiento Macro','Fear & Greed','BTC Dom.','Altcoin S.','Notas',''].map(h =>
-                                                        React.createElement('th', { key: h, style: styles2.th }, h)
-                                                    )
-                                                )
-                                            ),
-                                            React.createElement('tbody', null,
-                                                atHistorialDias.map(d => {
-                                                    const sc = d.sentimiento_cripto ? AT_COLORES[d.sentimiento_cripto] : null;
-                                                    const sm = d.sentimiento_macro  ? AT_COLORES[d.sentimiento_macro]  : null;
-                                                    return React.createElement('tr', { key: d.fecha, style: { borderBottom: '1px solid rgba(58,63,82,0.4)', cursor: 'pointer' }, onClick: () => atCargarDetalle(d.fecha) },
-                                                        React.createElement('td', { style: { ...styles2.td, fontWeight: '700', color: '#7C9DD4' } }, d.fecha),
-                                                        React.createElement('td', { style: styles2.td }, sc ? React.createElement('span', { style: { color: sc.text, fontWeight: '800' } }, sc.label) : '—'),
-                                                        React.createElement('td', { style: styles2.td }, sm ? React.createElement('span', { style: { color: sm.text, fontWeight: '800' } }, sm.label) : '—'),
-                                                        React.createElement('td', { style: styles2.td }, d.fear_greed_valor || '—'),
-                                                        React.createElement('td', { style: styles2.td }, d.btc_dominancia_valor ? d.btc_dominancia_valor+'%' : '—'),
-                                                        React.createElement('td', { style: styles2.td }, d.altcoin_season_valor || '—'),
-                                                        React.createElement('td', { style: { ...styles2.td, maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#A8B2C1', fontSize: '0.75rem' } }, d.notas || '—'),
-                                                        React.createElement('td', { style: styles2.td },
-                                                            React.createElement('button', { onClick: e => { e.stopPropagation(); atCargarDetalle(d.fecha); }, style: { background: 'rgba(124,157,212,0.1)', border: '1px solid rgba(124,157,212,0.3)', color: '#7C9DD4', borderRadius: '5px', padding: '0.2rem 0.6rem', cursor: 'pointer', fontSize: '0.75rem' } }, 'Ver')
-                                                        )
-                                                    );
-                                                })
-                                            )
-                                        )
-                                    )
-                            ),
-
-                            // DETALLE HISTORIAL
-                            !atHistorialLoading && atHistorialDetalle !== null && React.createElement('div', null,
-                                React.createElement('button', { onClick: () => setAtHistorialDetalle(null), style: { background: 'rgba(168,178,193,0.08)', border: '1px solid rgba(168,178,193,0.2)', color: '#A8B2C1', borderRadius: '7px', padding: '0.4rem 0.9rem', cursor: 'pointer', fontSize: '0.82rem', marginBottom: '1rem' } }, '← Volver al historial'),
-                                React.createElement('div', { style: styles2.card },
-                                    React.createElement('h2', { style: styles2.sectionTitle }, '📊 Análisis del ' + atHistorialDetalle.fecha),
-                                    atHistorialDetalle.sent && React.createElement('div', { style: { marginBottom: '1rem' } },
-                                        React.createElement('div', { style: { display: 'flex', gap: '1rem', flexWrap: 'wrap', marginBottom: '0.75rem' } },
-                                            ['sentimiento_cripto','sentimiento_macro'].map(k => {
-                                                const v = atHistorialDetalle.sent[k];
-                                                const c = v ? AT_COLORES[v] : null;
-                                                return React.createElement('div', { key: k, style: { background: c ? c.bg : 'rgba(168,178,193,0.05)', border: '1px solid '+(c ? c.border : 'rgba(168,178,193,0.15)'), borderRadius: '8px', padding: '0.5rem 1rem' } },
-                                                    React.createElement('div', { style: { color: '#555e7a', fontSize: '0.7rem', marginBottom: '0.2rem' } }, k === 'sentimiento_cripto' ? 'CRIPTO' : 'MACRO'),
-                                                    React.createElement('div', { style: { color: c ? c.text : '#555e7a', fontWeight: '800', fontSize: '1rem' } }, c ? c.label+' '+v.toUpperCase() : '—')
-                                                );
-                                            })
-                                        ),
-                                        atHistorialDetalle.sent.notas && React.createElement('div', { style: { color: '#A8B2C1', fontSize: '0.82rem', fontStyle: 'italic', marginTop: '0.5rem' } }, '"'+atHistorialDetalle.sent.notas+'"')
-                                    ),
-                                    atHistorialDetalle.mons.length > 0 && React.createElement('div', { style: { overflowX: 'auto' } },
-                                        React.createElement('table', { style: { width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', minWidth: '700px' } },
-                                            React.createElement('thead', null,
-                                                React.createElement('tr', null,
-                                                    ['Moneda','Swing','Day Trading','Scalping'].map(h =>
-                                                        React.createElement('th', { key: h, style: styles2.th }, h)
-                                                    )
-                                                )
-                                            ),
-                                            React.createElement('tbody', null,
-                                                atHistorialDetalle.mons.map(r => {
-                                                    const sc = r.swing_score ? AT_COLORES[r.swing_score] : null;
-                                                    const dc = r.day_score   ? AT_COLORES[r.day_score]   : null;
-                                                    const sk = r.scalp_score ? AT_COLORES[r.scalp_score] : null;
-                                                    return React.createElement('tr', { key: r.simbolo, style: { borderBottom: '1px solid rgba(58,63,82,0.4)' } },
-                                                        React.createElement('td', { style: { ...styles2.td, fontWeight: '700', color: '#E8ECEF', textAlign: 'left', paddingLeft: '0.6rem' } }, r.simbolo),
-                                                        React.createElement('td', { style: { ...styles2.td } }, sc ? React.createElement('span', { style: { color: sc.text, fontWeight: '800' } }, sc.label+' '+r.swing_score) : '—'),
-                                                        React.createElement('td', { style: { ...styles2.td } }, dc ? React.createElement('span', { style: { color: dc.text, fontWeight: '800' } }, dc.label+' '+r.day_score) : '—'),
-                                                        React.createElement('td', { style: { ...styles2.td } }, sk ? React.createElement('span', { style: { color: sk.text, fontWeight: '800' } }, sk.label+' '+r.scalp_score) : '—')
-                                                    );
-                                                })
-                                            )
-                                        )
-                                    )
-                                )
-                            )
-                        )
-                    )
-                );
-            }
-
             // ============================================================
             // VISTA EMA BOT
             // ============================================================
             if (currentView === 'ema-strategy') {
                 const allSymbolsBot = [...new Set(assets.map(a => a.symbol))].sort();
                 const tfOptions = [
-                    { val: '15m', label: '15 min' },
-                    { val: '30m', label: '30 min' },
-                    { val: '1h', label: '1 hora' },
-                    { val: '4h', label: '4 horas' },
-                    { val: '1d', label: '1 día' },
+                    { val: '15m', label: '15 min' }, { val: '30m', label: '30 min' },
+                    { val: '1h', label: '1 hora' }, { val: '4h', label: '4 horas' }, { val: '1d', label: '1 día' },
                 ];
                 const sessionOptions = [
                     { val: 'open_day', label: 'Open día', desc: '00:00 UTC' },
@@ -11210,290 +10896,146 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                     { val: 'open_ny', label: 'Open NY', desc: '14:00 UTC' },
                 ];
                 const tp3sizeBot = 100 - (parseInt(botConfig.tp1size)||0) - (parseInt(botConfig.tp2size)||0);
-                const fmtCountdown = (s) => {
-                    if (!s || s <= 0) return '—';
-                    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
-                    if (h > 0) return h + 'h ' + String(m).padStart(2,'0') + 'm';
-                    if (m > 0) return m + 'm ' + String(sec).padStart(2,'0') + 's';
-                    return sec + 's';
-                };
-                const fmtDT = (ts) => {
-                    if (!ts) return '—';
-                    const d = new Date(ts);
-                    return d.toLocaleDateString('es-ES',{day:'2-digit',month:'2-digit',year:'2-digit'}) + ' ' + d.toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit'});
-                };
+                const fmtCountdown = (s) => { if (!s||s<=0) return '—'; const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sec=s%60; if(h>0) return h+'h '+String(m).padStart(2,'0')+'m'; if(m>0) return m+'m '+String(sec).padStart(2,'0')+'s'; return sec+'s'; };
+                const fmtDT = (ts) => { if(!ts) return '—'; const d=new Date(ts); return d.toLocaleDateString('es-ES',{day:'2-digit',month:'2-digit',year:'2-digit'})+' '+d.toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit'}); };
                 const openOps = botOperations.filter(o => o.status === 'open');
                 const closedOps = botOperations.filter(o => o.status !== 'open');
-                const inputStyle = { background: '#1a1d29', border: '1px solid #3a3f52', color: '#E8ECEF', borderRadius: '7px', padding: '0.45rem 0.65rem', fontSize: '0.83rem', width: '100%', outline: 'none', boxSizing: 'border-box' };
-                const labelStyle = { color: '#A8B2C1', fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.3rem', display: 'block' };
-                const sectionStyle = { background: '#252836', border: '1px solid #3a3f52', borderRadius: '12px', padding: '1.25rem', marginBottom: '1.1rem' };
-                const cardStyle = { background: '#1a1d29', border: '1px solid #3a3f52', borderRadius: '10px', padding: '0.9rem 1rem' };
+                const inp = { background: '#1a1d29', border: '1px solid #3a3f52', color: '#E8ECEF', borderRadius: '7px', padding: '0.45rem 0.65rem', fontSize: '0.83rem', width: '100%', outline: 'none', boxSizing: 'border-box' };
+                const lbl = { color: '#A8B2C1', fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.3rem', display: 'block' };
+                const sec = { background: '#252836', border: '1px solid #3a3f52', borderRadius: '12px', padding: '1.25rem', marginBottom: '1.1rem' };
+                const crd = { background: '#1a1d29', border: '1px solid #3a3f52', borderRadius: '10px', padding: '0.9rem 1rem' };
 
                 return React.createElement('div', { style: { background: '#1a1d29', minHeight: '100vh', color: '#E8ECEF' } },
-
-                    // HEADER
                     React.createElement('header', { style: { background: '#252836', borderBottom: '1px solid #3a3f52', padding: '0.85rem 1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem' } },
                         React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '0.75rem' } },
                             React.createElement('span', { style: { fontSize: '1.3rem' } }, '🤖'),
                             React.createElement('h1', { style: { margin: 0, fontSize: '1.05rem', fontWeight: '700', color: '#E8ECEF' } }, 'EMA Bot'),
                             React.createElement('span', { style: { color: '#555e7a', fontSize: '0.78rem' } }, '— Trading automático BingX Paper')
                         ),
-                        React.createElement('div', { style: { display: 'flex', gap: '0.75rem', alignItems: 'center' } },
+                        React.createElement('div', { style: { display: 'flex', gap: '0.75rem' } },
                             React.createElement('button', { onClick: () => setCurrentView('dashboard'), style: { background: 'rgba(168,178,193,0.08)', border: '1px solid rgba(168,178,193,0.2)', color: '#A8B2C1', borderRadius: '7px', padding: '0.4rem 0.9rem', cursor: 'pointer', fontSize: '0.82rem' } }, '← Dashboard'),
                             React.createElement('button', { onClick: handleLogout, style: { background: 'rgba(244,169,168,0.1)', border: '1px solid rgba(244,169,168,0.2)', color: '#F4A9A8', borderRadius: '7px', padding: '0.4rem 0.9rem', cursor: 'pointer', fontSize: '0.82rem' } }, 'Salir')
                         )
                     ),
-
                     React.createElement('main', { style: { maxWidth: '1200px', margin: '0 auto', padding: '1.2rem 1rem' } },
 
-                        // ── SECCIÓN 1: CONFIGURACIÓN ──────────────────────
-                        React.createElement('div', { style: sectionStyle },
+                        // ── CONFIG ──
+                        React.createElement('div', { style: sec },
                             React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '1rem' } },
-                                React.createElement('span', { style: { fontSize: '1rem' } }, '⚙️'),
-                                React.createElement('span', { style: { fontWeight: '700', fontSize: '0.95rem', color: '#E8ECEF' } }, 'Configuración del Bot'),
+                                React.createElement('span', null, '⚙️'),
+                                React.createElement('span', { style: { fontWeight: '700', fontSize: '0.95rem' } }, 'Configuración del Bot'),
                                 botRunning && React.createElement('span', { style: { fontSize: '0.72rem', background: 'rgba(136,212,152,0.15)', border: '1px solid rgba(136,212,152,0.3)', color: '#88D498', borderRadius: '20px', padding: '0.15rem 0.6rem' } }, '● activo')
                             ),
-
-                            // Fila 1: EMA + TF + Sesión
                             React.createElement('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '0.75rem', marginBottom: '0.75rem' } },
-                                React.createElement('div', null,
-                                    React.createElement('label', { style: labelStyle }, 'EMA Rápida'),
-                                    React.createElement('input', { type: 'number', value: botConfig.ema1, disabled: botRunning, onChange: e => setBotConfig(p => ({...p, ema1: parseInt(e.target.value)||12})), style: {...inputStyle, opacity: botRunning ? 0.5 : 1} })
-                                ),
-                                React.createElement('div', null,
-                                    React.createElement('label', { style: labelStyle }, 'EMA Lenta'),
-                                    React.createElement('input', { type: 'number', value: botConfig.ema2, disabled: botRunning, onChange: e => setBotConfig(p => ({...p, ema2: parseInt(e.target.value)||25})), style: {...inputStyle, opacity: botRunning ? 0.5 : 1} })
-                                ),
-                                React.createElement('div', null,
-                                    React.createElement('label', { style: labelStyle }, 'Temporalidad'),
-                                    React.createElement('select', { value: botConfig.tf, disabled: botRunning, onChange: e => setBotConfig(p => ({...p, tf: e.target.value})), style: {...inputStyle, opacity: botRunning ? 0.5 : 1} },
-                                        tfOptions.map(o => React.createElement('option', { key: o.val, value: o.val }, o.label))
-                                    )
-                                ),
-                                React.createElement('div', null,
-                                    React.createElement('label', { style: labelStyle }, 'Sesión'),
-                                    React.createElement('select', { value: botConfig.session, disabled: botRunning, onChange: e => setBotConfig(p => ({...p, session: e.target.value})), style: {...inputStyle, opacity: botRunning ? 0.5 : 1} },
-                                        sessionOptions.map(o => React.createElement('option', { key: o.val, value: o.val }, o.label + ' · ' + o.desc))
-                                    )
-                                ),
-                                React.createElement('div', null,
-                                    React.createElement('label', { style: labelStyle }, 'Máx. Operaciones'),
-                                    React.createElement('input', { type: 'number', value: botConfig.maxOps, disabled: botRunning, onChange: e => setBotConfig(p => ({...p, maxOps: parseInt(e.target.value)||5})), style: {...inputStyle, opacity: botRunning ? 0.5 : 1} })
-                                )
+                                React.createElement('div', null, React.createElement('label', { style: lbl }, 'EMA Rápida'), React.createElement('input', { type: 'number', value: botConfig.ema1, disabled: botRunning, onChange: e => setBotConfig(p => ({...p, ema1: parseInt(e.target.value)||12})), style: {...inp, opacity: botRunning?0.5:1} })),
+                                React.createElement('div', null, React.createElement('label', { style: lbl }, 'EMA Lenta'), React.createElement('input', { type: 'number', value: botConfig.ema2, disabled: botRunning, onChange: e => setBotConfig(p => ({...p, ema2: parseInt(e.target.value)||25})), style: {...inp, opacity: botRunning?0.5:1} })),
+                                React.createElement('div', null, React.createElement('label', { style: lbl }, 'Temporalidad'), React.createElement('select', { value: botConfig.tf, disabled: botRunning, onChange: e => setBotConfig(p => ({...p, tf: e.target.value})), style: {...inp, opacity: botRunning?0.5:1} }, tfOptions.map(o => React.createElement('option', { key: o.val, value: o.val }, o.label)))),
+                                React.createElement('div', null, React.createElement('label', { style: lbl }, 'Sesión'), React.createElement('select', { value: botConfig.session, disabled: botRunning, onChange: e => setBotConfig(p => ({...p, session: e.target.value})), style: {...inp, opacity: botRunning?0.5:1} }, sessionOptions.map(o => React.createElement('option', { key: o.val, value: o.val }, o.label+' · '+o.desc)))),
+                                React.createElement('div', null, React.createElement('label', { style: lbl }, 'Máx. Operaciones'), React.createElement('input', { type: 'number', value: botConfig.maxOps, disabled: botRunning, onChange: e => setBotConfig(p => ({...p, maxOps: parseInt(e.target.value)||5})), style: {...inp, opacity: botRunning?0.5:1} }))
                             ),
-
-                            // Fila 2: Capital + Ítem + Palanca
                             React.createElement('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '0.75rem', marginBottom: '0.75rem' } },
-                                React.createElement('div', null,
-                                    React.createElement('label', { style: labelStyle }, 'Capital Total (USDT)'),
-                                    React.createElement('input', { type: 'number', placeholder: '1000', value: botConfig.capital, disabled: botRunning, onChange: e => setBotConfig(p => ({...p, capital: e.target.value})), style: {...inputStyle, opacity: botRunning ? 0.5 : 1} })
-                                ),
-                                React.createElement('div', null,
-                                    React.createElement('label', { style: labelStyle }, 'Ítem Base (USDT)'),
-                                    React.createElement('input', { type: 'number', placeholder: '50', value: botConfig.itemBase, disabled: botRunning, onChange: e => setBotConfig(p => ({...p, itemBase: e.target.value})), style: {...inputStyle, opacity: botRunning ? 0.5 : 1} })
-                                ),
-                                React.createElement('div', null,
-                                    React.createElement('label', { style: labelStyle }, 'Palanca'),
-                                    React.createElement('input', { type: 'number', placeholder: '3', value: botConfig.leverage, disabled: botRunning, onChange: e => setBotConfig(p => ({...p, leverage: parseInt(e.target.value)||3})), style: {...inputStyle, opacity: botRunning ? 0.5 : 1} })
-                                )
+                                React.createElement('div', null, React.createElement('label', { style: lbl }, 'Capital Total (USDT)'), React.createElement('input', { type: 'number', placeholder: '1000', value: botConfig.capital, disabled: botRunning, onChange: e => setBotConfig(p => ({...p, capital: e.target.value})), style: {...inp, opacity: botRunning?0.5:1} })),
+                                React.createElement('div', null, React.createElement('label', { style: lbl }, 'Ítem Base (USDT)'), React.createElement('input', { type: 'number', placeholder: '50', value: botConfig.itemBase, disabled: botRunning, onChange: e => setBotConfig(p => ({...p, itemBase: e.target.value})), style: {...inp, opacity: botRunning?0.5:1} })),
+                                React.createElement('div', null, React.createElement('label', { style: lbl }, 'Palanca'), React.createElement('input', { type: 'number', placeholder: '3', value: botConfig.leverage, disabled: botRunning, onChange: e => setBotConfig(p => ({...p, leverage: parseInt(e.target.value)||3})), style: {...inp, opacity: botRunning?0.5:1} }))
                             ),
-
-                            // Fila 3: TPs
                             React.createElement('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.75rem', marginBottom: '0.75rem' } },
-                                // TP1
-                                React.createElement('div', { style: { ...cardStyle, borderColor: 'rgba(124,157,212,0.3)' } },
+                                React.createElement('div', { style: { ...crd, borderColor: 'rgba(124,157,212,0.3)' } },
                                     React.createElement('div', { style: { fontWeight: '700', fontSize: '0.8rem', color: '#7C9DD4', marginBottom: '0.5rem' } }, 'TP1'),
                                     React.createElement('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.4rem' } },
-                                        React.createElement('div', null,
-                                            React.createElement('label', { style: {...labelStyle, fontSize: '0.68rem'} }, '% Precio'),
-                                            React.createElement('input', { type: 'number', placeholder: '2', value: botConfig.tp1, disabled: botRunning, onChange: e => setBotConfig(p => ({...p, tp1: e.target.value})), style: {...inputStyle, fontSize: '0.8rem', opacity: botRunning ? 0.5 : 1} })
-                                        ),
-                                        React.createElement('div', null,
-                                            React.createElement('label', { style: {...labelStyle, fontSize: '0.68rem'} }, '% Posición'),
-                                            React.createElement('input', { type: 'number', placeholder: '25', value: botConfig.tp1size, disabled: botRunning, onChange: e => setBotConfig(p => ({...p, tp1size: parseInt(e.target.value)||25})), style: {...inputStyle, fontSize: '0.8rem', opacity: botRunning ? 0.5 : 1} })
-                                        )
+                                        React.createElement('div', null, React.createElement('label', { style: { ...lbl, fontSize: '0.68rem' } }, '% Precio'), React.createElement('input', { type: 'number', placeholder: '2', value: botConfig.tp1, disabled: botRunning, onChange: e => setBotConfig(p => ({...p, tp1: e.target.value})), style: { ...inp, fontSize: '0.8rem', opacity: botRunning?0.5:1 } })),
+                                        React.createElement('div', null, React.createElement('label', { style: { ...lbl, fontSize: '0.68rem' } }, '% Posición'), React.createElement('input', { type: 'number', placeholder: '25', value: botConfig.tp1size, disabled: botRunning, onChange: e => setBotConfig(p => ({...p, tp1size: parseInt(e.target.value)||25})), style: { ...inp, fontSize: '0.8rem', opacity: botRunning?0.5:1 } }))
                                     )
                                 ),
-                                // TP2
-                                React.createElement('div', { style: { ...cardStyle, borderColor: 'rgba(244,216,150,0.3)' } },
+                                React.createElement('div', { style: { ...crd, borderColor: 'rgba(244,216,150,0.3)' } },
                                     React.createElement('div', { style: { fontWeight: '700', fontSize: '0.8rem', color: '#F4D896', marginBottom: '0.5rem' } }, 'TP2'),
                                     React.createElement('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.4rem' } },
-                                        React.createElement('div', null,
-                                            React.createElement('label', { style: {...labelStyle, fontSize: '0.68rem'} }, '% Precio'),
-                                            React.createElement('input', { type: 'number', placeholder: '4', value: botConfig.tp2, disabled: botRunning, onChange: e => setBotConfig(p => ({...p, tp2: e.target.value})), style: {...inputStyle, fontSize: '0.8rem', opacity: botRunning ? 0.5 : 1} })
-                                        ),
-                                        React.createElement('div', null,
-                                            React.createElement('label', { style: {...labelStyle, fontSize: '0.68rem'} }, '% Posición'),
-                                            React.createElement('input', { type: 'number', placeholder: '35', value: botConfig.tp2size, disabled: botRunning, onChange: e => setBotConfig(p => ({...p, tp2size: parseInt(e.target.value)||35})), style: {...inputStyle, fontSize: '0.8rem', opacity: botRunning ? 0.5 : 1} })
-                                        )
+                                        React.createElement('div', null, React.createElement('label', { style: { ...lbl, fontSize: '0.68rem' } }, '% Precio'), React.createElement('input', { type: 'number', placeholder: '4', value: botConfig.tp2, disabled: botRunning, onChange: e => setBotConfig(p => ({...p, tp2: e.target.value})), style: { ...inp, fontSize: '0.8rem', opacity: botRunning?0.5:1 } })),
+                                        React.createElement('div', null, React.createElement('label', { style: { ...lbl, fontSize: '0.68rem' } }, '% Posición'), React.createElement('input', { type: 'number', placeholder: '35', value: botConfig.tp2size, disabled: botRunning, onChange: e => setBotConfig(p => ({...p, tp2size: parseInt(e.target.value)||35})), style: { ...inp, fontSize: '0.8rem', opacity: botRunning?0.5:1 } }))
                                     )
                                 ),
-                                // TP3
-                                React.createElement('div', { style: { ...cardStyle, borderColor: 'rgba(136,212,152,0.3)' } },
+                                React.createElement('div', { style: { ...crd, borderColor: 'rgba(136,212,152,0.3)' } },
                                     React.createElement('div', { style: { fontWeight: '700', fontSize: '0.8rem', color: '#88D498', marginBottom: '0.5rem' } }, 'TP3'),
                                     React.createElement('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.4rem' } },
-                                        React.createElement('div', null,
-                                            React.createElement('label', { style: {...labelStyle, fontSize: '0.68rem'} }, '% Precio'),
-                                            React.createElement('input', { type: 'number', placeholder: '6', value: botConfig.tp3, disabled: botRunning, onChange: e => setBotConfig(p => ({...p, tp3: e.target.value})), style: {...inputStyle, fontSize: '0.8rem', opacity: botRunning ? 0.5 : 1} })
-                                        ),
-                                        React.createElement('div', null,
-                                            React.createElement('label', { style: {...labelStyle, fontSize: '0.68rem'} }, '% Posición'),
-                                            React.createElement('div', { style: { background: 'rgba(136,212,152,0.08)', border: '1px solid rgba(136,212,152,0.2)', color: '#88D498', borderRadius: '7px', padding: '0.45rem 0.65rem', fontSize: '0.8rem', fontWeight: '700' } }, tp3sizeBot + '%')
-                                        )
+                                        React.createElement('div', null, React.createElement('label', { style: { ...lbl, fontSize: '0.68rem' } }, '% Precio'), React.createElement('input', { type: 'number', placeholder: '6', value: botConfig.tp3, disabled: botRunning, onChange: e => setBotConfig(p => ({...p, tp3: e.target.value})), style: { ...inp, fontSize: '0.8rem', opacity: botRunning?0.5:1 } })),
+                                        React.createElement('div', null, React.createElement('label', { style: { ...lbl, fontSize: '0.68rem' } }, '% Posición'), React.createElement('div', { style: { background: 'rgba(136,212,152,0.08)', border: '1px solid rgba(136,212,152,0.2)', color: '#88D498', borderRadius: '7px', padding: '0.45rem 0.65rem', fontSize: '0.8rem', fontWeight: '700' } }, tp3sizeBot + '%'))
                                     )
                                 )
                             ),
-
-                            // Fila 4: Activos
                             React.createElement('div', { style: { marginBottom: '0.75rem' } },
                                 React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.4rem' } },
-                                    React.createElement('label', { style: labelStyle }, 'Activos a monitorear (' + botAssets.length + ' seleccionados)'),
+                                    React.createElement('label', { style: lbl }, 'Activos (' + botAssets.length + ' seleccionados)'),
                                     React.createElement('div', { style: { display: 'flex', gap: '0.4rem' } },
-                                        React.createElement('button', { disabled: botRunning, onClick: () => setBotAssets(allSymbolsBot), style: { background: 'rgba(124,157,212,0.1)', border: '1px solid rgba(124,157,212,0.25)', color: '#7C9DD4', borderRadius: '5px', padding: '0.2rem 0.55rem', cursor: 'pointer', fontSize: '0.72rem', opacity: botRunning ? 0.5 : 1 } }, 'Todos'),
-                                        React.createElement('button', { disabled: botRunning, onClick: () => setBotAssets([]), style: { background: 'rgba(168,178,193,0.07)', border: '1px solid rgba(168,178,193,0.15)', color: '#A8B2C1', borderRadius: '5px', padding: '0.2rem 0.55rem', cursor: 'pointer', fontSize: '0.72rem', opacity: botRunning ? 0.5 : 1 } }, 'Ninguno')
+                                        React.createElement('button', { disabled: botRunning, onClick: () => setBotAssets(allSymbolsBot), style: { background: 'rgba(124,157,212,0.1)', border: '1px solid rgba(124,157,212,0.25)', color: '#7C9DD4', borderRadius: '5px', padding: '0.2rem 0.55rem', cursor: 'pointer', fontSize: '0.72rem', opacity: botRunning?0.5:1 } }, 'Todos'),
+                                        React.createElement('button', { disabled: botRunning, onClick: () => setBotAssets([]), style: { background: 'rgba(168,178,193,0.07)', border: '1px solid rgba(168,178,193,0.15)', color: '#A8B2C1', borderRadius: '5px', padding: '0.2rem 0.55rem', cursor: 'pointer', fontSize: '0.72rem', opacity: botRunning?0.5:1 } }, 'Ninguno')
                                     )
                                 ),
                                 React.createElement('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '0.35rem', maxHeight: '120px', overflowY: 'auto', background: '#1a1d29', border: '1px solid #3a3f52', borderRadius: '8px', padding: '0.6rem' } },
                                     allSymbolsBot.map(sym => {
                                         const sel = botAssets.includes(sym);
-                                        return React.createElement('button', {
-                                            key: sym,
-                                            disabled: botRunning,
-                                            onClick: () => setBotAssets(prev => sel ? prev.filter(s => s !== sym) : [...prev, sym]),
-                                            style: {
-                                                background: sel ? 'rgba(124,157,212,0.2)' : 'rgba(168,178,193,0.05)',
-                                                border: '1px solid ' + (sel ? 'rgba(124,157,212,0.5)' : 'rgba(168,178,193,0.15)'),
-                                                color: sel ? '#7C9DD4' : '#A8B2C1',
-                                                borderRadius: '5px', padding: '0.2rem 0.5rem',
-                                                cursor: botRunning ? 'default' : 'pointer', fontSize: '0.72rem',
-                                                fontWeight: sel ? '700' : '400', opacity: botRunning ? 0.6 : 1
-                                            }
-                                        }, sym);
+                                        return React.createElement('button', { key: sym, disabled: botRunning, onClick: () => setBotAssets(prev => sel ? prev.filter(s => s !== sym) : [...prev, sym]), style: { background: sel?'rgba(124,157,212,0.2)':'rgba(168,178,193,0.05)', border: '1px solid '+(sel?'rgba(124,157,212,0.5)':'rgba(168,178,193,0.15)'), color: sel?'#7C9DD4':'#A8B2C1', borderRadius: '5px', padding: '0.2rem 0.5rem', cursor: botRunning?'default':'pointer', fontSize: '0.72rem', fontWeight: sel?'700':'400', opacity: botRunning?0.6:1 } }, sym);
                                     })
                                 )
                             ),
-
-                            botError && React.createElement('div', { style: { color: '#F4A9A8', fontSize: '0.82rem', background: 'rgba(244,169,168,0.08)', border: '1px solid rgba(244,169,168,0.2)', borderRadius: '7px', padding: '0.5rem 0.75rem', marginBottom: '0.75rem' } }, '⚠️ ' + botError)
+                            botError && React.createElement('div', { style: { color: '#F4A9A8', fontSize: '0.82rem', background: 'rgba(244,169,168,0.08)', border: '1px solid rgba(244,169,168,0.2)', borderRadius: '7px', padding: '0.5rem 0.75rem' } }, '⚠️ ' + botError)
                         ),
 
-                        // ── SECCIÓN 2: CONTROL DEL BOT ────────────────────
-                        React.createElement('div', { style: { ...sectionStyle, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' } },
-                            // Estado
+                        // ── CONTROL ──
+                        React.createElement('div', { style: { ...sec, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' } },
                             React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap' } },
                                 React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '0.6rem' } },
-                                    React.createElement('div', { style: { width: '10px', height: '10px', borderRadius: '50%', background: botRunning ? '#88D498' : '#555e7a', boxShadow: botRunning ? '0 0 8px #88D498' : 'none', transition: 'all 0.3s' } }),
-                                    React.createElement('span', { style: { fontWeight: '700', fontSize: '0.9rem', color: botRunning ? '#88D498' : '#A8B2C1' } }, botRunning ? 'Bot activo' : 'Bot detenido')
+                                    React.createElement('div', { style: { width: '10px', height: '10px', borderRadius: '50%', background: botRunning?'#88D498':'#555e7a', boxShadow: botRunning?'0 0 8px #88D498':'none', transition: 'all 0.3s' } }),
+                                    React.createElement('span', { style: { fontWeight: '700', fontSize: '0.9rem', color: botRunning?'#88D498':'#A8B2C1' } }, botRunning ? 'Bot activo' : 'Bot detenido')
                                 ),
                                 botRunning && React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '0.4rem' } },
                                     React.createElement('span', { style: { color: '#555e7a', fontSize: '0.78rem' } }, 'Próximo ciclo:'),
-                                    React.createElement('span', { style: { color: '#7C9DD4', fontWeight: '700', fontSize: '0.88rem', fontVariantNumeric: 'tabular-nums' } }, fmtCountdown(botCountdown))
+                                    React.createElement('span', { style: { color: '#7C9DD4', fontWeight: '700', fontSize: '0.88rem' } }, fmtCountdown(botCountdown))
                                 ),
                                 React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '0.4rem' } },
                                     React.createElement('span', { style: { color: '#555e7a', fontSize: '0.78rem' } }, 'Operaciones abiertas:'),
-                                    React.createElement('span', { style: { color: '#E8ECEF', fontWeight: '700', fontSize: '0.88rem' } }, openOps.length + ' / ' + (botConfig.maxOps || 5))
+                                    React.createElement('span', { style: { color: '#E8ECEF', fontWeight: '700', fontSize: '0.88rem' } }, openOps.length + ' / ' + (botConfig.maxOps||5))
                                 )
                             ),
-                            // Botón
-                            React.createElement('button', {
-                                onClick: botRunning ? stopBot : startBot,
-                                style: {
-                                    background: botRunning ? 'rgba(244,169,168,0.12)' : 'rgba(136,212,152,0.12)',
-                                    border: '1px solid ' + (botRunning ? 'rgba(244,169,168,0.4)' : 'rgba(136,212,152,0.4)'),
-                                    color: botRunning ? '#F4A9A8' : '#88D498',
-                                    borderRadius: '9px', padding: '0.6rem 1.8rem',
-                                    cursor: 'pointer', fontSize: '0.9rem', fontWeight: '700',
-                                    letterSpacing: '0.03em', transition: 'all 0.2s'
-                                }
-                            }, botRunning ? '⏹ Detener Bot' : '▶ Iniciar Bot')
+                            React.createElement('button', { onClick: botRunning ? stopBot : startBot, style: { background: botRunning?'rgba(244,169,168,0.12)':'rgba(136,212,152,0.12)', border: '1px solid '+(botRunning?'rgba(244,169,168,0.4)':'rgba(136,212,152,0.4)'), color: botRunning?'#F4A9A8':'#88D498', borderRadius: '9px', padding: '0.6rem 1.8rem', cursor: 'pointer', fontSize: '0.9rem', fontWeight: '700', transition: 'all 0.2s' } }, botRunning ? '⏹ Detener Bot' : '▶ Iniciar Bot')
                         ),
 
-                        // ── SECCIÓN 3: ESTADO DEL MERCADO ────────────────
-                        React.createElement('div', { style: sectionStyle },
+                        // ── ESTADO DEL MERCADO ──
+                        React.createElement('div', { style: sec },
                             React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.75rem' } },
                                 React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '0.6rem' } },
                                     React.createElement('span', null, '📊'),
                                     React.createElement('span', { style: { fontWeight: '700', fontSize: '0.95rem' } }, 'Estado del mercado'),
-                                    marketScanTs && React.createElement('span', { style: { color: '#555e7a', fontSize: '0.72rem' } },
-                                        'Actualizado: ' + marketScanTs.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-                                    )
+                                    marketScanTs && React.createElement('span', { style: { color: '#555e7a', fontSize: '0.72rem' } }, 'Act: ' + marketScanTs.toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit',second:'2-digit'}))
                                 ),
-                                React.createElement('div', { style: { display: 'flex', gap: '0.5rem', alignItems: 'center' } },
-                                    React.createElement('button', {
-                                        onClick: () => runMarketScan(botConfig, botAssets),
-                                        disabled: marketScanLoading || botAssets.length === 0,
-                                        style: { background: 'rgba(124,157,212,0.1)', border: '1px solid rgba(124,157,212,0.25)', color: '#7C9DD4', borderRadius: '6px', padding: '0.3rem 0.8rem', cursor: 'pointer', fontSize: '0.78rem', opacity: (marketScanLoading || botAssets.length === 0) ? 0.5 : 1 }
-                                    }, marketScanLoading ? '⟳ Escaneando...' : '⟳ Escanear')
-                                )
+                                React.createElement('button', { onClick: () => runMarketScan(botConfig, botAssets), disabled: marketScanLoading || botAssets.length === 0, style: { background: 'rgba(124,157,212,0.1)', border: '1px solid rgba(124,157,212,0.25)', color: '#7C9DD4', borderRadius: '6px', padding: '0.3rem 0.8rem', cursor: 'pointer', fontSize: '0.78rem', opacity: (marketScanLoading||botAssets.length===0)?0.5:1 } }, marketScanLoading ? '⟳ Escaneando...' : '⟳ Escanear')
                             ),
-
-                            // Tabs
-                            React.createElement('div', { style: { display: 'flex', gap: '0.4rem', marginBottom: '0.9rem', borderBottom: '1px solid #3a3f52', paddingBottom: '0' } },
+                            React.createElement('div', { style: { display: 'flex', gap: '0.4rem', marginBottom: '0.9rem', borderBottom: '1px solid #3a3f52' } },
                                 [
                                     { key: 'long',  label: '▲ LONG',      color: '#88D498', bg: 'rgba(136,212,152,0.12)', count: marketScan.long.length },
                                     { key: 'short', label: '▼ SHORT',     color: '#F4A9A8', bg: 'rgba(244,169,168,0.12)', count: marketScan.short.length },
                                     { key: 'none',  label: '— Sin cruce', color: '#A8B2C1', bg: 'rgba(168,178,193,0.08)', count: marketScan.none.length },
-                                ].map(tab =>
-                                    React.createElement('button', {
-                                        key: tab.key,
-                                        onClick: () => setMarketScanTab(tab.key),
-                                        style: {
-                                            background: marketScanTab === tab.key ? tab.bg : 'transparent',
-                                            border: 'none',
-                                            borderBottom: '2px solid ' + (marketScanTab === tab.key ? tab.color : 'transparent'),
-                                            color: marketScanTab === tab.key ? tab.color : '#555e7a',
-                                            padding: '0.4rem 0.9rem 0.55rem',
-                                            cursor: 'pointer', fontSize: '0.8rem', fontWeight: '700',
-                                            borderRadius: '6px 6px 0 0', transition: 'all 0.15s',
-                                            display: 'flex', alignItems: 'center', gap: '0.4rem'
-                                        }
-                                    },
-                                        tab.label,
-                                        React.createElement('span', { style: { background: marketScanTab === tab.key ? tab.color : '#3a3f52', color: marketScanTab === tab.key ? '#1a1d29' : '#A8B2C1', borderRadius: '10px', padding: '0.05rem 0.45rem', fontSize: '0.7rem', fontWeight: '800' } }, tab.count)
-                                    )
-                                )
+                                ].map(tab => React.createElement('button', { key: tab.key, onClick: () => setMarketScanTab(tab.key), style: { background: marketScanTab===tab.key?tab.bg:'transparent', border: 'none', borderBottom: '2px solid '+(marketScanTab===tab.key?tab.color:'transparent'), color: marketScanTab===tab.key?tab.color:'#555e7a', padding: '0.4rem 0.9rem 0.55rem', cursor: 'pointer', fontSize: '0.8rem', fontWeight: '700', borderRadius: '6px 6px 0 0', display: 'flex', alignItems: 'center', gap: '0.4rem' } },
+                                    tab.label,
+                                    React.createElement('span', { style: { background: marketScanTab===tab.key?tab.color:'#3a3f52', color: marketScanTab===tab.key?'#1a1d29':'#A8B2C1', borderRadius: '10px', padding: '0.05rem 0.45rem', fontSize: '0.7rem', fontWeight: '800' } }, tab.count)
+                                ))
                             ),
-
-                            // Contenido de la tab activa
                             (() => {
                                 const items = marketScan[marketScanTab] || [];
-                                const isLongTab = marketScanTab === 'long';
-                                const isShortTab = marketScanTab === 'short';
-
                                 if (botAssets.length === 0) return React.createElement('div', { style: { color: '#555e7a', fontSize: '0.83rem', textAlign: 'center', padding: '1.5rem' } }, 'Seleccioná activos y presioná Escanear');
                                 if (marketScanLoading) return React.createElement('div', { style: { color: '#7C9DD4', fontSize: '0.83rem', textAlign: 'center', padding: '1.5rem' } }, '⟳ Escaneando ' + botAssets.length + ' activos...');
                                 if (items.length === 0 && marketScanTs) return React.createElement('div', { style: { color: '#555e7a', fontSize: '0.83rem', textAlign: 'center', padding: '1.5rem' } }, 'Sin activos en esta categoría');
-                                if (items.length === 0) return React.createElement('div', { style: { color: '#555e7a', fontSize: '0.83rem', textAlign: 'center', padding: '1.5rem' } }, 'Presioná Escanear para ver el estado del mercado');
-
-                                return React.createElement('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '0.6rem' } },
+                                if (items.length === 0) return React.createElement('div', { style: { color: '#555e7a', fontSize: '0.83rem', textAlign: 'center', padding: '1.5rem' } }, 'Presioná Escanear para ver el estado');
+                                const stMap = { operating: { label: '🟢 Operando', color: '#88D498', bg: 'rgba(136,212,152,0.08)' }, new: { label: '🔵 Nuevo cruce', color: '#7C9DD4', bg: 'rgba(124,157,212,0.08)' }, processed: { label: '✅ Ya operado', color: '#555e7a', bg: 'rgba(168,178,193,0.04)' }, null: { label: '⚪ Sin cruce', color: '#555e7a', bg: 'rgba(168,178,193,0.04)' } };
+                                const dirColor = marketScanTab==='long'?'#88D498':marketScanTab==='short'?'#F4A9A8':'#A8B2C1';
+                                return React.createElement('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(185px, 1fr))', gap: '0.6rem' } },
                                     items.map(item => {
-                                        const statusMap = {
-                                            'operating': { label: '🟢 Operando',    color: '#88D498', bg: 'rgba(136,212,152,0.08)' },
-                                            'new':       { label: '🔵 Nuevo cruce', color: '#7C9DD4', bg: 'rgba(124,157,212,0.08)' },
-                                            'processed': { label: '✅ Ya operado',  color: '#555e7a', bg: 'rgba(168,178,193,0.04)' },
-                                            null:        { label: '⚪ Sin cruce',   color: '#555e7a', bg: 'rgba(168,178,193,0.04)' },
-                                        };
-                                        const st = statusMap[item.crossStatus] || statusMap[null];
-                                        const dirColor = isLongTab ? '#88D498' : isShortTab ? '#F4A9A8' : '#A8B2C1';
-
-                                        return React.createElement('div', {
-                                            key: item.symbol,
-                                            style: { background: st.bg, border: '1px solid rgba(58,63,82,0.6)', borderRadius: '9px', padding: '0.7rem 0.85rem' }
-                                        },
-                                            // Header: símbolo + precio
+                                        const st = stMap[item.crossStatus] || stMap['null'];
+                                        return React.createElement('div', { key: item.symbol, style: { background: st.bg, border: '1px solid rgba(58,63,82,0.6)', borderRadius: '9px', padding: '0.7rem 0.85rem' } },
                                             React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' } },
                                                 React.createElement('span', { style: { fontWeight: '800', fontSize: '0.88rem', color: '#E8ECEF' } }, item.symbol),
-                                                item.lastPrice
-                                                    ? React.createElement('span', { style: { fontSize: '0.78rem', color: dirColor, fontWeight: '600' } }, formatCurrency(item.lastPrice))
-                                                    : React.createElement('span', { style: { fontSize: '0.72rem', color: '#555e7a' } }, '—')
+                                                item.lastPrice ? React.createElement('span', { style: { fontSize: '0.78rem', color: dirColor, fontWeight: '600' } }, formatCurrency(item.lastPrice)) : React.createElement('span', { style: { fontSize: '0.72rem', color: '#555e7a' } }, '—')
                                             ),
-                                            // Estado
-                                            React.createElement('div', { style: { fontSize: '0.72rem', color: st.color, fontWeight: '600', marginBottom: item.crossDate ? '0.3rem' : 0 } }, st.label),
-                                            // Fecha cruce si existe
-                                            item.crossDate && React.createElement('div', { style: { fontSize: '0.7rem', color: '#555e7a' } },
-                                                item.crossDate + (item.crossHour !== null ? ' ' + String(item.crossHour).padStart(2,'0') + ':00' : '') +
-                                                (item.crossPrice ? ' · ' + formatCurrency(item.crossPrice) : '')
-                                            ),
-                                            // Error si existe
+                                            React.createElement('div', { style: { fontSize: '0.72rem', color: st.color, fontWeight: '600', marginBottom: item.crossDate?'0.3rem':0 } }, st.label),
+                                            item.crossDate && React.createElement('div', { style: { fontSize: '0.7rem', color: '#555e7a' } }, item.crossDate + (item.crossHour!==null?' '+String(item.crossHour).padStart(2,'0')+':00':'') + (item.crossPrice?' · '+formatCurrency(item.crossPrice):'')),
                                             item.error && React.createElement('div', { style: { fontSize: '0.68rem', color: '#F4A9A8', marginTop: '0.2rem' } }, item.error)
                                         );
                                     })
@@ -11501,25 +11043,21 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                             })()
                         ),
 
-                        // ── SECCIÓN 4: LOG DEL BOT ────────────────────────
-                        botLog.length > 0 && React.createElement('div', { style: sectionStyle },
+                        // ── LOG ──
+                        botLog.length > 0 && React.createElement('div', { style: sec },
                             React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' } },
-                                React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '0.5rem' } },
-                                    React.createElement('span', null, '📋'),
-                                    React.createElement('span', { style: { fontWeight: '700', fontSize: '0.88rem' } }, 'Log del bot')
-                                ),
+                                React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '0.5rem' } }, React.createElement('span', null, '📋'), React.createElement('span', { style: { fontWeight: '700', fontSize: '0.88rem' } }, 'Log del bot')),
                                 React.createElement('button', { onClick: () => setBotLog([]), style: { background: 'none', border: 'none', color: '#555e7a', cursor: 'pointer', fontSize: '0.75rem' } }, 'Limpiar')
                             ),
                             React.createElement('div', { style: { background: '#1a1d29', borderRadius: '8px', padding: '0.6rem', maxHeight: '160px', overflowY: 'auto', fontFamily: 'monospace' } },
-                                botLog.map((l, i) => React.createElement('div', { key: i, style: { fontSize: '0.76rem', color: l.type === 'error' ? '#F4A9A8' : l.type === 'success' ? '#88D498' : l.type === 'warn' ? '#F4D896' : '#A8B2C1', padding: '0.1rem 0', borderBottom: i < botLog.length - 1 ? '1px solid rgba(58,63,82,0.3)' : 'none' } },
-                                    React.createElement('span', { style: { color: '#555e7a', marginRight: '0.5rem' } }, l.ts),
-                                    l.msg
+                                botLog.map((l, i) => React.createElement('div', { key: i, style: { fontSize: '0.76rem', color: l.type==='error'?'#F4A9A8':l.type==='success'?'#88D498':l.type==='warn'?'#F4D896':'#A8B2C1', padding: '0.1rem 0', borderBottom: i<botLog.length-1?'1px solid rgba(58,63,82,0.3)':'none' } },
+                                    React.createElement('span', { style: { color: '#555e7a', marginRight: '0.5rem' } }, l.ts), l.msg
                                 ))
                             )
                         ),
 
-                        // ── SECCIÓN 5: OPERACIONES ACTIVAS ───────────────
-                        React.createElement('div', { style: sectionStyle },
+                        // ── OPERACIONES ACTIVAS ──
+                        React.createElement('div', { style: sec },
                             React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.9rem' } },
                                 React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '0.5rem' } },
                                     React.createElement('span', null, '📈'),
@@ -11528,95 +11066,65 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                                 ),
                                 React.createElement('button', { onClick: loadBotOperations, disabled: botOpsLoading, style: { background: 'rgba(168,178,193,0.07)', border: '1px solid rgba(168,178,193,0.15)', color: '#A8B2C1', borderRadius: '6px', padding: '0.3rem 0.7rem', cursor: 'pointer', fontSize: '0.75rem' } }, botOpsLoading ? '...' : '↻ Actualizar')
                             ),
-
                             openOps.length === 0
                                 ? React.createElement('div', { style: { color: '#555e7a', fontSize: '0.83rem', textAlign: 'center', padding: '1.5rem' } }, 'Sin operaciones abiertas')
                                 : React.createElement('div', { style: { overflowX: 'auto' } },
                                     React.createElement('table', { style: { width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' } },
-                                        React.createElement('thead', null,
-                                            React.createElement('tr', null,
-                                                ['Activo','Dir.','Cruce','Entrada','PEPP','Capital','Palanca','TP1','TP2','TP3','Abierta'].map(h =>
-                                                    React.createElement('th', { key: h, style: { padding: '0.4rem 0.6rem', textAlign: h === 'Activo' || h === 'Dir.' ? 'left' : 'right', color: '#A8B2C1', fontWeight: '600', fontSize: '0.72rem', textTransform: 'uppercase', borderBottom: '1px solid #3a3f52', whiteSpace: 'nowrap' } }, h)
-                                                )
-                                            )
-                                        ),
-                                        React.createElement('tbody', null,
-                                            openOps.map(op => {
-                                                const isLong = op.direction === 'LONG';
-                                                const dirColor = isLong ? '#88D498' : '#F4A9A8';
-                                                const tpCell = (hit, pct) => React.createElement('span', {
-                                                    style: { color: hit ? '#88D498' : '#555e7a', fontWeight: hit ? '700' : '400' }
-                                                }, (hit ? '✅ ' : '') + (pct ? pct + '%' : '—'));
-                                                return React.createElement('tr', { key: op.id, style: { borderBottom: '1px solid rgba(58,63,82,0.4)', transition: 'background 0.1s' } },
-                                                    React.createElement('td', { style: { padding: '0.55rem 0.6rem', fontWeight: '700', color: '#E8ECEF' } }, op.symbol),
-                                                    React.createElement('td', { style: { padding: '0.55rem 0.6rem' } },
-                                                        React.createElement('span', { style: { color: dirColor, fontWeight: '700', fontSize: '0.75rem', background: isLong ? 'rgba(136,212,152,0.12)' : 'rgba(244,169,168,0.12)', border: '1px solid ' + (isLong ? 'rgba(136,212,152,0.3)' : 'rgba(244,169,168,0.3)'), borderRadius: '4px', padding: '0.1rem 0.35rem' } }, op.direction)
-                                                    ),
-                                                    React.createElement('td', { style: { padding: '0.55rem 0.6rem', textAlign: 'right', color: '#A8B2C1', fontSize: '0.75rem' } }, op.cross_date + (op.cross_hour !== null ? ' ' + String(op.cross_hour).padStart(2,'0') + 'h' : '')),
-                                                    React.createElement('td', { style: { padding: '0.55rem 0.6rem', textAlign: 'right', color: '#E8ECEF' } }, op.entry_price ? formatCurrency(op.entry_price) : '—'),
-                                                    React.createElement('td', { style: { padding: '0.55rem 0.6rem', textAlign: 'right', color: '#7C9DD4', fontWeight: '700' } }, op.pepp ? formatCurrency(op.pepp) : '—'),
-                                                    React.createElement('td', { style: { padding: '0.55rem 0.6rem', textAlign: 'right', color: '#E8ECEF' } }, op.item_base ? '$' + parseFloat(op.item_base).toFixed(2) : '—'),
-                                                    React.createElement('td', { style: { padding: '0.55rem 0.6rem', textAlign: 'right', color: '#A8B2C1' } }, op.leverage ? op.leverage + 'x' : '—'),
-                                                    React.createElement('td', { style: { padding: '0.55rem 0.6rem', textAlign: 'right' } }, tpCell(op.tp1_hit, op.tp1_pct)),
-                                                    React.createElement('td', { style: { padding: '0.55rem 0.6rem', textAlign: 'right' } }, tpCell(op.tp2_hit, op.tp2_pct)),
-                                                    React.createElement('td', { style: { padding: '0.55rem 0.6rem', textAlign: 'right' } }, tpCell(op.tp3_hit, op.tp3_pct)),
-                                                    React.createElement('td', { style: { padding: '0.55rem 0.6rem', textAlign: 'right', color: '#555e7a', fontSize: '0.73rem' } }, fmtDT(op.opened_at))
-                                                );
-                                            })
-                                        )
+                                        React.createElement('thead', null, React.createElement('tr', null, ['Activo','Dir.','Cruce','Entrada','Capital','Palanca','TP1','TP2','TP3','Abierta'].map(h => React.createElement('th', { key: h, style: { padding: '0.4rem 0.6rem', textAlign: h==='Activo'||h==='Dir.'?'left':'right', color: '#A8B2C1', fontWeight: '600', fontSize: '0.72rem', textTransform: 'uppercase', borderBottom: '1px solid #3a3f52', whiteSpace: 'nowrap' } }, h)))),
+                                        React.createElement('tbody', null, openOps.map(op => {
+                                            const isL = op.direction === 'LONG';
+                                            const dc = isL ? '#88D498' : '#F4A9A8';
+                                            const tp = (hit, pct) => React.createElement('span', { style: { color: hit?'#88D498':'#555e7a', fontWeight: hit?'700':'400' } }, (hit?'✅ ':'')+( pct?pct+'%':'—'));
+                                            return React.createElement('tr', { key: op.id, style: { borderBottom: '1px solid rgba(58,63,82,0.4)' } },
+                                                React.createElement('td', { style: { padding: '0.55rem 0.6rem', fontWeight: '700', color: '#E8ECEF' } }, op.symbol),
+                                                React.createElement('td', { style: { padding: '0.55rem 0.6rem' } }, React.createElement('span', { style: { color: dc, fontWeight: '700', fontSize: '0.75rem', background: isL?'rgba(136,212,152,0.12)':'rgba(244,169,168,0.12)', border: '1px solid '+(isL?'rgba(136,212,152,0.3)':'rgba(244,169,168,0.3)'), borderRadius: '4px', padding: '0.1rem 0.35rem' } }, op.direction)),
+                                                React.createElement('td', { style: { padding: '0.55rem 0.6rem', textAlign: 'right', color: '#A8B2C1', fontSize: '0.75rem' } }, op.cross_date+(op.cross_hour!==null?' '+String(op.cross_hour).padStart(2,'0')+'h':'')),
+                                                React.createElement('td', { style: { padding: '0.55rem 0.6rem', textAlign: 'right', color: '#E8ECEF' } }, op.entry_price?formatCurrency(op.entry_price):'—'),
+                                                React.createElement('td', { style: { padding: '0.55rem 0.6rem', textAlign: 'right', color: '#E8ECEF' } }, op.item_base?'$'+parseFloat(op.item_base).toFixed(2):'—'),
+                                                React.createElement('td', { style: { padding: '0.55rem 0.6rem', textAlign: 'right', color: '#A8B2C1' } }, op.leverage?op.leverage+'x':'—'),
+                                                React.createElement('td', { style: { padding: '0.55rem 0.6rem', textAlign: 'right' } }, tp(op.tp1_hit, op.tp1_pct)),
+                                                React.createElement('td', { style: { padding: '0.55rem 0.6rem', textAlign: 'right' } }, tp(op.tp2_hit, op.tp2_pct)),
+                                                React.createElement('td', { style: { padding: '0.55rem 0.6rem', textAlign: 'right' } }, tp(op.tp3_hit, op.tp3_pct)),
+                                                React.createElement('td', { style: { padding: '0.55rem 0.6rem', textAlign: 'right', color: '#555e7a', fontSize: '0.73rem' } }, fmtDT(op.opened_at))
+                                            );
+                                        }))
                                     )
                                 )
                         ),
 
-                        // ── SECCIÓN 6: HISTORIAL ──────────────────────────
-                        closedOps.length > 0 && React.createElement('div', { style: sectionStyle },
+                        // ── HISTORIAL ──
+                        closedOps.length > 0 && React.createElement('div', { style: sec },
                             React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.9rem' } },
                                 React.createElement('span', null, '📊'),
                                 React.createElement('span', { style: { fontWeight: '700', fontSize: '0.88rem' } }, 'Historial'),
-                                React.createElement('span', { style: { color: '#555e7a', fontSize: '0.78rem' } }, '(' + closedOps.length + ' operaciones cerradas)')
+                                React.createElement('span', { style: { color: '#555e7a', fontSize: '0.78rem' } }, '('+closedOps.length+' operaciones cerradas)')
                             ),
                             React.createElement('div', { style: { overflowX: 'auto' } },
                                 React.createElement('table', { style: { width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' } },
-                                    React.createElement('thead', null,
-                                        React.createElement('tr', null,
-                                            ['Activo','Dir.','Entrada','PEPP','Capital','TP1','TP2','TP3','PnL Total','Estado','Cerrada'].map(h =>
-                                                React.createElement('th', { key: h, style: { padding: '0.4rem 0.6rem', textAlign: h === 'Activo' || h === 'Dir.' || h === 'Estado' ? 'left' : 'right', color: '#A8B2C1', fontWeight: '600', fontSize: '0.72rem', textTransform: 'uppercase', borderBottom: '1px solid #3a3f52', whiteSpace: 'nowrap' } }, h)
-                                            )
-                                        )
-                                    ),
-                                    React.createElement('tbody', null,
-                                        closedOps.map(op => {
-                                            const isLong = op.direction === 'LONG';
-                                            const dirColor = isLong ? '#88D498' : '#F4A9A8';
-                                            const pnl = parseFloat(op.total_pnl) || 0;
-                                            const pnlColor = pnl > 0 ? '#88D498' : pnl < 0 ? '#F4A9A8' : '#A8B2C1';
-                                            const tpHit = (hit) => hit ? React.createElement('span', { style: { color: '#88D498' } }, '✅') : React.createElement('span', { style: { color: '#555e7a' } }, '—');
-                                            return React.createElement('tr', { key: op.id, style: { borderBottom: '1px solid rgba(58,63,82,0.3)', opacity: 0.8 } },
-                                                React.createElement('td', { style: { padding: '0.5rem 0.6rem', fontWeight: '700', color: '#E8ECEF' } }, op.symbol),
-                                                React.createElement('td', { style: { padding: '0.5rem 0.6rem' } },
-                                                    React.createElement('span', { style: { color: dirColor, fontWeight: '700', fontSize: '0.75rem' } }, op.direction)
-                                                ),
-                                                React.createElement('td', { style: { padding: '0.5rem 0.6rem', textAlign: 'right', color: '#E8ECEF' } }, op.entry_price ? formatCurrency(op.entry_price) : '—'),
-                                                React.createElement('td', { style: { padding: '0.5rem 0.6rem', textAlign: 'right', color: '#7C9DD4' } }, op.pepp ? formatCurrency(op.pepp) : '—'),
-                                                React.createElement('td', { style: { padding: '0.5rem 0.6rem', textAlign: 'right' } }, op.item_base ? '$' + parseFloat(op.item_base).toFixed(2) : '—'),
-                                                React.createElement('td', { style: { padding: '0.5rem 0.6rem', textAlign: 'right' } }, tpHit(op.tp1_hit)),
-                                                React.createElement('td', { style: { padding: '0.5rem 0.6rem', textAlign: 'right' } }, tpHit(op.tp2_hit)),
-                                                React.createElement('td', { style: { padding: '0.5rem 0.6rem', textAlign: 'right' } }, tpHit(op.tp3_hit)),
-                                                React.createElement('td', { style: { padding: '0.5rem 0.6rem', textAlign: 'right', color: pnlColor, fontWeight: '700' } }, (pnl >= 0 ? '+' : '') + '$' + pnl.toFixed(2)),
-                                                React.createElement('td', { style: { padding: '0.5rem 0.6rem' } },
-                                                    React.createElement('span', { style: { fontSize: '0.72rem', color: op.status === 'cancelled' ? '#F4A9A8' : '#88D498' } }, op.status === 'cancelled' ? 'Cancelada' : 'Cerrada')
-                                                ),
-                                                React.createElement('td', { style: { padding: '0.5rem 0.6rem', textAlign: 'right', color: '#555e7a', fontSize: '0.73rem' } }, fmtDT(op.closed_at))
-                                            );
-                                        })
-                                    )
+                                    React.createElement('thead', null, React.createElement('tr', null, ['Activo','Dir.','Entrada','Capital','TP1','TP2','TP3','PnL Total','Estado','Cerrada'].map(h => React.createElement('th', { key: h, style: { padding: '0.4rem 0.6rem', textAlign: h==='Activo'||h==='Dir.'||h==='Estado'?'left':'right', color: '#A8B2C1', fontWeight: '600', fontSize: '0.72rem', textTransform: 'uppercase', borderBottom: '1px solid #3a3f52', whiteSpace: 'nowrap' } }, h)))),
+                                    React.createElement('tbody', null, closedOps.map(op => {
+                                        const isL = op.direction === 'LONG';
+                                        const pnl = parseFloat(op.total_pnl)||0;
+                                        const pc = pnl>0?'#88D498':pnl<0?'#F4A9A8':'#A8B2C1';
+                                        return React.createElement('tr', { key: op.id, style: { borderBottom: '1px solid rgba(58,63,82,0.3)', opacity: 0.8 } },
+                                            React.createElement('td', { style: { padding: '0.5rem 0.6rem', fontWeight: '700', color: '#E8ECEF' } }, op.symbol),
+                                            React.createElement('td', { style: { padding: '0.5rem 0.6rem', color: isL?'#88D498':'#F4A9A8', fontWeight: '700', fontSize: '0.75rem' } }, op.direction),
+                                            React.createElement('td', { style: { padding: '0.5rem 0.6rem', textAlign: 'right', color: '#E8ECEF' } }, op.entry_price?formatCurrency(op.entry_price):'—'),
+                                            React.createElement('td', { style: { padding: '0.5rem 0.6rem', textAlign: 'right' } }, op.item_base?'$'+parseFloat(op.item_base).toFixed(2):'—'),
+                                            React.createElement('td', { style: { padding: '0.5rem 0.6rem', textAlign: 'right', color: op.tp1_hit?'#88D498':'#555e7a' } }, op.tp1_hit?'✅':'—'),
+                                            React.createElement('td', { style: { padding: '0.5rem 0.6rem', textAlign: 'right', color: op.tp2_hit?'#88D498':'#555e7a' } }, op.tp2_hit?'✅':'—'),
+                                            React.createElement('td', { style: { padding: '0.5rem 0.6rem', textAlign: 'right', color: op.tp3_hit?'#88D498':'#555e7a' } }, op.tp3_hit?'✅':'—'),
+                                            React.createElement('td', { style: { padding: '0.5rem 0.6rem', textAlign: 'right', color: pc, fontWeight: '700' } }, (pnl>=0?'+':'')+'$'+pnl.toFixed(2)),
+                                            React.createElement('td', { style: { padding: '0.5rem 0.6rem', fontSize: '0.72rem', color: op.status==='cancelled'?'#F4A9A8':'#88D498' } }, op.status==='cancelled'?'Cancelada':'Cerrada'),
+                                            React.createElement('td', { style: { padding: '0.5rem 0.6rem', textAlign: 'right', color: '#555e7a', fontSize: '0.73rem' } }, fmtDT(op.closed_at))
+                                        );
+                                    }))
                                 )
                             )
                         )
                     )
                 );
             }
-
 
             // VISTA DASHBOARD
             return React.createElement('div', { style: styles.app },
@@ -12613,6 +12121,7 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                               )
                         )
                     )
+        }
 
 
 
