@@ -409,9 +409,7 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
             const [emaSelectedSymbol, setEmaSelectedSymbol] = useState(null);
             const [emaError, setEmaError] = useState('');
             // EMA Bot
-            const BINGX_API_KEY = 'ZPemL708CUUEPvXs4bYy7hzK74nM5AIB3fHAXYzqywWxPqWMsHhvb3Pwsxi0pQNYOW9EPvlQZAfNNELmtCMjag';
-            const BINGX_SECRET = 'QkxEyLA57YFPJVdSEyggSJsUOutv7lqOaNQLUqaHHkDPwEaU31c0ti90xExSDfgKNmYFM4prEpFNhvHlZg';
-            const BINGX_BASE = 'https://open-api-vst.bingx.com';
+            const BINGX_PROXY = '/api/bingx'; // API keys en variables de entorno Vercel
             const [botConfig, setBotConfig] = useState({
                 ema1: 12, ema2: 25, tf: '1h', session: 'open_day',
                 capital: '', itemBase: '', leverage: 3,
@@ -10516,24 +10514,12 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
             // EMA BOT — FUNCIONES
             // ============================================================
 
-            const bingxSign = async (params) => {
-                const sortedParams = Object.keys(params).sort().map(k => `${k}=${params[k]}`).join('&');
-                const encoder = new TextEncoder();
-                const keyData = encoder.encode(BINGX_SECRET);
-                const msgData = encoder.encode(sortedParams);
-                const cryptoKey = await window.crypto.subtle.importKey('raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-                const sig = await window.crypto.subtle.sign('HMAC', cryptoKey, msgData);
-                return Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2,'0')).join('');
-            };
-
             const bingxRequest = async (method, path, params = {}) => {
-                const allParams = { ...params, timestamp: Date.now().toString() };
-                const signature = await bingxSign(allParams);
-                const qs = Object.keys(allParams).map(k => `${k}=${encodeURIComponent(allParams[k])}`).join('&') + `&signature=${signature}`;
-                const url = method === 'GET' ? `${BINGX_BASE}${path}?${qs}` : `${BINGX_BASE}${path}`;
-                const opts = { method, headers: { 'X-BX-APIKEY': BINGX_API_KEY } };
-                if (method === 'POST') { opts.headers['Content-Type'] = 'application/x-www-form-urlencoded'; opts.body = qs; }
-                const res = await fetch(url, opts);
+                const res = await fetch(BINGX_PROXY, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path, method, ...params })
+                });
                 return res.json();
             };
 
