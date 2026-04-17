@@ -10578,8 +10578,7 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                 setBotOpsLoading(true);
                 try {
                     const userId = DEFAULT_ADMIN_USER_ID;
-                    const { data, error } = await supabase
-                        supabaseClient.from('ema_bot_operations')
+                    const { data, error } = await supabaseClient.from('ema_bot_operations')
                         .select('*')
                         .eq('user_id', userId)
                         .order('opened_at', { ascending: false })
@@ -10592,8 +10591,7 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
 
             const isCrossAlreadyProcessed = async (symbol, direction, crossDate, crossHour, tf, ema1, ema2) => {
                 const userId = DEFAULT_ADMIN_USER_ID;
-                const { data } = await supabase
-                    supabaseClient.from('ema_bot_crosses')
+                const { data } = await supabaseClient.from('ema_bot_crosses')
                     .select('id')
                     .eq('user_id', userId)
                     .eq('symbol', symbol)
@@ -10609,7 +10607,7 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
 
             const markCrossProcessed = async (symbol, direction, crossDate, crossHour, tf, ema1, ema2, crossPrice) => {
                 const userId = DEFAULT_ADMIN_USER_ID;
-                await supabasesupabaseClient.from('ema_bot_crosses').insert({
+                await supabaseClient.from('ema_bot_crosses').insert({
                     user_id: userId, symbol, direction, cross_date: crossDate,
                     cross_hour: crossHour, tf, ema1, ema2, cross_price: crossPrice
                 });
@@ -10650,7 +10648,7 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                 }
 
                 // Guardar en Supabase
-                const { data } = await supabasesupabaseClient.from('ema_bot_operations').insert({
+                const { data } = await supabaseClient.from('ema_bot_operations').insert({
                     user_id: userId, symbol, direction,
                     tf: cfg.tf, ema1: cfg.ema1, ema2: cfg.ema2,
                     cross_date: crossDate, cross_hour: crossHour,
@@ -10762,8 +10760,7 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                 const userId = DEFAULT_ADMIN_USER_ID;
 
                 // Contar operaciones abiertas
-                const { data: openOps } = await supabase
-                    supabaseClient.from('ema_bot_operations')
+                const { data: openOps } = await supabaseClient.from('ema_bot_operations')
                     .select('id, symbol, direction')
                     .eq('user_id', userId)
                     .eq('status', 'open');
@@ -10818,7 +10815,7 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                 await loadBotOperations();
 
                 // Intervalo según TF
-                const tfMs = { '15m': 15*60*1000, '30m': 30*60*1000, '1h': 60*60*1000, '4h': 4*60*60*1000, '1d': 24*60*60*1000 };
+                const tfMs = { '1m': 60*1000, '5m': 5*60*1000, '15m': 15*60*1000, '30m': 30*60*1000, '1h': 60*60*1000, '4h': 4*60*60*1000, '1d': 24*60*60*1000 };
                 const intervalMs = tfMs[cfg.tf] || 60*60*1000;
 
                 // Primer ciclo inmediato
@@ -10967,7 +10964,7 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
             // ============================================================
             if (currentView === 'ema-strategy') {
                 var allSymbolsBot = [...new Set(assets.map(function(a){return a.symbol;}))].sort();
-                var tfOpts = [{v:'15m',l:'15 min'},{v:'30m',l:'30 min'},{v:'1h',l:'1 hora'},{v:'4h',l:'4 horas'},{v:'1d',l:'1 día'}];
+                var tfOpts = [{v:'1m',l:'1 min'},{v:'5m',l:'5 min'},{v:'15m',l:'15 min'},{v:'30m',l:'30 min'},{v:'1h',l:'1 hora'},{v:'4h',l:'4 horas'},{v:'1d',l:'1 día'}];
                 var sessOpts = [{v:'open_day',l:'Open día · 00:00 UTC'},{v:'open_london',l:'Open Londres · 08:00 UTC'},{v:'open_ny',l:'Open NY · 14:00 UTC'}];
                 var tp3size = 100 - (parseInt(botConfig.tp1size)||0) - (parseInt(botConfig.tp2size)||0);
                 var fmtCD = function(s){ if(!s||s<=0) return '—'; var h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sec=s%60; if(h>0) return h+'h '+String(m).padStart(2,'0')+'m'; if(m>0) return m+'m '+String(sec).padStart(2,'0')+'s'; return sec+'s'; };
