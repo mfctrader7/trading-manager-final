@@ -409,7 +409,7 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
             const [emaSelectedSymbol, setEmaSelectedSymbol] = useState(null);
             const [emaError, setEmaError] = useState('');
             // EMA Bot
-            const BINGX_PROXY = '/api/bingx'; // API keys en variables de entorno Vercel
+            const BINGX_PROXY = '/api/bingx';
             const [botConfig, setBotConfig] = useState({
                 ema1: 12, ema2: 25, tf: '1h', session: 'open_day',
                 capital: '', itemBase: '', leverage: 3,
@@ -10564,8 +10564,8 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                 setBotOpsLoading(true);
                 try {
                     const userId = DEFAULT_ADMIN_USER_ID;
-                    const { data, error } = await supabaseClient
-                        .from('ema_bot_operations')
+                    const { data, error } = await supabase
+                        Client.from('ema_bot_operations')
                         .select('*')
                         .eq('user_id', userId)
                         .order('opened_at', { ascending: false })
@@ -10578,8 +10578,8 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
 
             const isCrossAlreadyProcessed = async (symbol, direction, crossDate, crossHour, tf, ema1, ema2) => {
                 const userId = DEFAULT_ADMIN_USER_ID;
-                const { data } = await supabaseClient
-                    .from('ema_bot_crosses')
+                const { data } = await supabase
+                    Client.from('ema_bot_crosses')
                     .select('id')
                     .eq('user_id', userId)
                     .eq('symbol', symbol)
@@ -10654,71 +10654,43 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
             };
 
             const bingxGetKlines = async (symbol, interval, limit) => {
-                // BingX klines use BTC-USDT format (not BTC-USDT-SWAP)
                 var cleanSym = symbol.replace('-SWAP','').replace('-USDT-SWAP','-USDT');
                 if (!cleanSym.includes('-')) cleanSym = cleanSym + '-USDT';
-                const bingxSymbol = cleanSym;
                 const data = await bingxRequest('GET', '/openApi/swap/v3/quote/klines', {
-                    symbol: bingxSymbol, interval, limit: (limit || 300).toString()
+                    symbol: cleanSym, interval, limit: (limit || 300).toString()
                 });
-                // BingX returns {code, data: [...]} or {code, data: {klines: [...]}}
                 var raw = [];
-                if (data && Array.isArray(data.data)) {
-                    raw = data.data;
-                } else if (data && data.data && Array.isArray(data.data.klines)) {
-                    raw = data.data.klines;
-                } else if (Array.isArray(data)) {
-                    raw = data;
-                } else {
-                    console.warn('BingX klines unexpected format:', JSON.stringify(data).slice(0,200));
-                    return [];
-                }
+                if (data && Array.isArray(data.data)) raw = data.data;
+                else if (data && data.data && Array.isArray(data.data.klines)) raw = data.data.klines;
+                else if (Array.isArray(data)) raw = data;
+                else { console.warn('BingX klines unexpected format:', JSON.stringify(data).slice(0,200)); return []; }
                 return raw.map(function(k) {
                     var ts = parseInt(k.time || k.t || k[0]);
                     var d = new Date(ts);
-                    return {
-                        ts: ts,
-                        date: d.toISOString().slice(0,10),
-                        hour: d.getUTCHours(),
-                        close: parseFloat(k.close || k.c || k[4]),
-                        open: parseFloat(k.open || k.o || k[1]),
-                        high: parseFloat(k.high || k.h || k[2]),
-                        low: parseFloat(k.low || k.l || k[3])
-                    };
-                }).filter(function(k) { return !isNaN(k.close); }).reverse(); // BingX returns newest first, we need oldest first
+                    return { ts: ts, date: d.toISOString().slice(0,10), hour: d.getUTCHours(), close: parseFloat(k.close||k.c||k[4]), open: parseFloat(k.open||k.o||k[1]), high: parseFloat(k.high||k.h||k[2]), low: parseFloat(k.low||k.l||k[3]) };
+                }).filter(function(k){ return !isNaN(k.close); }).reverse();
             };
 
-            const tfToBingx = (tf) => {
-                var map = {'1m':'1m','3m':'3m','5m':'5m','15m':'15m','30m':'30m','1h':'1h','2h':'2h','4h':'4h','6h':'6h','8h':'8h','12h':'12h','1d':'1d','1w':'1w'};
-                return map[tf] || '1h';
-            };
+            const tfToBingx = (tf) => ({ '1m':'1m','3m':'3m','5m':'5m','15m':'15m','30m':'30m','1h':'1h','2h':'2h','4h':'4h','6h':'6h','8h':'8h','12h':'12h','1d':'1d','1w':'1w' }[tf] || '1h');
 
             const calcEMALocal = (prices, period) => {
                 if (prices.length < period) return [];
-                var k = 2 / (period + 1);
-                var emas = [];
-                var ema = prices.slice(0, period).reduce(function(a,b){return a+b;}, 0) / period;
-                emas.push({ idx: period - 1, value: ema });
-                for (var i = period; i < prices.length; i++) {
-                    ema = prices[i] * k + ema * (1 - k);
-                    emas.push({ idx: i, value: ema });
-                }
+                var k = 2/(period+1), ema = prices.slice(0,period).reduce(function(a,b){return a+b;},0)/period;
+                var emas = [{ idx: period-1, value: ema }];
+                for (var i = period; i < prices.length; i++) { ema = prices[i]*k + ema*(1-k); emas.push({ idx: i, value: ema }); }
                 return emas;
             };
 
             const detectCrossesLocal = (ema1arr, ema2arr, candles) => {
                 var crosses = [];
                 for (var i = 1; i < ema1arr.length; i++) {
-                    var prev1 = ema1arr[i-1].value;
-                    var prev2 = ema2arr[i-1] ? ema2arr[i-1].value : null;
-                    var curr1 = ema1arr[i].value;
-                    var curr2 = ema2arr[i] ? ema2arr[i].value : null;
-                    if (!prev2 || !curr2) continue;
-                    var idx = ema1arr[i].idx;
-                    var candle = candles[idx];
+                    var prev1=ema1arr[i-1].value, prev2=ema2arr[i-1]?ema2arr[i-1].value:null;
+                    var curr1=ema1arr[i].value, curr2=ema2arr[i]?ema2arr[i].value:null;
+                    if (!prev2||!curr2) continue;
+                    var candle = candles[ema1arr[i].idx];
                     if (!candle) continue;
-                    if (prev1 <= prev2 && curr1 > curr2) crosses.push({ date: candle.date, hour: candle.hour, price: candle.close, signal: 'LONG' });
-                    else if (prev1 >= prev2 && curr1 < curr2) crosses.push({ date: candle.date, hour: candle.hour, price: candle.close, signal: 'SHORT' });
+                    if (prev1<=prev2 && curr1>curr2) crosses.push({ date:candle.date, hour:candle.hour, price:candle.close, signal:'LONG' });
+                    else if (prev1>=prev2 && curr1<curr2) crosses.push({ date:candle.date, hour:candle.hour, price:candle.close, signal:'SHORT' });
                 }
                 return crosses.reverse();
             };
@@ -10726,56 +10698,49 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
             const runEMAForSymbolBingX = async (symbol, cfg) => {
                 try {
                     var candles = await bingxGetKlines(symbol, tfToBingx(cfg.tf), 300);
-                    if (!candles || candles.length < 30) return { symbol: symbol, signal: null, lastPrice: null, crosses: [], error: 'Sin datos' };
+                    if (!candles || candles.length < 30) return { symbol:symbol, signal:null, lastPrice:null, crosses:[], error:'Sin datos' };
                     var closes = candles.map(function(c){return c.close;});
-                    var ema1arr = calcEMALocal(closes, cfg.ema1 || 12);
-                    var ema2arr = calcEMALocal(closes, cfg.ema2 || 25);
+                    var ema1arr = calcEMALocal(closes, cfg.ema1||12);
+                    var ema2arr = calcEMALocal(closes, cfg.ema2||25);
                     var ema2map = {};
-                    ema2arr.forEach(function(e){ ema2map[e.idx] = e.value; });
-                    var ema2al = ema1arr.map(function(e){ return {idx:e.idx, value: ema2map[e.idx]||null}; }).filter(function(e){return e.value!==null;});
+                    ema2arr.forEach(function(e){ ema2map[e.idx]=e.value; });
+                    var ema2al = ema1arr.map(function(e){ return {idx:e.idx,value:ema2map[e.idx]||null}; }).filter(function(e){return e.value!==null;});
                     var ema1al = ema1arr.filter(function(e){ return ema2map[e.idx]!==undefined; });
-                    var lastE1 = ema1al[ema1al.length-1];
-                    var lastE2 = ema2al[ema2al.length-1];
-                    var signal = lastE1 && lastE2 ? (lastE1.value > lastE2.value ? 'LONG' : 'SHORT') : null;
+                    var lastE1=ema1al[ema1al.length-1], lastE2=ema2al[ema2al.length-1];
+                    var signal = lastE1&&lastE2 ? (lastE1.value>lastE2.value?'LONG':'SHORT') : null;
                     var crosses = detectCrossesLocal(ema1al, ema2al, candles);
-                    return { symbol: symbol, signal: signal, lastPrice: candles[candles.length-1].close, crosses: crosses.slice(0,5), error: null };
+                    return { symbol:symbol, signal:signal, lastPrice:candles[candles.length-1].close, crosses:crosses.slice(0,5), error:null };
                 } catch(e) {
-                    return { symbol: symbol, signal: null, lastPrice: null, crosses: [], error: e.message };
+                    return { symbol:symbol, signal:null, lastPrice:null, crosses:[], error:e.message };
                 }
             };
 
             const runMarketScan = async (cfg, assets) => {
                 setMarketScanLoading(true);
                 try {
-                    var userId = DEFAULT_ADMIN_USER_ID;
-                    var long = [], short = [], none = [];
-                    for (var si = 0; si < assets.length; si++) {
+                    var long=[], short=[], none=[];
+                    for (var si=0; si<assets.length; si++) {
                         var symbol = assets[si];
-                        // Small delay to avoid rate limiting (200ms between requests)
-                        if (si > 0) await new Promise(function(r){ setTimeout(r, 200); });
+                        if (si>0) await new Promise(function(r){ setTimeout(r,200); });
                         try {
                             var result = await runEMAForSymbolBingX(symbol, cfg);
-                            // Check if most recent cross was in last 48h
+                            var lastCross = result.crosses && result.crosses.length>0 ? result.crosses[0] : null;
                             var crossStatus = null;
-                            var lastCross = result.crosses && result.crosses.length > 0 ? result.crosses[0] : null;
                             if (lastCross) {
-                                var crossTs = new Date(lastCross.date + 'T' + String(lastCross.hour).padStart(2,'0') + ':00:00Z').getTime();
-                                var hoursAgo = (Date.now() - crossTs) / 3600000;
-                                crossStatus = hoursAgo <= 48 ? 'new' : 'old';
+                                var crossTs = new Date(lastCross.date+'T'+String(lastCross.hour).padStart(2,'0')+':00:00Z').getTime();
+                                crossStatus = (Date.now()-crossTs)/3600000 <= 48 ? 'new' : 'old';
                             }
-                            var item = { symbol: symbol, signal: result.signal, lastPrice: result.lastPrice, crossDate: lastCross ? lastCross.date : null, crossHour: lastCross ? lastCross.hour : null, crossPrice: lastCross ? lastCross.price : null, crossStatus: crossStatus, hoursAgo: lastCross ? Math.round((Date.now() - new Date(lastCross.date + 'T' + String(lastCross.hour).padStart(2,'0') + ':00:00Z').getTime()) / 3600000) : null, error: result.error };
-                            if (result.signal === 'LONG') long.push(item);
-                            else if (result.signal === 'SHORT') short.push(item);
+                            var item = { symbol:symbol, signal:result.signal, lastPrice:result.lastPrice, crossDate:lastCross?lastCross.date:null, crossHour:lastCross?lastCross.hour:null, crossPrice:lastCross?lastCross.price:null, crossStatus:crossStatus, hoursAgo:lastCross?Math.round((Date.now()-new Date(lastCross.date+'T'+String(lastCross.hour).padStart(2,'0')+':00:00Z').getTime())/3600000):null, error:result.error };
+                            if (result.signal==='LONG') long.push(item);
+                            else if (result.signal==='SHORT') short.push(item);
                             else none.push(item);
                         } catch(e) {
-                            none.push({ symbol: symbol, error: e.message, lastPrice: null, signal: null, crossStatus: null });
+                            none.push({ symbol:symbol, error:e.message, lastPrice:null, signal:null, crossStatus:null });
                         }
                     }
-                    setMarketScan({ long: long, short: short, none: none });
+                    setMarketScan({ long:long, short:short, none:none });
                     setMarketScanTs(new Date());
-                } finally {
-                    setMarketScanLoading(false);
-                }
+                } finally { setMarketScanLoading(false); }
             };
 
                         const botCycle = async (cfg, assets) => {
@@ -10783,8 +10748,8 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                 const userId = DEFAULT_ADMIN_USER_ID;
 
                 // Contar operaciones abiertas
-                const { data: openOps } = await supabaseClient
-                    .from('ema_bot_operations')
+                const { data: openOps } = await supabase
+                    Client.from('ema_bot_operations')
                     .select('id, symbol, direction')
                     .eq('user_id', userId)
                     .eq('status', 'open');
@@ -10811,9 +10776,9 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                         );
                         if (alreadyDone) continue;
 
-                        botAddLog('🎯 Nuevo cruce ' + lastCross.direction + ' en ' + symbol + ' @ ' + lastCross.price?.toFixed(4), 'success');
-                        await markCrossProcessed(symbol, lastCross.direction, lastCross.date, lastCross.hour, cfg.tf, cfg.ema1, cfg.ema2, lastCross.price);
-                        await openBotOperation(symbol, lastCross.direction, lastCross.date, lastCross.hour, lastCross.price, cfg);
+                        botAddLog('🎯 Nuevo cruce ' + lastCross.signal + ' en ' + symbol + ' @ ' + lastCross.price?.toFixed(4), 'success');
+                        await markCrossProcessed(symbol, lastCross.signal, lastCross.date, lastCross.hour, cfg.tf, cfg.ema1, cfg.ema2, lastCross.price);
+                        await openBotOperation(symbol, lastCross.signal, lastCross.date, lastCross.hour, lastCross.price, cfg);
                         newOps++;
                     } catch(e) {
                         botAddLog('Error en ' + symbol + ': ' + e.message, 'error');
