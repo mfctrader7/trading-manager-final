@@ -430,6 +430,11 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
             const [marketScanTab, setMarketScanTab] = useState('long');
             const [marketScanLoading, setMarketScanLoading] = useState(false);
             const [marketScanTs, setMarketScanTs] = useState(null);
+            const [livePositions, setLivePositions] = useState([]);
+            const [liveBalance, setLiveBalance] = useState(null);
+            const [liveLoading, setLiveLoading] = useState(false);
+            const [expandedOp, setExpandedOp] = useState(null);
+            const [closingOp, setClosingOp] = useState(null);
             const [atHistorialLoading, setAtHistorialLoading] = useState(false);
             const [atHistorialDetalle, setAtHistorialDetalle] = useState(null);
             const [projections, setProjections] = useState([]);
@@ -10762,6 +10767,52 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                 } finally { setMarketScanLoading(false); }
             };
 
+                        const fetchLiveData = async () => {
+                setLiveLoading(true);
+                try {
+                    // Balance
+                    const balData = await bingxRequest('GET', '/openApi/swap/v2/user/balance');
+                    if (balData && balData.data && balData.data.balance) {
+                        setLiveBalance(parseFloat(balData.data.balance.equity || 0));
+                    }
+                    // Positions
+                    const posData = await bingxRequest('GET', '/openApi/swap/v2/user/positions');
+                    var positions = (posData && posData.data) ? posData.data : [];
+                    setLivePositions(Array.isArray(positions) ? positions : []);
+                } catch(e) {
+                    console.error('fetchLiveData error:', e);
+                } finally {
+                    setLiveLoading(false);
+                }
+            };
+
+            const closePosition = async (op) => {
+                if (!window.confirm('¿Cerrar posición ' + op.symbol + ' ' + op.direction + '?')) return;
+                setClosingOp(op.id);
+                try {
+                    const bingxSym = op.symbol + '-USDT';
+                    const side = op.direction === 'LONG' ? 'SELL' : 'BUY';
+                    const result = await bingxRequest('POST', '/openApi/swap/v2/trade/closePosition', {
+                        symbol: bingxSym, positionSide: op.direction
+                    });
+                    if (result && result.code === 0) {
+                        // Mark as closed in Supabase
+                        await supabaseClient.from('ema_bot_operations').update({
+                            status: 'closed', closed_at: new Date().toISOString()
+                        }).eq('id', op.id);
+                        botAddLog('✅ Cerrada ' + op.symbol + ' ' + op.direction, 'success');
+                        await loadBotOperations();
+                        await fetchLiveData();
+                    } else {
+                        botAddLog('Error cerrando ' + op.symbol + ': ' + (result && result.msg ? result.msg : 'Error'), 'error');
+                    }
+                } catch(e) {
+                    botAddLog('Error cerrando ' + op.symbol + ': ' + e.message, 'error');
+                } finally {
+                    setClosingOp(null);
+                }
+            };
+
                         const botCycle = async (cfg, assets) => {
                 botAddLog('Iniciando ciclo — ' + assets.length + ' activos', 'info');
                 const userId = DEFAULT_ADMIN_USER_ID;
@@ -11135,41 +11186,137 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                             )
                         ),
 
-                        // OPERACIONES ACTIVAS
+                        // BALANCE + OPERACIONES ACTIVAS
                         React.createElement('div', {style:sec},
-                            React.createElement('div', {style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'0.9rem'}},
-                                React.createElement('div', {style:{display:'flex',alignItems:'center',gap:'0.5rem'}},
-                                    React.createElement('span', null, '📈'),
-                                    React.createElement('span', {style:{fontWeight:'700',fontSize:'0.88rem'}}, 'Operaciones activas'),
-                                    openOps.length > 0 && React.createElement('span', {style:{background:'rgba(136,212,152,0.15)',border:'1px solid rgba(136,212,152,0.3)',color:'#88D498',borderRadius:'20px',padding:'0.1rem 0.5rem',fontSize:'0.72rem',fontWeight:'700'}}, openOps.length)
+                            // Header con balance
+                            React.createElement('div', {style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'1rem',flexWrap:'wrap',gap:'0.75rem'}},
+                                React.createElement('div', {style:{display:'flex',alignItems:'center',gap:'1rem',flexWrap:'wrap'}},
+                                    React.createElement('div', {style:{display:'flex',alignItems:'center',gap:'0.5rem'}},
+                                        React.createElement('span', null, '📈'),
+                                        React.createElement('span', {style:{fontWeight:'700',fontSize:'0.95rem'}}, 'Operaciones activas'),
+                                        openOps.length > 0 && React.createElement('span', {style:{background:'rgba(136,212,152,0.15)',border:'1px solid rgba(136,212,152,0.3)',color:'#88D498',borderRadius:'20px',padding:'0.1rem 0.5rem',fontSize:'0.72rem',fontWeight:'700'}}, openOps.length + '/' + (botConfig.maxOps||5))
+                                    ),
+                                    liveBalance !== null && React.createElement('div', {style:{display:'flex',alignItems:'center',gap:'0.4rem',background:'rgba(124,157,212,0.08)',border:'1px solid rgba(124,157,212,0.2)',borderRadius:'7px',padding:'0.3rem 0.75rem'}},
+                                        React.createElement('span', {style:{color:'#555e7a',fontSize:'0.75rem'}}, 'Balance BingX:'),
+                                        React.createElement('span', {style:{color:'#7C9DD4',fontWeight:'700',fontSize:'0.85rem'}}, '$' + liveBalance.toFixed(2))
+                                    )
                                 ),
-                                React.createElement('button', {onClick:loadBotOperations,disabled:botOpsLoading,style:{background:'rgba(168,178,193,0.07)',border:'1px solid rgba(168,178,193,0.15)',color:'#A8B2C1',borderRadius:'6px',padding:'0.3rem 0.7rem',cursor:'pointer',fontSize:'0.75rem'}}, botOpsLoading ? '...' : '↻ Actualizar')
+                                React.createElement('div', {style:{display:'flex',gap:'0.5rem'}},
+                                    React.createElement('button', {onClick:fetchLiveData,disabled:liveLoading,style:{background:'rgba(124,157,212,0.1)',border:'1px solid rgba(124,157,212,0.25)',color:'#7C9DD4',borderRadius:'6px',padding:'0.3rem 0.7rem',cursor:'pointer',fontSize:'0.75rem',opacity:liveLoading?0.5:1}}, liveLoading?'⟳':'⟳ Live'),
+                                    React.createElement('button', {onClick:loadBotOperations,disabled:botOpsLoading,style:{background:'rgba(168,178,193,0.07)',border:'1px solid rgba(168,178,193,0.15)',color:'#A8B2C1',borderRadius:'6px',padding:'0.3rem 0.7rem',cursor:'pointer',fontSize:'0.75rem'}}, botOpsLoading?'...':'↻ DB')
+                                )
                             ),
+
+                            // PnL total live
+                            livePositions.length > 0 && (function(){
+                                var totalPnl = livePositions.reduce(function(s,p){ return s + parseFloat(p.unrealizedProfit||0); }, 0);
+                                var pnlColor = totalPnl > 0 ? '#88D498' : totalPnl < 0 ? '#F4A9A8' : '#A8B2C1';
+                                return React.createElement('div', {style:{display:'flex',gap:'1rem',marginBottom:'1rem',flexWrap:'wrap'}},
+                                    React.createElement('div', {style:{background:'rgba(37,40,54,0.8)',border:'1px solid #3a3f52',borderRadius:'8px',padding:'0.6rem 1rem',flex:1,minWidth:'120px'}},
+                                        React.createElement('div', {style:{color:'#555e7a',fontSize:'0.7rem',marginBottom:'0.2rem'}}, 'PnL Total No Realizado'),
+                                        React.createElement('div', {style:{color:pnlColor,fontWeight:'700',fontSize:'1rem'}}, (totalPnl>=0?'+':'') + '$' + totalPnl.toFixed(2))
+                                    ),
+                                    React.createElement('div', {style:{background:'rgba(37,40,54,0.8)',border:'1px solid #3a3f52',borderRadius:'8px',padding:'0.6rem 1rem',flex:1,minWidth:'120px'}},
+                                        React.createElement('div', {style:{color:'#555e7a',fontSize:'0.7rem',marginBottom:'0.2rem'}}, 'Posiciones en BingX'),
+                                        React.createElement('div', {style:{color:'#E8ECEF',fontWeight:'700',fontSize:'1rem'}}, livePositions.length)
+                                    )
+                                );
+                            })(),
+
+                            // Lista de operaciones
                             openOps.length === 0
                                 ? React.createElement('div', {style:{color:'#555e7a',fontSize:'0.83rem',textAlign:'center',padding:'1.5rem'}}, 'Sin operaciones abiertas')
-                                : React.createElement('div', {style:{overflowX:'auto'}},
-                                    React.createElement('table', {style:{width:'100%',borderCollapse:'collapse',fontSize:'0.8rem'}},
-                                        React.createElement('thead', null, React.createElement('tr', null,
-                                            ['Activo','Dir.','Cruce','Entrada','Capital','Palanca','TP1','TP2','TP3','Abierta'].map(function(h){ return React.createElement('th', {key:h,style:{padding:'0.4rem 0.6rem',textAlign:h==='Activo'||h==='Dir.'?'left':'right',color:'#A8B2C1',fontWeight:'600',fontSize:'0.72rem',textTransform:'uppercase',borderBottom:'1px solid #3a3f52',whiteSpace:'nowrap'}}, h); })
-                                        )),
-                                        React.createElement('tbody', null, openOps.map(function(op){
-                                            var isL = op.direction==='LONG';
-                                            var dc = isL?'#88D498':'#F4A9A8';
-                                            var tp = function(hit,pct){ return React.createElement('span', {style:{color:hit?'#88D498':'#555e7a',fontWeight:hit?'700':'400'}}, (hit?'✅ ':''+(pct?pct+'%':'—'))); };
-                                            return React.createElement('tr', {key:op.id,style:{borderBottom:'1px solid rgba(58,63,82,0.4)'}},
-                                                React.createElement('td', {style:{padding:'0.55rem 0.6rem',fontWeight:'700',color:'#E8ECEF'}}, op.symbol),
-                                                React.createElement('td', {style:{padding:'0.55rem 0.6rem'}}, React.createElement('span', {style:{color:dc,fontWeight:'700',fontSize:'0.75rem',background:isL?'rgba(136,212,152,0.12)':'rgba(244,169,168,0.12)',border:'1px solid '+(isL?'rgba(136,212,152,0.3)':'rgba(244,169,168,0.3)'),borderRadius:'4px',padding:'0.1rem 0.35rem'}}, op.direction)),
-                                                React.createElement('td', {style:{padding:'0.55rem 0.6rem',textAlign:'right',color:'#A8B2C1',fontSize:'0.75rem'}}, op.cross_date+(op.cross_hour!==null?' '+String(op.cross_hour).padStart(2,'0')+'h':'')),
-                                                React.createElement('td', {style:{padding:'0.55rem 0.6rem',textAlign:'right',color:'#E8ECEF'}}, op.entry_price?formatCurrency(op.entry_price):'—'),
-                                                React.createElement('td', {style:{padding:'0.55rem 0.6rem',textAlign:'right',color:'#E8ECEF'}}, op.item_base?'$'+parseFloat(op.item_base).toFixed(2):'—'),
-                                                React.createElement('td', {style:{padding:'0.55rem 0.6rem',textAlign:'right',color:'#A8B2C1'}}, op.leverage?op.leverage+'x':'—'),
-                                                React.createElement('td', {style:{padding:'0.55rem 0.6rem',textAlign:'right'}}, tp(op.tp1_hit,op.tp1_pct)),
-                                                React.createElement('td', {style:{padding:'0.55rem 0.6rem',textAlign:'right'}}, tp(op.tp2_hit,op.tp2_pct)),
-                                                React.createElement('td', {style:{padding:'0.55rem 0.6rem',textAlign:'right'}}, tp(op.tp3_hit,op.tp3_pct)),
-                                                React.createElement('td', {style:{padding:'0.55rem 0.6rem',textAlign:'right',color:'#555e7a',fontSize:'0.73rem'}}, fmtDT(op.opened_at))
-                                            );
-                                        }))
-                                    )
+                                : React.createElement('div', {style:{display:'flex',flexDirection:'column',gap:'0.6rem'}},
+                                    openOps.map(function(op){
+                                        var isL = op.direction==='LONG';
+                                        var dc = isL?'#88D498':'#F4A9A8';
+                                        var isExpanded = expandedOp === op.id;
+                                        var isClosing = closingOp === op.id;
+
+                                        // Find matching live position
+                                        var livePos = livePositions.find(function(p){
+                                            return p.symbol === op.symbol+'-USDT' && p.positionSide === op.direction;
+                                        });
+                                        var pnl = livePos ? parseFloat(livePos.unrealizedProfit||0) : null;
+                                        var pnlColor = pnl === null ? '#555e7a' : pnl > 0 ? '#88D498' : pnl < 0 ? '#F4A9A8' : '#A8B2C1';
+                                        var liqPrice = livePos ? parseFloat(livePos.liquidationPrice||0) : null;
+                                        var markPrice = livePos ? parseFloat(livePos.markPrice||0) : null;
+                                        var roi = livePos && livePos.initialMargin ? (pnl / parseFloat(livePos.initialMargin) * 100) : null;
+
+                                        return React.createElement('div', {key:op.id, style:{background:'rgba(37,40,54,0.6)',border:'1px solid '+(isL?'rgba(136,212,152,0.2)':'rgba(244,169,168,0.2)'),borderRadius:'10px',overflow:'hidden'}},
+                                            // Fila principal
+                                            React.createElement('div', {style:{display:'flex',alignItems:'center',padding:'0.75rem 1rem',gap:'0.75rem',flexWrap:'wrap',cursor:'pointer'},onClick:function(){ setExpandedOp(isExpanded?null:op.id); }},
+                                                // Símbolo + dirección
+                                                React.createElement('div', {style:{display:'flex',alignItems:'center',gap:'0.5rem',minWidth:'100px'}},
+                                                    React.createElement('span', {style:{fontWeight:'800',fontSize:'0.95rem',color:'#E8ECEF'}}, op.symbol),
+                                                    React.createElement('span', {style:{color:dc,fontWeight:'700',fontSize:'0.72rem',background:isL?'rgba(136,212,152,0.12)':'rgba(244,169,168,0.12)',border:'1px solid '+(isL?'rgba(136,212,152,0.3)':'rgba(244,169,168,0.3)'),borderRadius:'4px',padding:'0.1rem 0.35rem'}}, op.direction)
+                                                ),
+                                                // Precio entrada vs actual
+                                                React.createElement('div', {style:{flex:1,minWidth:'120px'}},
+                                                    React.createElement('div', {style:{fontSize:'0.7rem',color:'#555e7a'}}, 'Entrada → Actual'),
+                                                    React.createElement('div', {style:{fontSize:'0.82rem',color:'#E8ECEF'}},
+                                                        formatCurrency(op.entry_price) + ' → ' + (markPrice ? formatCurrency(markPrice) : '—')
+                                                    )
+                                                ),
+                                                // PnL
+                                                React.createElement('div', {style:{minWidth:'90px',textAlign:'right'}},
+                                                    React.createElement('div', {style:{fontSize:'0.7rem',color:'#555e7a'}}, 'PnL'),
+                                                    React.createElement('div', {style:{fontSize:'0.9rem',fontWeight:'700',color:pnlColor}},
+                                                        pnl !== null ? (pnl>=0?'+':'')+'$'+pnl.toFixed(2) : '—'
+                                                    )
+                                                ),
+                                                // ROI
+                                                React.createElement('div', {style:{minWidth:'60px',textAlign:'right'}},
+                                                    React.createElement('div', {style:{fontSize:'0.7rem',color:'#555e7a'}}, 'ROI'),
+                                                    React.createElement('div', {style:{fontSize:'0.82rem',fontWeight:'700',color:pnlColor}},
+                                                        roi !== null ? (roi>=0?'+':'')+roi.toFixed(1)+'%' : '—'
+                                                    )
+                                                ),
+                                                // Botones
+                                                React.createElement('div', {style:{display:'flex',gap:'0.4rem',marginLeft:'auto'},onClick:function(e){e.stopPropagation();}},
+                                                    React.createElement('span', {style:{color:'#555e7a',fontSize:'0.75rem',alignSelf:'center'}}, isExpanded?'▲':'▼'),
+                                                    React.createElement('button', {
+                                                        onClick:function(e){ e.stopPropagation(); closePosition(op); },
+                                                        disabled: isClosing,
+                                                        style:{background:'rgba(244,169,168,0.1)',border:'1px solid rgba(244,169,168,0.3)',color:'#F4A9A8',borderRadius:'6px',padding:'0.3rem 0.7rem',cursor:'pointer',fontSize:'0.75rem',fontWeight:'700',opacity:isClosing?0.5:1}
+                                                    }, isClosing ? '...' : '✕ Cerrar')
+                                                )
+                                            ),
+
+                                            // Detalle expandido
+                                            isExpanded && React.createElement('div', {style:{borderTop:'1px solid rgba(58,63,82,0.5)',padding:'0.75rem 1rem',display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(130px, 1fr))',gap:'0.75rem',background:'rgba(26,29,41,0.5)'}},
+                                                React.createElement('div', null,
+                                                    React.createElement('div', {style:{fontSize:'0.68rem',color:'#555e7a',marginBottom:'0.2rem'}}, 'Precio Liquidación'),
+                                                    React.createElement('div', {style:{fontSize:'0.82rem',color:'#F4A9A8',fontWeight:'600'}}, liqPrice ? formatCurrency(liqPrice) : '—')
+                                                ),
+                                                React.createElement('div', null,
+                                                    React.createElement('div', {style:{fontSize:'0.68rem',color:'#555e7a',marginBottom:'0.2rem'}}, 'Ítem Base'),
+                                                    React.createElement('div', {style:{fontSize:'0.82rem',color:'#E8ECEF'}}, op.item_base ? '$'+parseFloat(op.item_base).toFixed(2) : '—')
+                                                ),
+                                                React.createElement('div', null,
+                                                    React.createElement('div', {style:{fontSize:'0.68rem',color:'#555e7a',marginBottom:'0.2rem'}}, 'Palanca'),
+                                                    React.createElement('div', {style:{fontSize:'0.82rem',color:'#E8ECEF'}}, op.leverage ? op.leverage+'x' : '—')
+                                                ),
+                                                React.createElement('div', null,
+                                                    React.createElement('div', {style:{fontSize:'0.68rem',color:'#555e7a',marginBottom:'0.2rem'}}, 'Margen Inicial'),
+                                                    React.createElement('div', {style:{fontSize:'0.82rem',color:'#7C9DD4'}}, livePos && livePos.initialMargin ? '$'+parseFloat(livePos.initialMargin).toFixed(2) : '—')
+                                                ),
+                                                React.createElement('div', null,
+                                                    React.createElement('div', {style:{fontSize:'0.68rem',color:'#555e7a',marginBottom:'0.2rem'}}, 'TPs'),
+                                                    React.createElement('div', {style:{fontSize:'0.78rem',color:'#E8ECEF'}},
+                                                        [op.tp1_pct&&op.tp1_price?'TP1: '+formatCurrency(op.tp1_price)+' ('+op.tp1_pct+'%)':null,
+                                                         op.tp2_pct&&op.tp2_price?'TP2: '+formatCurrency(op.tp2_price)+' ('+op.tp2_pct+'%)':null,
+                                                         op.tp3_pct&&op.tp3_price?'TP3: '+formatCurrency(op.tp3_price)+' ('+op.tp3_pct+'%)':null
+                                                        ].filter(Boolean).join(' · ') || '—'
+                                                    )
+                                                ),
+                                                React.createElement('div', null,
+                                                    React.createElement('div', {style:{fontSize:'0.68rem',color:'#555e7a',marginBottom:'0.2rem'}}, 'Abierta'),
+                                                    React.createElement('div', {style:{fontSize:'0.78rem',color:'#555e7a'}}, fmtDT(op.opened_at))
+                                                )
+                                            )
+                                        );
+                                    })
                                 )
                         ),
 
