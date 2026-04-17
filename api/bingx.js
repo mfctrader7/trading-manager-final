@@ -1,15 +1,10 @@
 // api/bingx.js — Vercel Serverless Function
 import crypto from 'crypto';
- 
+
 const BINGX_API_KEY = process.env.BINGX_API_KEY;
 const BINGX_SECRET  = process.env.BINGX_SECRET;
 const BINGX_BASE    = process.env.BINGX_BASE || 'https://open-api-vst.bingx.com';
- 
-function sign(params) {
-    const qs = Object.keys(params).sort().map(k => `${k}=${params[k]}`).join('&');
-    return crypto.createHmac('sha256', BINGX_SECRET).update(qs).digest('hex');
-}
- 
+
 export default async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -19,18 +14,30 @@ export default async function handler(req, res) {
         const body = req.method === 'POST' ? req.body : req.query;
         const { path, method = 'GET', ...restParams } = body;
         if (!path) { res.status(400).json({ error: 'Missing path' }); return; }
+
+        // Add timestamp
         const params = { ...restParams, timestamp: Date.now().toString() };
-        const signature = sign(params);
-        // Don't encode hyphens - BingX symbols like BTC-USDT need literal hyphens
-        const qs = Object.keys(params)
-            .map(k => `${k}=${String(params[k]).replace(/ /g, '%20')}`)
-            .join('&') + `&signature=${signature}`;
-        const url = method === 'GET' ? `${BINGX_BASE}${path}?${qs}` : `${BINGX_BASE}${path}`;
+
+        // Build querystring with sorted keys (required by BingX for signature)
+        const sortedKeys = Object.keys(params).sort();
+        const qs = sortedKeys.map(k => `${k}=${String(params[k])}`).join('&');
+
+        // Sign the sorted querystring
+        const signature = crypto.createHmac('sha256', BINGX_SECRET).update(qs).digest('hex');
+
+        // Final querystring with signature appended
+        const finalQs = qs + '&signature=' + signature;
+
+        const url = method === 'GET'
+            ? `${BINGX_BASE}${path}?${finalQs}`
+            : `${BINGX_BASE}${path}`;
+
         const opts = { method, headers: { 'X-BX-APIKEY': BINGX_API_KEY } };
         if (method === 'POST') {
             opts.headers['Content-Type'] = 'application/x-www-form-urlencoded';
-            opts.body = qs;
+            opts.body = finalQs;
         }
+
         const response = await fetch(url, opts);
         const data = await response.json();
         res.status(200).json(data);
@@ -38,4 +45,3 @@ export default async function handler(req, res) {
         res.status(500).json({ error: err.message });
     }
 }
- 
