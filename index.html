@@ -10629,20 +10629,20 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                 // Abrir en BingX
                 let bingxOrderId = null;
                 try {
-                    await bingxSetLeverage(symbol + '-SWAP', cfg.leverage);
+                    await bingxSetLeverage(symbol + '-USDT-SWAP', cfg.leverage);
                     const side = direction === 'LONG' ? 'BUY' : 'SELL';
                     const notional = parseFloat(cfg.itemBase) * cfg.leverage;
                     const qty = notional / crossPrice;
-                    const order = await bingxPlaceOrder(symbol + '-SWAP', side, qty);
+                    const order = await bingxPlaceOrder(symbol + '-USDT-SWAP', side, qty);
                     bingxOrderId = order?.data?.order?.orderId || null;
 
                     // TPs en BingX
                     const qty1 = qty * (cfg.tp1size / 100);
                     const qty2 = qty * (cfg.tp2size / 100);
                     const qty3 = qty * (tp3size / 100);
-                    await bingxPlaceTpOrder(symbol + '-SWAP', direction, tp1price, qty1);
-                    await bingxPlaceTpOrder(symbol + '-SWAP', direction, tp2price, qty2);
-                    await bingxPlaceTpOrder(symbol + '-SWAP', direction, tp3price, qty3);
+                    await bingxPlaceTpOrder(symbol + '-USDT-SWAP', direction, tp1price, qty1);
+                    await bingxPlaceTpOrder(symbol + '-USDT-SWAP', direction, tp2price, qty2);
+                    await bingxPlaceTpOrder(symbol + '-USDT-SWAP', direction, tp3price, qty3);
                 } catch(e) {
                     botAddLog('Error BingX ' + symbol + ': ' + e.message, 'error');
                 }
