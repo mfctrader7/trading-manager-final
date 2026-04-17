@@ -10579,7 +10579,7 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                 try {
                     const userId = DEFAULT_ADMIN_USER_ID;
                     const { data, error } = await supabase
-                        Client.from('ema_bot_operations')
+                        supabaseClient.from('ema_bot_operations')
                         .select('*')
                         .eq('user_id', userId)
                         .order('opened_at', { ascending: false })
@@ -10593,7 +10593,7 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
             const isCrossAlreadyProcessed = async (symbol, direction, crossDate, crossHour, tf, ema1, ema2) => {
                 const userId = DEFAULT_ADMIN_USER_ID;
                 const { data } = await supabase
-                    Client.from('ema_bot_crosses')
+                    supabaseClient.from('ema_bot_crosses')
                     .select('id')
                     .eq('user_id', userId)
                     .eq('symbol', symbol)
@@ -10609,7 +10609,7 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
 
             const markCrossProcessed = async (symbol, direction, crossDate, crossHour, tf, ema1, ema2, crossPrice) => {
                 const userId = DEFAULT_ADMIN_USER_ID;
-                await supabaseClient.from('ema_bot_crosses').insert({
+                await supabasesupabaseClient.from('ema_bot_crosses').insert({
                     user_id: userId, symbol, direction, cross_date: crossDate,
                     cross_hour: crossHour, tf, ema1, ema2, cross_price: crossPrice
                 });
@@ -10650,7 +10650,7 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                 }
 
                 // Guardar en Supabase
-                const { data } = await supabaseClient.from('ema_bot_operations').insert({
+                const { data } = await supabasesupabaseClient.from('ema_bot_operations').insert({
                     user_id: userId, symbol, direction,
                     tf: cfg.tf, ema1: cfg.ema1, ema2: cfg.ema2,
                     cross_date: crossDate, cross_hour: crossHour,
@@ -10763,7 +10763,7 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
 
                 // Contar operaciones abiertas
                 const { data: openOps } = await supabase
-                    Client.from('ema_bot_operations')
+                    supabaseClient.from('ema_bot_operations')
                     .select('id, symbol, direction')
                     .eq('user_id', userId)
                     .eq('status', 'open');
