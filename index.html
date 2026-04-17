@@ -10548,8 +10548,14 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
             };
 
             const bingxSetLeverage = async (symbol, leverage) => {
+                // BingX leverage endpoint uses AAVE-USDT format (not AAVE-USDT-SWAP)
+                const sym = symbol.replace('-USDT-SWAP', '-USDT');
+                // Set for both LONG and SHORT
+                await bingxRequest('POST', '/openApi/swap/v2/trade/leverage', {
+                    symbol: sym, side: 'LONG', leverage: leverage.toString()
+                });
                 return await bingxRequest('POST', '/openApi/swap/v2/trade/leverage', {
-                    symbol, side: '1', leverage: leverage.toString()
+                    symbol: sym, side: 'SHORT', leverage: leverage.toString()
                 });
             };
 
