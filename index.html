@@ -5143,8 +5143,15 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                                         React.createElement('div', { style: styles.tpConfigGrid },
                                             tpConfig.map((tp, index) => (
                                                 React.createElement('div', { key: tp.number, style: styles.tpConfigCard },
-                                                    React.createElement('h5', { style: styles.tpConfigTitle }, 
-                                                        `TP${tp.number}`
+                                                    React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' } },
+                                                        React.createElement('h5', { style: { ...styles.tpConfigTitle, margin: 0 } }, 
+                                                            'TP' + tp.number
+                                                        ),
+                                                        (tp.price || tp.percentage) && React.createElement('button', {
+                                                            type: 'button',
+                                                            onClick: () => { const updated = [...tpConfig]; updated[index] = { ...updated[index], price: '', percentage: '' }; setTpConfig(updated); },
+                                                            style: { background: 'rgba(244,169,168,0.1)', border: '1px solid rgba(244,169,168,0.25)', color: '#F4A9A8', borderRadius: '5px', padding: '0.15rem 0.5rem', cursor: 'pointer', fontSize: '0.72rem' }
+                                                        }, '✕ Quitar')
                                                     ),
                                                     React.createElement('div', { style: styles.tpConfigInputs },
                                                         React.createElement('div', { style: styles.inputGroup },
@@ -6684,7 +6691,14 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                                     React.createElement('div', { style: styles.tpConfigGrid },
                                         tpConfig.map((tp, index) => (
                                             React.createElement('div', { key: tp.number, style: styles.tpConfigCard },
-                                                React.createElement('h5', { style: styles.tpConfigTitle }, 'TP' + tp.number),
+                                                React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' } },
+                                                    React.createElement('h5', { style: { ...styles.tpConfigTitle, margin: 0 } }, 'TP' + tp.number),
+                                                    (tp.price || tp.percentage) && React.createElement('button', {
+                                                        type: 'button',
+                                                        onClick: () => { const updated = [...tpConfig]; updated[index] = { ...updated[index], price: '', percentage: '' }; setTpConfig(updated); },
+                                                        style: { background: 'rgba(244,169,168,0.1)', border: '1px solid rgba(244,169,168,0.25)', color: '#F4A9A8', borderRadius: '5px', padding: '0.15rem 0.5rem', cursor: 'pointer', fontSize: '0.72rem' }
+                                                    }, '✕ Quitar')
+                                                ),
                                                 React.createElement('div', { style: styles.tpConfigInputs },
                                                     React.createElement('div', { style: styles.inputGroup },
                                                         React.createElement('label', { style: styles.label }, 'Precio Objetivo'),
