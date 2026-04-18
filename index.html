@@ -10792,8 +10792,14 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                 try {
                     const bingxSym = op.symbol + '-USDT';
                     const side = op.direction === 'LONG' ? 'SELL' : 'BUY';
-                    const result = await bingxRequest('POST', '/openApi/swap/v2/trade/closePosition', {
-                        symbol: bingxSym, positionSide: op.direction
+                    // Close by placing opposite market order with closePosition=true
+                    const closeSide = op.direction === 'LONG' ? 'SELL' : 'BUY';
+                    const result = await bingxRequest('POST', '/openApi/swap/v2/trade/order', {
+                        symbol: bingxSym,
+                        side: closeSide,
+                        positionSide: op.direction,
+                        type: 'MARKET',
+                        closePosition: 'true'
                     });
                     if (result && result.code === 0) {
                         // Mark as closed in Supabase
