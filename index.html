@@ -10794,16 +10794,14 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                     const side = op.direction === 'LONG' ? 'SELL' : 'BUY';
                     // Get current position quantity from BingX
                     const posData = await bingxRequest('GET', '/openApi/swap/v2/user/positions', { symbol: bingxSym });
-                    console.log('posData:', JSON.stringify(posData).slice(0,300));
                     const positions = posData && posData.data ? posData.data : [];
-                    console.log('positions count:', positions.length);
                     const currentPos = positions.find(function(p) {
-                        console.log('checking pos:', p.positionSide, p.positionAmt, op.direction);
                         return p.positionSide === op.direction && parseFloat(p.positionAmt) > 0;
                     });
                     if (!currentPos || parseFloat(currentPos.positionAmt) <= 0) {
                         throw new Error('No se encontró posición abierta en BingX para ' + op.symbol);
                     }
+                    const finalPnl = parseFloat(currentPos.unrealizedProfit || 0);
                     const closeSide = op.direction === 'LONG' ? 'SELL' : 'BUY';
                     const result = await bingxRequest('POST', '/openApi/swap/v2/trade/order', {
                         symbol: bingxSym,
@@ -10813,9 +10811,11 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                         quantity: Math.abs(parseFloat(currentPos.positionAmt)).toString()
                     });
                     if (result && result.code === 0) {
-                        // Mark as closed in Supabase
+                        // Mark as closed in Supabase with PnL
                         await supabaseClient.from('ema_bot_operations').update({
-                            status: 'closed', closed_at: new Date().toISOString()
+                            status: 'closed',
+                            closed_at: new Date().toISOString(),
+                            total_pnl: finalPnl
                         }).eq('id', op.id);
                         botAddLog('✅ Cerrada ' + op.symbol + ' ' + op.direction, 'success');
                         await loadBotOperations();
