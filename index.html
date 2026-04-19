@@ -10801,8 +10801,6 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                     if (!currentPos || parseFloat(currentPos.positionAmt) <= 0) {
                         throw new Error('No se encontró posición abierta en BingX para ' + op.symbol);
                     }
-                    const finalPnl = parseFloat(currentPos.unrealizedProfit || 0);
-                    console.log('finalPnl:', finalPnl, 'raw:', currentPos.unrealizedProfit);
                     const closeSide = op.direction === 'LONG' ? 'SELL' : 'BUY';
                     const result = await bingxRequest('POST', '/openApi/swap/v2/trade/order', {
                         symbol: bingxSym,
@@ -10812,11 +10810,25 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                         quantity: Math.abs(parseFloat(currentPos.positionAmt)).toString()
                     });
                     if (result && result.code === 0) {
-                        // Mark as closed in Supabase with PnL
+                        // Get realized PnL from order history
+                        var realizedPnl = parseFloat(currentPos.unrealizedProfit || 0);
+                        try {
+                            await new Promise(function(r){ setTimeout(r, 1000); }); // wait 1s for BingX to settle
+                            var histData = await bingxRequest('GET', '/openApi/swap/v2/trade/allOrders', { symbol: bingxSym, limit: '5' });
+                            var orders = histData && histData.data && histData.data.orders ? histData.data.orders : [];
+                            var closeOrder = orders.find(function(o) {
+                                return o.side === closeSide && o.status === 'FILLED' &&
+                                       Math.abs(parseInt(o.time) - Date.now()) < 30000;
+                            });
+                            if (closeOrder && closeOrder.profit !== undefined) {
+                                realizedPnl = parseFloat(closeOrder.profit);
+                            }
+                        } catch(e) { console.warn('Could not fetch realized PnL:', e.message); }
+
                         await supabaseClient.from('ema_bot_operations').update({
                             status: 'closed',
                             closed_at: new Date().toISOString(),
-                            total_pnl: finalPnl
+                            total_pnl: realizedPnl
                         }).eq('id', op.id);
                         botAddLog('✅ Cerrada ' + op.symbol + ' ' + op.direction, 'success');
                         await loadBotOperations();
