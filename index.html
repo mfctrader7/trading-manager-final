@@ -10792,14 +10792,22 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                 try {
                     const bingxSym = op.symbol + '-USDT';
                     const side = op.direction === 'LONG' ? 'SELL' : 'BUY';
-                    // Close by placing opposite market order with closePosition=true
+                    // Get current position quantity from BingX
+                    const posData = await bingxRequest('GET', '/openApi/swap/v2/user/positions', { symbol: bingxSym });
+                    const positions = posData && posData.data ? posData.data : [];
+                    const currentPos = positions.find(function(p) {
+                        return p.positionSide === op.direction && parseFloat(p.positionAmt) > 0;
+                    });
+                    if (!currentPos || parseFloat(currentPos.positionAmt) <= 0) {
+                        throw new Error('No se encontró posición abierta en BingX para ' + op.symbol);
+                    }
                     const closeSide = op.direction === 'LONG' ? 'SELL' : 'BUY';
                     const result = await bingxRequest('POST', '/openApi/swap/v2/trade/order', {
                         symbol: bingxSym,
                         side: closeSide,
                         positionSide: op.direction,
                         type: 'MARKET',
-                        closePosition: 'true'
+                        quantity: Math.abs(parseFloat(currentPos.positionAmt)).toString()
                     });
                     if (result && result.code === 0) {
                         // Mark as closed in Supabase
