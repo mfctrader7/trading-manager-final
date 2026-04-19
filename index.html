@@ -10652,9 +10652,9 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                     const qty1 = qty * (cfg.tp1size / 100);
                     const qty2 = qty * (cfg.tp2size / 100);
                     const qty3 = qty * (tp3size / 100);
-                    await bingxPlaceTpOrder(bingxSym, direction, tp1price, qty1);
-                    await bingxPlaceTpOrder(bingxSym, direction, tp2price, qty2);
-                    await bingxPlaceTpOrder(bingxSym, direction, tp3price, qty3);
+                    if (cfg.tp1 && parseFloat(cfg.tp1) > 0 && qty1 > 0) await bingxPlaceTpOrder(bingxSym, direction, tp1price, qty1);
+                    if (cfg.tp2 && parseFloat(cfg.tp2) > 0 && qty2 > 0) await bingxPlaceTpOrder(bingxSym, direction, tp2price, qty2);
+                    if (cfg.tp3 && parseFloat(cfg.tp3) > 0 && qty3 > 0) await bingxPlaceTpOrder(bingxSym, direction, tp3price, qty3);
                 } catch(e) {
                     botAddLog('Error BingX ' + symbol + ': ' + e.message, 'error');
                 }
@@ -10890,8 +10890,8 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
 
             const startBot = async () => {
                 const cfg = botConfig;
-                if (!cfg.capital || !cfg.itemBase || !cfg.tp1 || !cfg.tp2 || !cfg.tp3) {
-                    setBotError('Completá todos los campos de configuración'); return;
+                if (!cfg.capital || !cfg.itemBase || !cfg.tp1) {
+                    setBotError('Completá capital, ítem base y al menos TP1'); return;
                 }
                 if (botAssets.length === 0) {
                     setBotError('Seleccioná al menos un activo'); return;
