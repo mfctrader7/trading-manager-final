@@ -10643,7 +10643,7 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                     const bingxSym = symbol + '-USDT';
                     await bingxSetLeverage(bingxSym, cfg.leverage);
                     const side = direction === 'LONG' ? 'BUY' : 'SELL';
-                    const notional = parseFloat(cfg.itemBase) * cfg.leverage;
+                    const notional = parseFloat(cfg.itemBase) * 2 * cfg.leverage; // first entry = item*2
                     const qty = notional / crossPrice;
                     const order = await bingxPlaceOrder(bingxSym, side, qty);
                     bingxOrderId = (order && order.data && order.data.order) ? order.data.order.orderId : null;
@@ -10843,16 +10843,103 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                 }
             };
 
-                        const botCycle = async (cfg, assets) => {
+                        // Helper: get TF duration in milliseconds
+                const tfDurationMs = { '1m':60000, '5m':300000, '15m':900000, '30m':1800000, '1h':3600000, '2h':7200000, '4h':14400000, '8h':28800000, '12h':43200000, '1d':86400000, '1w':604800000 };
+
+                const botCycle = async (cfg, assets) => {
                 botAddLog('Iniciando ciclo — ' + assets.length + ' activos', 'info');
                 const userId = DEFAULT_ADMIN_USER_ID;
+                const tfMs = tfDurationMs[cfg.tf] || 3600000;
 
-                // Contar operaciones abiertas
-                const { data: openOps } = await supabaseClient.from('ema_bot_operations')
-                    .select('id, symbol, direction')
+                // ── PARTE 1: DCA en operaciones ya abiertas ──────────────
+                const { data: openOpsAll } = await supabaseClient.from('ema_bot_operations')
+                    .select('*')
                     .eq('user_id', userId)
                     .eq('status', 'open');
-                const openCount = (openOps || []).length;
+
+                for (const op of (openOpsAll || [])) {
+                    try {
+                        const bingxSym = op.symbol + '-USDT';
+                        // Get current price from BingX
+                        const posData = await bingxRequest('GET', '/openApi/swap/v2/user/positions', { symbol: bingxSym });
+                        const positions = posData && posData.data ? posData.data : [];
+                        const livePos = positions.find(function(p){ return p.positionSide === op.direction; });
+                        if (!livePos) continue;
+
+                        const markPrice = parseFloat(livePos.markPrice || 0);
+                        const pepp = parseFloat(op.pepp || op.entry_price);
+                        const isLong = op.direction === 'LONG';
+                        const drawdownPct = isLong ? (pepp - markPrice) / pepp * 100 : (markPrice - pepp) / pepp * 100;
+
+                        // Get entry count so far
+                        const { data: entries } = await supabaseClient.from('ema_bot_entries')
+                            .select('id, margin, entry_price, items')
+                            .eq('operation_id', op.id)
+                            .order('created_at', { ascending: true });
+                        const entryCount = (entries || []).length;
+                        const capitalUsed = (entries || []).reduce(function(s,e){ return s + parseFloat(e.margin||0); }, 0);
+                        const capitalRemaining = parseFloat(op.capital) - capitalUsed;
+
+                        // Determine items for this DCA entry (mode: default)
+                        let items = 1;
+                        if (drawdownPct >= 20) items = 5;
+                        else if (drawdownPct >= 15) items = 4;
+                        else if (drawdownPct >= 10) items = 3;
+                        else if (drawdownPct >= 5) items = 2;
+                        else items = 1;
+
+                        const marginNeeded = parseFloat(op.item_base) * items;
+                        if (capitalRemaining < parseFloat(op.item_base)) {
+                            continue; // capital exhausted
+                        }
+                        const actualMargin = Math.min(marginNeeded, capitalRemaining);
+                        const notional = actualMargin * op.leverage;
+                        const qty = notional / markPrice;
+
+                        // Calculate new PEPP
+                        const prevQty = (entries || []).reduce(function(s,e){ return s + (parseFloat(e.margin||0) * op.leverage / parseFloat(e.entry_price||1)); }, 0);
+                        const totalQty = prevQty + qty;
+                        const prevNotional = (entries || []).reduce(function(s,e){ return s + parseFloat(e.margin||0) * op.leverage; }, 0);
+                        const newPepp = totalQty > 0 ? (prevNotional + notional) / totalQty : markPrice;
+
+                        // Place DCA order in BingX
+                        const side = op.direction === 'LONG' ? 'BUY' : 'SELL';
+                        const orderResult = await bingxRequest('POST', '/openApi/swap/v2/trade/order', {
+                            symbol: bingxSym, side: side, positionSide: op.direction,
+                            type: 'MARKET', quantity: qty.toFixed(6)
+                        });
+                        if (!orderResult || orderResult.code !== 0) continue;
+
+                        const orderId = orderResult.data && orderResult.data.order ? orderResult.data.order.orderId : null;
+
+                        // Save entry to ema_bot_entries
+                        await supabaseClient.from('ema_bot_entries').insert({
+                            operation_id: op.id, user_id: userId,
+                            entry_number: entryCount + 1,
+                            entry_date: new Date().toISOString().slice(0,10),
+                            entry_hour: new Date().getUTCHours(),
+                            entry_price: markPrice, items: items,
+                            margin: actualMargin, pepp_after: newPepp,
+                            drawdown_pct: drawdownPct,
+                            capital_remaining: capitalRemaining - actualMargin,
+                            bingx_order_id: orderId
+                        });
+
+                        // Update PEPP in operation
+                        await supabaseClient.from('ema_bot_operations').update({ pepp: newPepp }).eq('id', op.id);
+                        botAddLog('📥 DCA ' + op.symbol + ' +' + items + 'x @ ' + markPrice.toFixed(4) + ' PEPP→' + newPepp.toFixed(4), 'info');
+
+                    } catch(e) {
+                        botAddLog('Error DCA ' + op.symbol + ': ' + e.message, 'error');
+                    }
+                }
+
+                // ── PARTE 2: Detectar nuevos cruces ──────────────────────
+                const { data: openOpsCount } = await supabaseClient.from('ema_bot_operations')
+                    .select('id', { count: 'exact' })
+                    .eq('user_id', userId)
+                    .eq('status', 'open');
+                const openCount = (openOpsCount || []).length;
                 const slotsAvailable = cfg.maxOps - openCount;
 
                 if (slotsAvailable <= 0) {
@@ -10863,21 +10950,49 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                 let newOps = 0;
                 for (const symbol of assets) {
                     if (newOps >= slotsAvailable) break;
-
                     try {
                         const result = await runEMAForSymbolBingX(symbol, cfg);
                         if (!result || !result.crosses || result.crosses.length === 0) continue;
 
                         const lastCross = result.crosses[0];
+
+                        // ── CRUCE EXACTO: solo la vela más reciente ──
+                        const crossTs = new Date(lastCross.date + 'T' + String(lastCross.hour).padStart(2,'0') + ':00:00Z').getTime();
+                        const ageMs = Date.now() - crossTs;
+                        if (ageMs > tfMs * 2) {
+                            // Cross is older than 2 candles - skip
+                            continue;
+                        }
+
                         const alreadyDone = await isCrossAlreadyProcessed(
-                            symbol, lastCross.direction, lastCross.date, lastCross.hour,
+                            symbol, lastCross.signal, lastCross.date, lastCross.hour,
                             cfg.tf, cfg.ema1, cfg.ema2
                         );
                         if (alreadyDone) continue;
 
-                        botAddLog('🎯 Nuevo cruce ' + lastCross.signal + ' en ' + symbol + ' @ ' + lastCross.price?.toFixed(4), 'success');
+                        botAddLog('🎯 Nuevo cruce ' + lastCross.signal + ' en ' + symbol + ' @ ' + lastCross.price.toFixed(4), 'success');
                         await markCrossProcessed(symbol, lastCross.signal, lastCross.date, lastCross.hour, cfg.tf, cfg.ema1, cfg.ema2, lastCross.price);
-                        await openBotOperation(symbol, lastCross.signal, lastCross.date, lastCross.hour, lastCross.price, cfg);
+
+                        // Open with item*2 as first entry
+                        const opData = await openBotOperation(symbol, lastCross.signal, lastCross.date, lastCross.hour, lastCross.price, cfg);
+
+                        // Save first entry to ema_bot_entries
+                        if (opData && opData.id) {
+                            const firstMargin = parseFloat(cfg.itemBase) * 2;
+                            await supabaseClient.from('ema_bot_entries').insert({
+                                operation_id: opData.id, user_id: userId,
+                                entry_number: 1,
+                                entry_date: lastCross.date,
+                                entry_hour: lastCross.hour,
+                                entry_price: lastCross.price,
+                                items: 2,
+                                margin: firstMargin,
+                                pepp_after: lastCross.price,
+                                drawdown_pct: 0,
+                                capital_remaining: parseFloat(cfg.capital) - firstMargin,
+                                bingx_order_id: null
+                            });
+                        }
                         newOps++;
                     } catch(e) {
                         botAddLog('Error en ' + symbol + ': ' + e.message, 'error');
