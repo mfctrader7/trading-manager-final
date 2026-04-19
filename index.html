@@ -10802,6 +10802,7 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                         throw new Error('No se encontró posición abierta en BingX para ' + op.symbol);
                     }
                     const finalPnl = parseFloat(currentPos.unrealizedProfit || 0);
+                    console.log('finalPnl:', finalPnl, 'raw:', currentPos.unrealizedProfit);
                     const closeSide = op.direction === 'LONG' ? 'SELL' : 'BUY';
                     const result = await bingxRequest('POST', '/openApi/swap/v2/trade/order', {
                         symbol: bingxSym,
