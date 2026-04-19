@@ -10794,8 +10794,11 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                     const side = op.direction === 'LONG' ? 'SELL' : 'BUY';
                     // Get current position quantity from BingX
                     const posData = await bingxRequest('GET', '/openApi/swap/v2/user/positions', { symbol: bingxSym });
+                    console.log('posData:', JSON.stringify(posData).slice(0,300));
                     const positions = posData && posData.data ? posData.data : [];
+                    console.log('positions count:', positions.length);
                     const currentPos = positions.find(function(p) {
+                        console.log('checking pos:', p.positionSide, p.positionAmt, op.direction);
                         return p.positionSide === op.direction && parseFloat(p.positionAmt) > 0;
                     });
                     if (!currentPos || parseFloat(currentPos.positionAmt) <= 0) {
