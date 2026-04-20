@@ -10871,6 +10871,7 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                         const posData = await bingxRequest('GET', '/openApi/swap/v2/user/positions', { symbol: bingxSym });
                         const positions = posData && posData.data ? posData.data : [];
                         const livePos = positions.find(function(p){ return p.positionSide === op.direction; });
+                        console.log('DCA check', op.symbol, op.direction, 'positions:', positions.length, 'livePos:', livePos ? 'found' : 'NOT FOUND');
                         if (!livePos) continue;
 
                         const markPrice = parseFloat(livePos.markPrice || 0);
