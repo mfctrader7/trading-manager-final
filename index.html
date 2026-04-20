@@ -10871,7 +10871,6 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                         const posData = await bingxRequest('GET', '/openApi/swap/v2/user/positions', { symbol: bingxSym });
                         const positions = posData && posData.data ? posData.data : [];
                         const livePos = positions.find(function(p){ return p.positionSide === op.direction; });
-                        console.log('DCA check', op.symbol, op.direction, 'positions:', positions.length, 'livePos:', livePos ? 'found' : 'NOT FOUND');
                         if (!livePos) continue;
 
                         const markPrice = parseFloat(livePos.markPrice || 0);
@@ -10943,12 +10942,14 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                 }
 
                 // ── PARTE 2: Detectar nuevos cruces ──────────────────────
-                const { data: openOpsCount } = await supabaseClient.from('ema_bot_operations')
-                    .select('id', { count: 'exact' })
+                const { data: openOpsData } = await supabaseClient.from('ema_bot_operations')
+                    .select('id, symbol, direction')
                     .eq('user_id', userId)
                     .eq('status', 'open');
-                const openCount = (openOpsCount || []).length;
+                const openCount = (openOpsData || []).length;
                 const slotsAvailable = cfg.maxOps - openCount;
+                // Build set of already open symbol+direction combos
+                const openCombos = new Set((openOpsData || []).map(function(o){ return o.symbol + '_' + o.direction; }));
 
                 if (slotsAvailable <= 0) {
                     botAddLog('Sin slots disponibles (' + openCount + '/' + cfg.maxOps + ')', 'warn');
@@ -10964,11 +10965,11 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
 
                         const lastCross = result.crosses[0];
 
-                        // ── CRUCE EXACTO: solo la vela más reciente ──
+                        // ── CRUCE EXACTO: solo la vela que acaba de cerrar ──
                         const crossTs = new Date(lastCross.date + 'T' + String(lastCross.hour).padStart(2,'0') + ':00:00Z').getTime();
                         const ageMs = Date.now() - crossTs;
-                        if (ageMs > tfMs * 2) {
-                            // Cross is older than 2 candles - skip
+                        if (ageMs > tfMs * 1.1) {
+                            // Cross is older than 1 candle - skip
                             continue;
                         }
 
@@ -10985,7 +10986,6 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                         const opData = await openBotOperation(symbol, lastCross.signal, lastCross.date, lastCross.hour, lastCross.price, cfg);
 
                         // Save first entry to ema_bot_entries
-                        console.log('opData:', JSON.stringify(opData ? {id: opData.id, symbol: opData.symbol} : null));
                         if (opData && opData.id) {
                             const firstMargin = parseFloat(cfg.itemBase) * 2;
                             await supabaseClient.from('ema_bot_entries').insert({
