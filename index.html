@@ -410,13 +410,20 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
             const [emaError, setEmaError] = useState('');
             // EMA Bot
             const BINGX_PROXY = '/api/bingx';
-            const [botConfig, setBotConfig] = useState({
-                ema1: 12, ema2: 25, tf: '1h', session: 'open_day',
-                capital: '', itemBase: '', leverage: 3,
-                tp1: '', tp1size: 25, tp2: '', tp2size: 35, tp3: '', tp3size: 40,
-                maxOps: 5
+            const [botConfig, setBotConfig] = useState(() => {
+                try {
+                    const saved = localStorage.getItem('ema_bot_config');
+                    if (saved) return JSON.parse(saved);
+                } catch(e) {}
+                return { ema1: 12, ema2: 25, tf: '1h', session: 'open_day', capital: '', itemBase: '', leverage: 3, tp1: '', tp1size: 25, tp2: '', tp2size: 35, tp3: '', tp3size: 40, maxOps: 5 };
             });
-            const [botAssets, setBotAssets] = useState([]);
+            const [botAssets, setBotAssets] = useState(() => {
+                try {
+                    const saved = localStorage.getItem('ema_bot_assets');
+                    if (saved) return JSON.parse(saved);
+                } catch(e) {}
+                return [];
+            });
             const [botRunning, setBotRunning] = useState(false);
             const [botStatus, setBotStatus] = useState('idle');
             const [botLog, setBotLog] = useState([]);
@@ -11027,8 +11034,15 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
 
                 const timer = setInterval(async () => {
                     await botCycle(cfg, botAssets);
+                    await runMarketScan(cfg, botAssets);
+                    await fetchLiveData();
                     setBotNextCycle(Date.now() + intervalMs);
                 }, intervalMs);
+
+                // Auto-refresh live data every 30s
+                const liveTimer = setInterval(async () => {
+                    await fetchLiveData();
+                }, 30000);
 
                 // Countdown cada segundo
                 const cdTimer = setInterval(() => {
@@ -11038,15 +11052,23 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                     });
                 }, 1000);
 
-                setBotIntervalRef({ main: timer, cd: cdTimer });
+                // Save config to localStorage for recovery
+                try {
+                    localStorage.setItem('ema_bot_config', JSON.stringify(cfg));
+                    localStorage.setItem('ema_bot_assets', JSON.stringify(botAssets));
+                } catch(e) {}
+
+                setBotIntervalRef({ main: timer, cd: cdTimer, live: liveTimer });
             };
 
             const stopBot = () => {
                 if (botIntervalRef) {
                     clearInterval(botIntervalRef.main);
                     clearInterval(botIntervalRef.cd);
+                    if (botIntervalRef.live) clearInterval(botIntervalRef.live);
                     setBotIntervalRef(null);
                 }
+                try { localStorage.removeItem('ema_bot_config'); localStorage.removeItem('ema_bot_assets'); } catch(e) {}
                 setBotRunning(false);
                 setBotStatus('idle');
                 setBotCountdown(0);
@@ -11218,14 +11240,14 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                                     React.createElement('div', {style:{fontWeight:'700',fontSize:'0.8rem',color:'#7C9DD4',marginBottom:'0.5rem'}}, 'TP1'),
                                     React.createElement('div', {style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0.4rem'}},
                                         React.createElement('div', null, React.createElement('label', {style:{...lbl,fontSize:'0.68rem'}}, '% Precio'), React.createElement('input', {type:'number',placeholder:'2',value:botConfig.tp1,disabled:botRunning,onChange:e=>setBotConfig(p=>({...p,tp1:e.target.value})),style:{...inp,fontSize:'0.8rem',opacity:botRunning?0.5:1}})),
-                                        React.createElement('div', null, React.createElement('label', {style:{...lbl,fontSize:'0.68rem'}}, '% Posición'), React.createElement('input', {type:'number',placeholder:'25',value:botConfig.tp1size,disabled:botRunning,onChange:e=>setBotConfig(p=>({...p,tp1size:parseInt(e.target.value)||25})),style:{...inp,fontSize:'0.8rem',opacity:botRunning?0.5:1}}))
+                                        React.createElement('div', null, React.createElement('label', {style:{...lbl,fontSize:'0.68rem'}}, '% Posición'), React.createElement('input', {type:'number',placeholder:'25',value:botConfig.tp1size,disabled:botRunning,onChange:e=>setBotConfig(p=>({...p,tp1size:parseInt(e.target.value)||0})),style:{...inp,fontSize:'0.8rem',opacity:botRunning?0.5:1}}))
                                     )
                                 ),
                                 React.createElement('div', {style:{...crd,borderColor:'rgba(244,216,150,0.3)'}},
                                     React.createElement('div', {style:{fontWeight:'700',fontSize:'0.8rem',color:'#F4D896',marginBottom:'0.5rem'}}, 'TP2'),
                                     React.createElement('div', {style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0.4rem'}},
                                         React.createElement('div', null, React.createElement('label', {style:{...lbl,fontSize:'0.68rem'}}, '% Precio'), React.createElement('input', {type:'number',placeholder:'4',value:botConfig.tp2,disabled:botRunning,onChange:e=>setBotConfig(p=>({...p,tp2:e.target.value})),style:{...inp,fontSize:'0.8rem',opacity:botRunning?0.5:1}})),
-                                        React.createElement('div', null, React.createElement('label', {style:{...lbl,fontSize:'0.68rem'}}, '% Posición'), React.createElement('input', {type:'number',placeholder:'35',value:botConfig.tp2size,disabled:botRunning,onChange:e=>setBotConfig(p=>({...p,tp2size:parseInt(e.target.value)||35})),style:{...inp,fontSize:'0.8rem',opacity:botRunning?0.5:1}}))
+                                        React.createElement('div', null, React.createElement('label', {style:{...lbl,fontSize:'0.68rem'}}, '% Posición'), React.createElement('input', {type:'number',min:'0',placeholder:'35',value:botConfig.tp2size,disabled:botRunning,onChange:e=>setBotConfig(p=>({...p,tp2size:parseInt(e.target.value)||0})),style:{...inp,fontSize:'0.8rem',opacity:botRunning?0.5:1}}))
                                     )
                                 ),
                                 React.createElement('div', {style:{...crd,borderColor:'rgba(136,212,152,0.3)'}},
@@ -11355,15 +11377,25 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                             // PnL total live
                             livePositions.length > 0 && (function(){
                                 var totalPnl = livePositions.reduce(function(s,p){ return s + parseFloat(p.unrealizedProfit||0); }, 0);
+                                var totalMargin = livePositions.reduce(function(s,p){ return s + parseFloat(p.initialMargin||0); }, 0);
+                                var totalRoi = totalMargin > 0 ? (totalPnl / totalMargin * 100) : 0;
                                 var pnlColor = totalPnl > 0 ? '#88D498' : totalPnl < 0 ? '#F4A9A8' : '#A8B2C1';
                                 return React.createElement('div', {style:{display:'flex',gap:'1rem',marginBottom:'1rem',flexWrap:'wrap'}},
                                     React.createElement('div', {style:{background:'rgba(37,40,54,0.8)',border:'1px solid #3a3f52',borderRadius:'8px',padding:'0.6rem 1rem',flex:1,minWidth:'120px'}},
                                         React.createElement('div', {style:{color:'#555e7a',fontSize:'0.7rem',marginBottom:'0.2rem'}}, 'PnL Total No Realizado'),
-                                        React.createElement('div', {style:{color:pnlColor,fontWeight:'700',fontSize:'1rem'}}, (totalPnl>=0?'+':'') + '$' + totalPnl.toFixed(2))
+                                        React.createElement('div', {style:{color:pnlColor,fontWeight:'700',fontSize:'1rem'}}, (totalPnl>=0?'+':'') + '$' + totalPnl.toFixed(4))
+                                    ),
+                                    React.createElement('div', {style:{background:'rgba(37,40,54,0.8)',border:'1px solid #3a3f52',borderRadius:'8px',padding:'0.6rem 1rem',flex:1,minWidth:'120px'}},
+                                        React.createElement('div', {style:{color:'#555e7a',fontSize:'0.7rem',marginBottom:'0.2rem'}}, 'ROI Total'),
+                                        React.createElement('div', {style:{color:pnlColor,fontWeight:'700',fontSize:'1rem'}}, (totalRoi>=0?'+':'') + totalRoi.toFixed(2) + '%')
                                     ),
                                     React.createElement('div', {style:{background:'rgba(37,40,54,0.8)',border:'1px solid #3a3f52',borderRadius:'8px',padding:'0.6rem 1rem',flex:1,minWidth:'120px'}},
                                         React.createElement('div', {style:{color:'#555e7a',fontSize:'0.7rem',marginBottom:'0.2rem'}}, 'Posiciones en BingX'),
                                         React.createElement('div', {style:{color:'#E8ECEF',fontWeight:'700',fontSize:'1rem'}}, livePositions.length)
+                                    ),
+                                    liveBalance !== null && React.createElement('div', {style:{background:'rgba(37,40,54,0.8)',border:'1px solid #3a3f52',borderRadius:'8px',padding:'0.6rem 1rem',flex:1,minWidth:'120px'}},
+                                        React.createElement('div', {style:{color:'#555e7a',fontSize:'0.7rem',marginBottom:'0.2rem'}}, 'Balance BingX'),
+                                        React.createElement('div', {style:{color:'#7C9DD4',fontWeight:'700',fontSize:'1rem'}}, '$' + liveBalance.toFixed(2))
                                     )
                                 );
                             })(),
