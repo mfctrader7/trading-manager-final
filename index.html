@@ -437,6 +437,10 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
             const [marketScanTab, setMarketScanTab] = useState('long');
             const [marketScanLoading, setMarketScanLoading] = useState(false);
             const [marketScanTs, setMarketScanTs] = useState(null);
+            const [marketScanSort, setMarketScanSort] = useState('hoursAgo');
+            const [marketScanFilter, setMarketScanFilter] = useState('all');
+            const [marketScanView, setMarketScanView] = useState('table');
+            const [marketScanAutoRef, setMarketScanAutoRef] = useState(null);
             const [livePositions, setLivePositions] = useState([]);
             const [liveBalance, setLiveBalance] = useState(null);
             const [liveLoading, setLiveLoading] = useState(false);
@@ -11299,46 +11303,136 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
 
                         // ESTADO DEL MERCADO
                         React.createElement('div', {style:sec},
-                            React.createElement('div', {style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'1rem',flexWrap:'wrap',gap:'0.75rem'}},
-                                React.createElement('div', {style:{display:'flex',alignItems:'center',gap:'0.6rem'}},
+                            // Header
+                            React.createElement('div', {style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'0.9rem',flexWrap:'wrap',gap:'0.75rem'}},
+                                React.createElement('div', {style:{display:'flex',alignItems:'center',gap:'0.6rem',flexWrap:'wrap'}},
                                     React.createElement('span', null, '📊'),
                                     React.createElement('span', {style:{fontWeight:'700',fontSize:'0.95rem'}}, 'Estado del mercado'),
-                                    marketScanTs && React.createElement('span', {style:{color:'#555e7a',fontSize:'0.72rem'}}, 'Act: ' + marketScanTs.toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit',second:'2-digit'}))
+                                    marketScanTs && React.createElement('span', {style:{color:'#555e7a',fontSize:'0.72rem'}}, 'Act: ' + marketScanTs.toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit',second:'2-digit'})),
+                                    // Counters
+                                    React.createElement('span', {style:{background:'rgba(136,212,152,0.12)',border:'1px solid rgba(136,212,152,0.3)',color:'#88D498',borderRadius:'5px',padding:'0.1rem 0.5rem',fontSize:'0.7rem',fontWeight:'700'}}, '▲ ' + marketScan.long.length),
+                                    React.createElement('span', {style:{background:'rgba(244,169,168,0.12)',border:'1px solid rgba(244,169,168,0.3)',color:'#F4A9A8',borderRadius:'5px',padding:'0.1rem 0.5rem',fontSize:'0.7rem',fontWeight:'700'}}, '▼ ' + marketScan.short.length),
+                                    React.createElement('span', {style:{background:'rgba(168,178,193,0.08)',border:'1px solid rgba(168,178,193,0.2)',color:'#A8B2C1',borderRadius:'5px',padding:'0.1rem 0.5rem',fontSize:'0.7rem',fontWeight:'700'}}, '— ' + marketScan.none.length)
                                 ),
-                                React.createElement('button', {onClick:()=>runMarketScan(botConfig,botAssets),disabled:marketScanLoading||botAssets.length===0,style:{background:'rgba(124,157,212,0.1)',border:'1px solid rgba(124,157,212,0.25)',color:'#7C9DD4',borderRadius:'6px',padding:'0.3rem 0.8rem',cursor:'pointer',fontSize:'0.78rem',opacity:(marketScanLoading||botAssets.length===0)?0.5:1}}, marketScanLoading ? '⟳ Escaneando...' : '⟳ Escanear')
+                                React.createElement('div', {style:{display:'flex',gap:'0.4rem',alignItems:'center',flexWrap:'wrap'}},
+                                    // View toggle
+                                    React.createElement('button', {onClick:()=>setMarketScanView(marketScanView==='table'?'cards':'table'),style:{background:'rgba(168,178,193,0.07)',border:'1px solid rgba(168,178,193,0.15)',color:'#A8B2C1',borderRadius:'6px',padding:'0.3rem 0.6rem',cursor:'pointer',fontSize:'0.72rem'}}, marketScanView==='table'?'🃏 Cards':'📋 Tabla'),
+                                    // Auto-refresh toggle
+                                    React.createElement('button', {
+                                        onClick:()=>{
+                                            if (marketScanAutoRef) { clearInterval(marketScanAutoRef); setMarketScanAutoRef(null); }
+                                            else { var t = setInterval(function(){ runMarketScan(botConfig, botAssets); }, 60000); setMarketScanAutoRef(t); runMarketScan(botConfig, botAssets); }
+                                        },
+                                        style:{background:marketScanAutoRef?'rgba(136,212,152,0.12)':'rgba(168,178,193,0.07)',border:'1px solid '+(marketScanAutoRef?'rgba(136,212,152,0.3)':'rgba(168,178,193,0.15)'),color:marketScanAutoRef?'#88D498':'#A8B2C1',borderRadius:'6px',padding:'0.3rem 0.6rem',cursor:'pointer',fontSize:'0.72rem'}
+                                    }, marketScanAutoRef ? '⏸ Auto 60s' : '▶ Auto 60s'),
+                                    React.createElement('button', {onClick:()=>runMarketScan(botConfig,botAssets),disabled:marketScanLoading||botAssets.length===0,style:{background:'rgba(124,157,212,0.1)',border:'1px solid rgba(124,157,212,0.25)',color:'#7C9DD4',borderRadius:'6px',padding:'0.3rem 0.8rem',cursor:'pointer',fontSize:'0.78rem',opacity:(marketScanLoading||botAssets.length===0)?0.5:1}}, marketScanLoading ? '⟳ Escaneando...' : '⟳ Escanear')
+                                )
                             ),
-                            React.createElement('div', {style:{display:'flex',gap:'0.4rem',marginBottom:'0.9rem',borderBottom:'1px solid #3a3f52'}},
-                                [{key:'long',label:'▲ LONG',color:'#88D498',bg:'rgba(136,212,152,0.12)',count:marketScan.long.length},
-                                 {key:'short',label:'▼ SHORT',color:'#F4A9A8',bg:'rgba(244,169,168,0.12)',count:marketScan.short.length},
-                                 {key:'none',label:'— Sin cruce',color:'#A8B2C1',bg:'rgba(168,178,193,0.08)',count:marketScan.none.length}
-                                ].map(tab => React.createElement('button', {key:tab.key,onClick:()=>setMarketScanTab(tab.key),style:{background:marketScanTab===tab.key?tab.bg:'transparent',border:'none',borderBottom:'2px solid '+(marketScanTab===tab.key?tab.color:'transparent'),color:marketScanTab===tab.key?tab.color:'#555e7a',padding:'0.4rem 0.9rem 0.55rem',cursor:'pointer',fontSize:'0.8rem',fontWeight:'700',borderRadius:'6px 6px 0 0',display:'flex',alignItems:'center',gap:'0.4rem'}},
-                                    tab.label,
-                                    React.createElement('span', {style:{background:marketScanTab===tab.key?tab.color:'#3a3f52',color:marketScanTab===tab.key?'#1a1d29':'#A8B2C1',borderRadius:'10px',padding:'0.05rem 0.45rem',fontSize:'0.7rem',fontWeight:'800'}}, tab.count)
-                                ))
+
+                            // Filters + Sort
+                            React.createElement('div', {style:{display:'flex',gap:'0.5rem',marginBottom:'0.75rem',flexWrap:'wrap',alignItems:'center'}},
+                                React.createElement('span', {style:{color:'#555e7a',fontSize:'0.72rem'}}, 'Filtro:'),
+                                ['all','new','old','none'].map(function(f){
+                                    var labels = {all:'Todos',new:'🔵 Cruce reciente',old:'📈 En tendencia',none:'⚪ Sin cruce'};
+                                    return React.createElement('button', {key:f,onClick:()=>setMarketScanFilter(f),style:{background:marketScanFilter===f?'rgba(124,157,212,0.15)':'rgba(168,178,193,0.05)',border:'1px solid '+(marketScanFilter===f?'rgba(124,157,212,0.4)':'rgba(168,178,193,0.15)'),color:marketScanFilter===f?'#7C9DD4':'#A8B2C1',borderRadius:'5px',padding:'0.2rem 0.55rem',cursor:'pointer',fontSize:'0.72rem'}}, labels[f]);
+                                }),
+                                React.createElement('span', {style:{color:'#555e7a',fontSize:'0.72rem',marginLeft:'0.5rem'}}, 'Orden:'),
+                                ['hoursAgo','symbol','lastPrice'].map(function(s){
+                                    var labels = {hoursAgo:'Tiempo',symbol:'Símbolo',lastPrice:'Precio'};
+                                    return React.createElement('button', {key:s,onClick:()=>setMarketScanSort(s),style:{background:marketScanSort===s?'rgba(124,157,212,0.15)':'rgba(168,178,193,0.05)',border:'1px solid '+(marketScanSort===s?'rgba(124,157,212,0.4)':'rgba(168,178,193,0.15)'),color:marketScanSort===s?'#7C9DD4':'#A8B2C1',borderRadius:'5px',padding:'0.2rem 0.55rem',cursor:'pointer',fontSize:'0.72rem'}}, labels[s]);
+                                })
                             ),
+
+                            // Content
                             (function(){
-                                var items = marketScan[marketScanTab] || [];
-                                var stMap = {operating:{label:'🟢 Operando',color:'#88D498',bg:'rgba(136,212,152,0.08)'},new:{label:'🔵 Cruce reciente',color:'#7C9DD4',bg:'rgba(124,157,212,0.08)'},old:{label:'📈 En tendencia',color:'#A8B2C1',bg:'rgba(168,178,193,0.04)'},processed:{label:'✅ Ya operado',color:'#555e7a',bg:'rgba(168,178,193,0.04)'}};
-                                var stDef = {label:'⚪ Sin cruce',color:'#555e7a',bg:'rgba(168,178,193,0.04)'};
-                                var dirColor = marketScanTab==='long'?'#88D498':marketScanTab==='short'?'#F4A9A8':'#A8B2C1';
+                                var stMap = {operating:{label:'🟢 Operando',color:'#88D498'},new:{label:'🔵 Cruce reciente',color:'#7C9DD4'},old:{label:'📈 En tendencia',color:'#A8B2C1'},null:{label:'⚪ Sin cruce',color:'#555e7a'}};
+
+                                // Merge all items
+                                var allItems = marketScan.long.concat(marketScan.short).concat(marketScan.none);
+
+                                // Filter
+                                var filtered = allItems.filter(function(item){
+                                    if (marketScanFilter === 'all') return true;
+                                    if (marketScanFilter === 'new') return item.crossStatus === 'new';
+                                    if (marketScanFilter === 'old') return item.crossStatus === 'old';
+                                    if (marketScanFilter === 'none') return !item.crossStatus;
+                                    return true;
+                                });
+
+                                // Sort
+                                filtered.sort(function(a,b){
+                                    if (marketScanSort === 'symbol') return a.symbol.localeCompare(b.symbol);
+                                    if (marketScanSort === 'lastPrice') return (b.lastPrice||0) - (a.lastPrice||0);
+                                    if (marketScanSort === 'hoursAgo') {
+                                        var ah = a.hoursAgo !== null ? a.hoursAgo : 9999;
+                                        var bh = b.hoursAgo !== null ? b.hoursAgo : 9999;
+                                        return ah - bh;
+                                    }
+                                    return 0;
+                                });
+
                                 if (botAssets.length===0) return React.createElement('div', {style:{color:'#555e7a',fontSize:'0.83rem',textAlign:'center',padding:'1.5rem'}}, 'Seleccioná activos y presioná Escanear');
                                 if (marketScanLoading) return React.createElement('div', {style:{color:'#7C9DD4',fontSize:'0.83rem',textAlign:'center',padding:'1.5rem'}}, '⟳ Escaneando ' + botAssets.length + ' activos...');
-                                if (items.length===0 && marketScanTs) return React.createElement('div', {style:{color:'#555e7a',fontSize:'0.83rem',textAlign:'center',padding:'1.5rem'}}, 'Sin activos en esta categoría');
-                                if (items.length===0) return React.createElement('div', {style:{color:'#555e7a',fontSize:'0.83rem',textAlign:'center',padding:'1.5rem'}}, 'Presioná Escanear para ver el estado');
-                                return React.createElement('div', {style:{display:'grid',gridTemplateColumns:'repeat(auto-fill, minmax(185px, 1fr))',gap:'0.6rem'}},
-                                    items.map(function(item){
-                                        var st = stMap[item.crossStatus] || stDef;
-                                        return React.createElement('div', {key:item.symbol,style:{background:st.bg,border:'1px solid rgba(58,63,82,0.6)',borderRadius:'9px',padding:'0.7rem 0.85rem'}},
-                                            React.createElement('div', {style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'0.35rem'}},
-                                                React.createElement('span', {style:{fontWeight:'800',fontSize:'0.88rem',color:'#E8ECEF'}}, item.symbol),
-                                                item.lastPrice ? React.createElement('span', {style:{fontSize:'0.78rem',color:dirColor,fontWeight:'600'}}, formatCurrency(item.lastPrice)) : React.createElement('span', {style:{fontSize:'0.72rem',color:'#555e7a'}}, '—')
+                                if (filtered.length===0 && marketScanTs) return React.createElement('div', {style:{color:'#555e7a',fontSize:'0.83rem',textAlign:'center',padding:'1.5rem'}}, 'Sin activos en esta categoría');
+                                if (allItems.length===0) return React.createElement('div', {style:{color:'#555e7a',fontSize:'0.83rem',textAlign:'center',padding:'1.5rem'}}, 'Presioná Escanear para ver el estado');
+
+                                if (marketScanView === 'table') {
+                                    // TABLE VIEW
+                                    return React.createElement('div', {style:{overflowX:'auto'}},
+                                        React.createElement('table', {style:{width:'100%',borderCollapse:'collapse',fontSize:'0.8rem'}},
+                                            React.createElement('thead', null,
+                                                React.createElement('tr', null,
+                                                    ['Símbolo','Dir.','Precio actual','Último cruce','Hace','Estado'].map(function(h){
+                                                        return React.createElement('th', {key:h,style:{padding:'0.4rem 0.6rem',textAlign:'left',color:'#A8B2C1',fontWeight:'600',fontSize:'0.72rem',textTransform:'uppercase',borderBottom:'1px solid #3a3f52',whiteSpace:'nowrap',cursor:'pointer'}}, h);
+                                                    })
+                                                )
                                             ),
-                                            React.createElement('div', {style:{fontSize:'0.72rem',color:st.color,fontWeight:'600',marginBottom:item.crossDate?'0.3rem':0}}, st.label + (item.hoursAgo !== null ? ' · ' + (item.hoursAgo < 1 ? '<1h' : item.hoursAgo + 'h') + ' atrás' : '')),
-                                            item.crossDate && React.createElement('div', {style:{fontSize:'0.7rem',color:'#555e7a'}}, item.crossDate + (item.crossHour!==null?' '+String(item.crossHour).padStart(2,'0')+':00':'') + (item.crossPrice?' · '+formatCurrency(item.crossPrice):'')),
-                                            item.error && React.createElement('div', {style:{fontSize:'0.68rem',color:'#F4A9A8',marginTop:'0.2rem'}}, item.error)
-                                        );
-                                    })
-                                );
+                                            React.createElement('tbody', null,
+                                                filtered.map(function(item){
+                                                    var isL = item.signal==='LONG';
+                                                    var isS = item.signal==='SHORT';
+                                                    var st = stMap[item.crossStatus] || stMap['null'];
+                                                    var dirColor = isL?'#88D498':isS?'#F4A9A8':'#A8B2C1';
+                                                    return React.createElement('tr', {key:item.symbol,style:{borderBottom:'1px solid rgba(58,63,82,0.3)',transition:'background 0.1s'}},
+                                                        React.createElement('td', {style:{padding:'0.5rem 0.6rem',fontWeight:'700',color:'#E8ECEF'}}, item.symbol),
+                                                        React.createElement('td', {style:{padding:'0.5rem 0.6rem'}},
+                                                            item.signal ? React.createElement('span', {style:{color:dirColor,fontWeight:'700',fontSize:'0.75rem',background:isL?'rgba(136,212,152,0.12)':isS?'rgba(244,169,168,0.12)':'transparent',border:'1px solid '+(isL?'rgba(136,212,152,0.3)':isS?'rgba(244,169,168,0.3)':'transparent'),borderRadius:'4px',padding:'0.1rem 0.35rem'}}, item.signal) : React.createElement('span', {style:{color:'#555e7a'}}, '—')
+                                                        ),
+                                                        React.createElement('td', {style:{padding:'0.5rem 0.6rem',color:dirColor,fontWeight:'600'}}, item.lastPrice ? formatCurrency(item.lastPrice) : '—'),
+                                                        React.createElement('td', {style:{padding:'0.5rem 0.6rem',color:'#A8B2C1',fontSize:'0.75rem'}},
+                                                            item.crossDate ? item.crossDate + (item.crossHour!==null?' '+String(item.crossHour).padStart(2,'0')+':00':'') : '—'
+                                                        ),
+                                                        React.createElement('td', {style:{padding:'0.5rem 0.6rem',color:'#555e7a',fontSize:'0.75rem'}},
+                                                            item.hoursAgo !== null ? (item.hoursAgo < 1 ? '<1h' : item.hoursAgo+'h') : '—'
+                                                        ),
+                                                        React.createElement('td', {style:{padding:'0.5rem 0.6rem'}},
+                                                            React.createElement('span', {style:{color:st.color,fontSize:'0.75rem',fontWeight:'600'}}, st.label),
+                                                            item.error && React.createElement('span', {style:{color:'#F4A9A8',fontSize:'0.68rem',marginLeft:'0.3rem'}}, '⚠')
+                                                        )
+                                                    );
+                                                })
+                                            )
+                                        )
+                                    );
+                                } else {
+                                    // CARDS VIEW
+                                    return React.createElement('div', {style:{display:'grid',gridTemplateColumns:'repeat(auto-fill, minmax(165px, 1fr))',gap:'0.5rem'}},
+                                        filtered.map(function(item){
+                                            var isL = item.signal==='LONG', isS = item.signal==='SHORT';
+                                            var st = stMap[item.crossStatus] || stMap['null'];
+                                            var dirColor = isL?'#88D498':isS?'#F4A9A8':'#A8B2C1';
+                                            return React.createElement('div', {key:item.symbol,style:{background:'rgba(37,40,54,0.6)',border:'1px solid rgba(58,63,82,0.6)',borderRadius:'8px',padding:'0.65rem 0.8rem'}},
+                                                React.createElement('div', {style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'0.25rem'}},
+                                                    React.createElement('span', {style:{fontWeight:'800',fontSize:'0.88rem',color:'#E8ECEF'}}, item.symbol),
+                                                    item.signal && React.createElement('span', {style:{color:dirColor,fontWeight:'700',fontSize:'0.7rem',background:isL?'rgba(136,212,152,0.12)':isS?'rgba(244,169,168,0.12)':'transparent',border:'1px solid '+(isL?'rgba(136,212,152,0.3)':isS?'rgba(244,169,168,0.3)':'transparent'),borderRadius:'3px',padding:'0.05rem 0.3rem'}}, item.signal)
+                                                ),
+                                                item.lastPrice && React.createElement('div', {style:{color:dirColor,fontWeight:'600',fontSize:'0.8rem',marginBottom:'0.2rem'}}, formatCurrency(item.lastPrice)),
+                                                React.createElement('div', {style:{fontSize:'0.7rem',color:st.color,fontWeight:'600'}}, st.label + (item.hoursAgo !== null ? ' · '+(item.hoursAgo<1?'<1h':item.hoursAgo+'h') : '')),
+                                                item.crossDate && React.createElement('div', {style:{fontSize:'0.68rem',color:'#555e7a',marginTop:'0.15rem'}}, item.crossDate + (item.crossHour!==null?' '+String(item.crossHour).padStart(2,'0')+':00':''))
+                                            );
+                                        })
+                                    );
+                                }
                             })()
                         ),
 
