@@ -10984,6 +10984,7 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                         const opData = await openBotOperation(symbol, lastCross.signal, lastCross.date, lastCross.hour, lastCross.price, cfg);
 
                         // Save first entry to ema_bot_entries
+                        console.log('opData:', JSON.stringify(opData ? {id: opData.id, symbol: opData.symbol} : null));
                         if (opData && opData.id) {
                             const firstMargin = parseFloat(cfg.itemBase) * 2;
                             await supabaseClient.from('ema_bot_entries').insert({
