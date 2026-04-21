@@ -10884,12 +10884,21 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
 
                         // Get entry count so far
                         const { data: entries } = await supabaseClient.from('ema_bot_entries')
-                            .select('id, margin, entry_price, items')
+                            .select('id, margin, entry_price, items, created_at')
                             .eq('operation_id', op.id)
                             .order('created_at', { ascending: true });
                         const entryCount = (entries || []).length;
                         const capitalUsed = (entries || []).reduce(function(s,e){ return s + parseFloat(e.margin||0); }, 0);
                         const capitalRemaining = parseFloat(op.capital) - capitalUsed;
+
+                        // ── ANTI-DOUBLE: skip if last entry was within this TF window ──
+                        if (entries && entries.length > 0) {
+                            const lastEntry = entries[entries.length - 1];
+                            const lastEntryMs = new Date(lastEntry.created_at).getTime();
+                            if (Date.now() - lastEntryMs < tfMs * 0.9) {
+                                continue; // already had a DCA entry this cycle
+                            }
+                        }
 
                         // Determine items for this DCA entry (mode: default)
                         let items = 1;
