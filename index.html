@@ -10847,7 +10847,8 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                                        Math.abs(parseInt(o.time) - Date.now()) < 30000;
                             });
                             if (closeOrder && closeOrder.profit !== undefined) {
-                                realizedPnl = parseFloat(closeOrder.profit);
+                                // PnL neto = profit + commission (commission is negative)
+                                realizedPnl = parseFloat(closeOrder.profit) + parseFloat(closeOrder.commission || 0);
                             }
                         } catch(e) { console.warn('Could not fetch realized PnL:', e.message); }
 
