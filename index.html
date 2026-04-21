@@ -446,6 +446,8 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
             const [liveLoading, setLiveLoading] = useState(false);
             const [expandedOp, setExpandedOp] = useState(null);
             const [closingOp, setClosingOp] = useState(null);
+            const [opEntries, setOpEntries] = useState({});
+            const [loadingEntries, setLoadingEntries] = useState({});
             const [atHistorialLoading, setAtHistorialLoading] = useState(false);
             const [atHistorialDetalle, setAtHistorialDetalle] = useState(null);
             const [projections, setProjections] = useState([]);
@@ -10797,6 +10799,19 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                 }
             };
 
+            const fetchOpEntries = async (opId) => {
+                if (opEntries[opId]) { setOpEntries(prev => ({...prev, [opId]: null})); return; } // toggle
+                setLoadingEntries(prev => ({...prev, [opId]: true}));
+                try {
+                    const { data } = await supabaseClient.from('ema_bot_entries')
+                        .select('*')
+                        .eq('operation_id', opId)
+                        .order('created_at', { ascending: true });
+                    setOpEntries(prev => ({...prev, [opId]: data || []}));
+                } catch(e) { console.error('fetchOpEntries:', e); }
+                finally { setLoadingEntries(prev => ({...prev, [opId]: false})); }
+            };
+
             const closePosition = async (op) => {
                 if (!window.confirm('¿Cerrar posición ' + op.symbol + ' ' + op.direction + '?')) return;
                 setClosingOp(op.id);
@@ -11615,6 +11630,44 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                                                 React.createElement('div', null,
                                                     React.createElement('div', {style:{fontSize:'0.68rem',color:'#555e7a',marginBottom:'0.2rem'}}, 'Abierta'),
                                                     React.createElement('div', {style:{fontSize:'0.78rem',color:'#555e7a'}}, fmtDT(op.opened_at))
+                                                )
+                                            ),
+
+                                            // DCA Entries table
+                                            React.createElement('div', {style:{borderTop:'1px solid rgba(58,63,82,0.4)',marginTop:'0.5rem',paddingTop:'0.75rem'}},
+                                                React.createElement('div', {style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'0.5rem'}},
+                                                    React.createElement('span', {style:{fontSize:'0.75rem',fontWeight:'700',color:'#A8B2C1'}}, '📋 Historial DCA'),
+                                                    React.createElement('button', {
+                                                        onClick: function(e){ e.stopPropagation(); fetchOpEntries(op.id); },
+                                                        style:{background:'rgba(124,157,212,0.1)',border:'1px solid rgba(124,157,212,0.25)',color:'#7C9DD4',borderRadius:'5px',padding:'0.2rem 0.5rem',cursor:'pointer',fontSize:'0.7rem'}
+                                                    }, loadingEntries[op.id] ? '⟳' : opEntries[op.id] ? '▲ Ocultar' : '▼ Ver entradas')
+                                                ),
+                                                opEntries[op.id] && opEntries[op.id].length === 0 && React.createElement('div', {style:{color:'#555e7a',fontSize:'0.75rem'}}, 'Sin entradas registradas'),
+                                                opEntries[op.id] && opEntries[op.id].length > 0 && React.createElement('div', {style:{overflowX:'auto'}},
+                                                    React.createElement('table', {style:{width:'100%',borderCollapse:'collapse',fontSize:'0.73rem'}},
+                                                        React.createElement('thead', null,
+                                                            React.createElement('tr', null,
+                                                                ['#','Fecha','Precio','Items','Margen','PEPP','DD%','Cap. restante'].map(function(h){
+                                                                    return React.createElement('th', {key:h,style:{padding:'0.3rem 0.5rem',textAlign:'left',color:'#555e7a',fontWeight:'600',fontSize:'0.68rem',borderBottom:'1px solid rgba(58,63,82,0.5)',whiteSpace:'nowrap'}}, h);
+                                                                })
+                                                            )
+                                                        ),
+                                                        React.createElement('tbody', null,
+                                                            opEntries[op.id].map(function(e){
+                                                                var ddColor = parseFloat(e.drawdown_pct) < -5 ? '#F4A9A8' : parseFloat(e.drawdown_pct) > 0 ? '#88D498' : '#A8B2C1';
+                                                                return React.createElement('tr', {key:e.id, style:{borderBottom:'1px solid rgba(58,63,82,0.25)'}},
+                                                                    React.createElement('td', {style:{padding:'0.3rem 0.5rem',color:'#7C9DD4',fontWeight:'700'}}, e.entry_number),
+                                                                    React.createElement('td', {style:{padding:'0.3rem 0.5rem',color:'#A8B2C1',whiteSpace:'nowrap'}}, e.entry_date + ' ' + String(e.entry_hour).padStart(2,'0') + 'h'),
+                                                                    React.createElement('td', {style:{padding:'0.3rem 0.5rem',color:'#E8ECEF'}}, formatCurrency(e.entry_price)),
+                                                                    React.createElement('td', {style:{padding:'0.3rem 0.5rem',color:'#E8ECEF',fontWeight:'700'}}, e.items + 'x'),
+                                                                    React.createElement('td', {style:{padding:'0.3rem 0.5rem',color:'#E8ECEF'}}, '$' + parseFloat(e.margin).toFixed(2)),
+                                                                    React.createElement('td', {style:{padding:'0.3rem 0.5rem',color:'#7C9DD4'}}, formatCurrency(e.pepp_after)),
+                                                                    React.createElement('td', {style:{padding:'0.3rem 0.5rem',color:ddColor}}, parseFloat(e.drawdown_pct).toFixed(2) + '%'),
+                                                                    React.createElement('td', {style:{padding:'0.3rem 0.5rem',color:'#A8B2C1'}}, '$' + parseFloat(e.capital_remaining).toFixed(2))
+                                                                );
+                                                            })
+                                                        )
+                                                    )
                                                 )
                                             )
                                         );
