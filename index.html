@@ -11317,14 +11317,26 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                                 React.createElement('div', {style:{display:'flex',gap:'0.4rem',alignItems:'center',flexWrap:'wrap'}},
                                     // View toggle
                                     React.createElement('button', {onClick:()=>setMarketScanView(marketScanView==='table'?'cards':'table'),style:{background:'rgba(168,178,193,0.07)',border:'1px solid rgba(168,178,193,0.15)',color:'#A8B2C1',borderRadius:'6px',padding:'0.3rem 0.6rem',cursor:'pointer',fontSize:'0.72rem'}}, marketScanView==='table'?'🃏 Cards':'📋 Tabla'),
-                                    // Auto-refresh toggle
-                                    React.createElement('button', {
-                                        onClick:()=>{
+                                    // Auto-refresh selector
+                                    React.createElement('select', {
+                                        value: marketScanAutoRef ? 'on' : 'off',
+                                        onChange: function(e) {
                                             if (marketScanAutoRef) { clearInterval(marketScanAutoRef); setMarketScanAutoRef(null); }
-                                            else { var t = setInterval(function(){ runMarketScan(botConfig, botAssets); }, 60000); setMarketScanAutoRef(t); runMarketScan(botConfig, botAssets); }
+                                            if (e.target.value !== 'off') {
+                                                var ms = parseInt(e.target.value);
+                                                var t = setInterval(function(){ runMarketScan(botConfig, botAssets); }, ms);
+                                                setMarketScanAutoRef(t);
+                                                runMarketScan(botConfig, botAssets);
+                                            }
                                         },
-                                        style:{background:marketScanAutoRef?'rgba(136,212,152,0.12)':'rgba(168,178,193,0.07)',border:'1px solid '+(marketScanAutoRef?'rgba(136,212,152,0.3)':'rgba(168,178,193,0.15)'),color:marketScanAutoRef?'#88D498':'#A8B2C1',borderRadius:'6px',padding:'0.3rem 0.6rem',cursor:'pointer',fontSize:'0.72rem'}
-                                    }, marketScanAutoRef ? '⏸ Auto 60s' : '▶ Auto 60s'),
+                                        style:{background:marketScanAutoRef?'rgba(136,212,152,0.08)':'#1a1d29',border:'1px solid '+(marketScanAutoRef?'rgba(136,212,152,0.3)':'#3a3f52'),color:marketScanAutoRef?'#88D498':'#A8B2C1',borderRadius:'6px',padding:'0.3rem 0.5rem',cursor:'pointer',fontSize:'0.72rem',outline:'none'}
+                                    },
+                                        React.createElement('option', {value:'off'}, '⏸ Auto off'),
+                                        React.createElement('option', {value:'60000'}, '▶ 1 min'),
+                                        React.createElement('option', {value:'300000'}, '▶ 5 min'),
+                                        React.createElement('option', {value:'900000'}, '▶ 15 min'),
+                                        React.createElement('option', {value:'1800000'}, '▶ 30 min')
+                                    ),
                                     React.createElement('button', {onClick:()=>runMarketScan(botConfig,botAssets),disabled:marketScanLoading||botAssets.length===0,style:{background:'rgba(124,157,212,0.1)',border:'1px solid rgba(124,157,212,0.25)',color:'#7C9DD4',borderRadius:'6px',padding:'0.3rem 0.8rem',cursor:'pointer',fontSize:'0.78rem',opacity:(marketScanLoading||botAssets.length===0)?0.5:1}}, marketScanLoading ? '⟳ Escaneando...' : '⟳ Escanear')
                                 )
                             ),
@@ -11486,7 +11498,15 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                                         React.createElement('div', {style:{color:pnlColor,fontWeight:'700',fontSize:'1rem'}}, (totalRoi>=0?'+':'') + totalRoi.toFixed(2) + '%')
                                     ),
                                     React.createElement('div', {style:{background:'rgba(37,40,54,0.8)',border:'1px solid #3a3f52',borderRadius:'8px',padding:'0.6rem 1rem',flex:1,minWidth:'120px'}},
-                                        React.createElement('div', {style:{color:'#555e7a',fontSize:'0.7rem',marginBottom:'0.2rem'}}, 'Posiciones en BingX'),
+                                        React.createElement('div', {style:{color:'#555e7a',fontSize:'0.7rem',marginBottom:'0.2rem'}}, 'Margen propio'),
+                                        React.createElement('div', {style:{color:'#7C9DD4',fontWeight:'700',fontSize:'1rem'}}, '$' + totalMargin.toFixed(2))
+                                    ),
+                                    React.createElement('div', {style:{background:'rgba(37,40,54,0.8)',border:'1px solid #3a3f52',borderRadius:'8px',padding:'0.6rem 1rem',flex:1,minWidth:'120px'}},
+                                        React.createElement('div', {style:{color:'#555e7a',fontSize:'0.7rem',marginBottom:'0.2rem'}}, 'Exposición total'),
+                                        React.createElement('div', {style:{color:'#E8ECEF',fontWeight:'700',fontSize:'1rem'}}, '$' + livePositions.reduce(function(s,p){ return s + parseFloat(p.positionValue||0); }, 0).toFixed(2))
+                                    ),
+                                    React.createElement('div', {style:{background:'rgba(37,40,54,0.8)',border:'1px solid #3a3f52',borderRadius:'8px',padding:'0.6rem 1rem',flex:1,minWidth:'120px'}},
+                                        React.createElement('div', {style:{color:'#555e7a',fontSize:'0.7rem',marginBottom:'0.2rem'}}, 'Posiciones BingX'),
                                         React.createElement('div', {style:{color:'#E8ECEF',fontWeight:'700',fontSize:'1rem'}}, livePositions.length)
                                     ),
                                     liveBalance !== null && React.createElement('div', {style:{background:'rgba(37,40,54,0.8)',border:'1px solid #3a3f52',borderRadius:'8px',padding:'0.6rem 1rem',flex:1,minWidth:'120px'}},
