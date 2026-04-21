@@ -10661,6 +10661,9 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                     const order = await bingxPlaceOrder(bingxSym, side, qty);
                     bingxOrderId = (order && order.data && order.data.order) ? order.data.order.orderId : null;
 
+                    // Wait for position to be confirmed before placing TPs
+                    await new Promise(function(r){ setTimeout(r, 1000); });
+
                     // TPs en BingX
                     const qty1 = qty * (cfg.tp1size / 100);
                     const qty2 = qty * (cfg.tp2size / 100);
