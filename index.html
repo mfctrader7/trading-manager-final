@@ -449,6 +449,9 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
             const [opEntries, setOpEntries] = useState({});
             const [loadingEntries, setLoadingEntries] = useState({});
             const [opOpenOrders, setOpOpenOrders] = useState({});
+            const [selectedBotOp, setSelectedBotOp] = useState(null);
+            const [botOpEntries, setBotOpEntries] = useState([]);
+            const [expandedHistOp, setExpandedHistOp] = useState(null);
             const [atHistorialLoading, setAtHistorialLoading] = useState(false);
             const [atHistorialDetalle, setAtHistorialDetalle] = useState(null);
             const [projections, setProjections] = useState([]);
@@ -10825,6 +10828,13 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                 } catch(e) { console.error('fetchOpOpenOrders:', e); }
             };
 
+            const handleViewBotDetail = async (op) => {
+                setSelectedBotOp(op);
+                const { data } = await supabaseClient.from('ema_bot_entries')
+                    .select('*').eq('operation_id', op.id).order('created_at', { ascending: true });
+                setBotOpEntries(data || []);
+            };
+
             const closePosition = async (op) => {
                 if (!window.confirm('¿Cerrar posición ' + op.symbol + ' ' + op.direction + '?')) return;
                 setClosingOp(op.id);
@@ -10891,11 +10901,59 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                 const userId = DEFAULT_ADMIN_USER_ID;
                 const tfMs = tfDurationMs[cfg.tf] || 3600000;
 
+                // ── PARTE 0: Detectar TPs ejecutados en BingX ────────────
+                const { data: openOpsForTP } = await supabaseClient.from('ema_bot_operations')
+                    .select('*').eq('user_id', userId).eq('status', 'open');
+
+                for (const op of (openOpsForTP || [])) {
+                    try {
+                        const bingxSym = op.symbol + '-USDT';
+                        const histData = await bingxRequest('GET', '/openApi/swap/v2/trade/allOrders', { symbol: bingxSym, limit: '20' });
+                        const orders = histData && histData.data && histData.data.orders ? histData.data.orders : [];
+                        const filledTPs = orders.filter(function(o){
+                            return (o.type === 'TAKE_PROFIT_MARKET' || o.type === 'TAKE_PROFIT') && o.status === 'FILLED';
+                        });
+                        if (filledTPs.length === 0) continue;
+
+                        // Check each TP
+                        var updates = {};
+                        var tpPnlTotal = 0;
+                        for (var ti = 0; ti < filledTPs.length; ti++) {
+                            var tpOrder = filledTPs[ti];
+                            var tpNum = ti + 1;
+                            var hitKey = 'tp' + tpNum + '_hit';
+                            var hitAtKey = 'tp' + tpNum + '_hit_at';
+                            var pnlKey = 'tp' + tpNum + '_pnl';
+                            if (op[hitKey]) continue; // already recorded
+                            var tpPnl = parseFloat(tpOrder.profit || 0) + parseFloat(tpOrder.commission || 0);
+                            updates[hitKey] = true;
+                            updates[hitAtKey] = new Date(parseInt(tpOrder.updateTime)).toISOString();
+                            updates[pnlKey] = tpPnl;
+                            tpPnlTotal += tpPnl;
+                            botAddLog('🎯 TP' + tpNum + ' ejecutado ' + op.symbol + ' +$' + tpPnl.toFixed(4), 'success');
+                        }
+
+                        if (Object.keys(updates).length > 0) {
+                            // Check if all TPs hit → close operation
+                            var allHit = (op.tp1_price ? (updates.tp1_hit || op.tp1_hit) : true) &&
+                                         (op.tp2_price && op.tp2_pct > 0 ? (updates.tp2_hit || op.tp2_hit) : true) &&
+                                         (op.tp3_price && op.tp3_size > 0 ? (updates.tp3_hit || op.tp3_hit) : true);
+                            if (allHit) {
+                                updates.status = 'closed';
+                                updates.closed_at = new Date().toISOString();
+                                updates.total_pnl = (op.total_pnl || 0) + tpPnlTotal;
+                                botAddLog('✅ Operación cerrada por TPs: ' + op.symbol, 'success');
+                            }
+                            await supabaseClient.from('ema_bot_operations').update(updates).eq('id', op.id);
+                        }
+                    } catch(e) {
+                        console.error('TP check error', op.symbol, e.message);
+                    }
+                }
+
                 // ── PARTE 1: DCA en operaciones ya abiertas ──────────────
                 const { data: openOpsAll } = await supabaseClient.from('ema_bot_operations')
-                    .select('*')
-                    .eq('user_id', userId)
-                    .eq('status', 'open');
+                    .select('*').eq('user_id', userId).eq('status', 'open');
 
                 for (const op of (openOpsAll || [])) {
                     try {
@@ -11006,6 +11064,11 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                         if (!result || !result.crosses || result.crosses.length === 0) continue;
 
                         const lastCross = result.crosses[0];
+
+                        // ── SKIP si ya hay operación abierta del mismo símbolo+dirección ──
+                        if (openCombos.has(symbol + '_' + lastCross.signal)) {
+                            continue;
+                        }
 
                         // ── CRUCE EXACTO: solo la vela que acaba de cerrar ──
                         const crossTs = new Date(lastCross.date + 'T' + String(lastCross.hour).padStart(2,'0') + ':00:00Z').getTime();
@@ -11696,37 +11759,122 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                         ),
 
                         // HISTORIAL
-                        closedOps.length > 0 && React.createElement('div', {style:sec},
-                            React.createElement('div', {style:{display:'flex',alignItems:'center',gap:'0.5rem',marginBottom:'0.9rem'}},
-                                React.createElement('span', null, '📊'),
-                                React.createElement('span', {style:{fontWeight:'700',fontSize:'0.88rem'}}, 'Historial'),
-                                React.createElement('span', {style:{color:'#555e7a',fontSize:'0.78rem'}}, '('+closedOps.length+' cerradas)')
-                            ),
-                            React.createElement('div', {style:{overflowX:'auto'}},
-                                React.createElement('table', {style:{width:'100%',borderCollapse:'collapse',fontSize:'0.8rem'}},
-                                    React.createElement('thead', null, React.createElement('tr', null,
-                                        ['Activo','Dir.','Entrada','Capital','TP1','TP2','TP3','PnL','Estado','Cerrada'].map(function(h){ return React.createElement('th', {key:h,style:{padding:'0.4rem 0.6rem',textAlign:h==='Activo'||h==='Dir.'||h==='Estado'?'left':'right',color:'#A8B2C1',fontWeight:'600',fontSize:'0.72rem',textTransform:'uppercase',borderBottom:'1px solid #3a3f52',whiteSpace:'nowrap'}}, h); })
-                                    )),
-                                    React.createElement('tbody', null, closedOps.map(function(op){
+                        closedOps.length > 0 && (selectedBotOp ? (
+                            React.createElement('div', {style:sec},
+                                React.createElement('div', {style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'1rem',flexWrap:'wrap',gap:'0.5rem'}},
+                                    React.createElement('div', {style:{display:'flex',alignItems:'center',gap:'0.75rem',flexWrap:'wrap'}},
+                                        React.createElement('span', {style:{fontWeight:'800',fontSize:'1.1rem',color:'#E8ECEF'}}, selectedBotOp.symbol + ' — ' + selectedBotOp.direction),
+                                        React.createElement('span', {style:{background:'rgba(136,212,152,0.12)',border:'1px solid rgba(136,212,152,0.3)',color:'#88D498',borderRadius:'5px',padding:'0.15rem 0.5rem',fontSize:'0.75rem',fontWeight:'700'}}, selectedBotOp.leverage+'x'),
+                                        React.createElement('span', {style:{background:'rgba(136,212,152,0.12)',border:'1px solid rgba(136,212,152,0.3)',color:'#88D498',borderRadius:'5px',padding:'0.15rem 0.5rem',fontSize:'0.75rem',fontWeight:'700'}}, '🎯 CERRADA')
+                                    ),
+                                    React.createElement('button', {onClick:function(){ setSelectedBotOp(null); setBotOpEntries([]); },style:{background:'rgba(124,157,212,0.1)',border:'1px solid rgba(124,157,212,0.25)',color:'#7C9DD4',borderRadius:'6px',padding:'0.3rem 0.8rem',cursor:'pointer',fontSize:'0.78rem'}}, '← Volver al Historial')
+                                ),
+                                React.createElement('div', {style:{background:'rgba(37,40,54,0.8)',border:'1px solid #3a3f52',borderRadius:'10px',padding:'1rem',marginBottom:'1rem'}},
+                                    React.createElement('div', {style:{fontWeight:'700',fontSize:'0.85rem',color:'#A8B2C1',marginBottom:'0.75rem'}}, 'Resumen Final'),
+                                    React.createElement('div', {style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:'0.75rem'}},
+                                        (function(){
+                                            var pnl = parseFloat(selectedBotOp.total_pnl)||0;
+                                            var pc = pnl>0?'#88D498':pnl<0?'#F4A9A8':'#A8B2C1';
+                                            var totalMargin = botOpEntries.reduce(function(s,e){ return s+parseFloat(e.margin||0); },0);
+                                            return [
+                                                React.createElement('div', {key:'pnl'}, React.createElement('div', {style:{fontSize:'0.68rem',color:'#555e7a',marginBottom:'0.2rem'}}, 'P&L Total'), React.createElement('div', {style:{fontSize:'1.1rem',fontWeight:'700',color:pc}}, (pnl>=0?'+':'')+'$'+pnl.toFixed(4))),
+                                                React.createElement('div', {key:'pepp'}, React.createElement('div', {style:{fontSize:'0.68rem',color:'#555e7a',marginBottom:'0.2rem'}}, 'PEPP Final'), React.createElement('div', {style:{fontSize:'0.85rem',color:'#E8ECEF'}}, formatCurrency(selectedBotOp.pepp))),
+                                                React.createElement('div', {key:'entry'}, React.createElement('div', {style:{fontSize:'0.68rem',color:'#555e7a',marginBottom:'0.2rem'}}, 'Precio Entrada'), React.createElement('div', {style:{fontSize:'0.85rem',color:'#E8ECEF'}}, formatCurrency(selectedBotOp.entry_price))),
+                                                React.createElement('div', {key:'margin'}, React.createElement('div', {style:{fontSize:'0.68rem',color:'#555e7a',marginBottom:'0.2rem'}}, 'Margen Total'), React.createElement('div', {style:{fontSize:'0.85rem',color:'#7C9DD4'}}, '$'+totalMargin.toFixed(2))),
+                                                React.createElement('div', {key:'tf'}, React.createElement('div', {style:{fontSize:'0.68rem',color:'#555e7a',marginBottom:'0.2rem'}}, 'TF / EMAs'), React.createElement('div', {style:{fontSize:'0.85rem',color:'#E8ECEF'}}, selectedBotOp.tf+' · EMA'+selectedBotOp.ema1+'/'+selectedBotOp.ema2)),
+                                                React.createElement('div', {key:'closed'}, React.createElement('div', {style:{fontSize:'0.68rem',color:'#555e7a',marginBottom:'0.2rem'}}, 'Cerrada'), React.createElement('div', {style:{fontSize:'0.85rem',color:'#555e7a'}}, fmtDT(selectedBotOp.closed_at)))
+                                            ];
+                                        })()
+                                    )
+                                ),
+                                React.createElement('div', {style:{marginBottom:'1rem'}},
+                                    React.createElement('div', {style:{fontWeight:'700',fontSize:'0.85rem',color:'#A8B2C1',marginBottom:'0.6rem'}}, 'Historial de Entradas DCA ('+botOpEntries.length+')'),
+                                    botOpEntries.length > 0 && React.createElement('div', {style:{overflowX:'auto'}},
+                                        React.createElement('table', {style:{width:'100%',borderCollapse:'collapse',fontSize:'0.78rem'}},
+                                            React.createElement('thead', null, React.createElement('tr', null,
+                                                ['#','Fecha','Precio','Items','Margen','PEPP','DD%','Cap. restante'].map(function(h){ return React.createElement('th', {key:h,style:{padding:'0.4rem 0.6rem',textAlign:'left',color:'#555e7a',fontWeight:'600',fontSize:'0.7rem',borderBottom:'1px solid #3a3f52',whiteSpace:'nowrap'}}, h); })
+                                            )),
+                                            React.createElement('tbody', null, botOpEntries.map(function(e){
+                                                var ddColor = parseFloat(e.drawdown_pct)<-5?'#F4A9A8':parseFloat(e.drawdown_pct)>0?'#88D498':'#A8B2C1';
+                                                return React.createElement('tr', {key:e.id,style:{borderBottom:'1px solid rgba(58,63,82,0.25)'}},
+                                                    React.createElement('td', {style:{padding:'0.4rem 0.6rem',color:'#7C9DD4',fontWeight:'700'}}, e.entry_number),
+                                                    React.createElement('td', {style:{padding:'0.4rem 0.6rem',color:'#A8B2C1',whiteSpace:'nowrap'}}, e.entry_date+' '+String(e.entry_hour).padStart(2,'0')+'h'),
+                                                    React.createElement('td', {style:{padding:'0.4rem 0.6rem',color:'#E8ECEF'}}, formatCurrency(e.entry_price)),
+                                                    React.createElement('td', {style:{padding:'0.4rem 0.6rem',color:'#E8ECEF',fontWeight:'700'}}, e.items+'x'),
+                                                    React.createElement('td', {style:{padding:'0.4rem 0.6rem',color:'#E8ECEF'}}, '$'+parseFloat(e.margin).toFixed(2)),
+                                                    React.createElement('td', {style:{padding:'0.4rem 0.6rem',color:'#7C9DD4'}}, formatCurrency(e.pepp_after)),
+                                                    React.createElement('td', {style:{padding:'0.4rem 0.6rem',color:ddColor}}, parseFloat(e.drawdown_pct).toFixed(2)+'%'),
+                                                    React.createElement('td', {style:{padding:'0.4rem 0.6rem',color:'#A8B2C1'}}, '$'+parseFloat(e.capital_remaining).toFixed(2))
+                                                );
+                                            }))
+                                        )
+                                    )
+                                ),
+                                React.createElement('div', null,
+                                    React.createElement('div', {style:{fontWeight:'700',fontSize:'0.85rem',color:'#A8B2C1',marginBottom:'0.6rem'}}, 'Take Profits Ejecutados'),
+                                    React.createElement('div', {style:{display:'flex',flexDirection:'column',gap:'0.5rem'}},
+                                        [1,2,3].map(function(n){
+                                            var tpPrice = selectedBotOp['tp'+n+'_price'];
+                                            var tpPct = selectedBotOp['tp'+n+'_pct'];
+                                            var tpSize = selectedBotOp['tp'+n+'_size'];
+                                            var tpHit = selectedBotOp['tp'+n+'_hit'];
+                                            var tpPnl = selectedBotOp['tp'+n+'_pnl'];
+                                            var tpAt = selectedBotOp['tp'+n+'_hit_at'];
+                                            if (!tpPrice || !parseFloat(tpPct)) return null;
+                                            return React.createElement('div', {key:n,style:{background:'rgba(37,40,54,0.6)',border:'1px solid '+(tpHit?'rgba(136,212,152,0.3)':'rgba(58,63,82,0.5)'),borderRadius:'8px',padding:'0.75rem 1rem'}},
+                                                React.createElement('div', {style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:tpHit?'0.5rem':0}},
+                                                    React.createElement('span', {style:{fontWeight:'700',color:'#7C9DD4'}}, 'TP'+n),
+                                                    tpHit ? React.createElement('span', {style:{color:'#88D498',fontWeight:'700',fontSize:'0.78rem'}}, '✅ Ejecutado') : React.createElement('span', {style:{color:'#555e7a',fontSize:'0.78rem'}}, '⏳ Pendiente')
+                                                ),
+                                                tpHit && React.createElement('div', {style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(120px,1fr))',gap:'0.4rem',fontSize:'0.78rem'}},
+                                                    React.createElement('div', null, React.createElement('span', {style:{color:'#555e7a'}}, 'Precio: '), React.createElement('span', {style:{color:'#E8ECEF'}}, formatCurrency(tpPrice))),
+                                                    React.createElement('div', null, React.createElement('span', {style:{color:'#555e7a'}}, 'Vendido: '), React.createElement('span', {style:{color:'#E8ECEF'}}, tpSize+'%')),
+                                                    React.createElement('div', null, React.createElement('span', {style:{color:'#555e7a'}}, 'Ejecutado: '), React.createElement('span', {style:{color:'#E8ECEF'}}, fmtDT(tpAt))),
+                                                    React.createElement('div', null, React.createElement('span', {style:{color:'#555e7a'}}, 'Profit: '), React.createElement('span', {style:{color:parseFloat(tpPnl||0)>=0?'#88D498':'#F4A9A8',fontWeight:'700'}}, (parseFloat(tpPnl||0)>=0?'+':'')+'$'+parseFloat(tpPnl||0).toFixed(4)))
+                                                ),
+                                                !tpHit && React.createElement('div', {style:{fontSize:'0.75rem',color:'#555e7a',marginTop:'0.3rem'}}, 'Precio: '+formatCurrency(tpPrice)+' · '+tpSize+'% posición')
+                                            );
+                                        }).filter(Boolean)
+                                    )
+                                )
+                            )
+                        ) : (
+                            React.createElement('div', {style:sec},
+                                React.createElement('div', {style:{display:'flex',alignItems:'center',gap:'0.5rem',marginBottom:'0.9rem'}},
+                                    React.createElement('span', null, '📊'),
+                                    React.createElement('span', {style:{fontWeight:'700',fontSize:'0.88rem'}}, 'Historial'),
+                                    React.createElement('span', {style:{color:'#555e7a',fontSize:'0.78rem'}}, '('+closedOps.length+' cerradas)')
+                                ),
+                                React.createElement('div', {style:{display:'flex',flexDirection:'column',gap:'0.5rem'}},
+                                    closedOps.map(function(op){
                                         var isL = op.direction==='LONG';
                                         var pnl = parseFloat(op.total_pnl)||0;
                                         var pc = pnl>0?'#88D498':pnl<0?'#F4A9A8':'#A8B2C1';
-                                        return React.createElement('tr', {key:op.id,style:{borderBottom:'1px solid rgba(58,63,82,0.3)',opacity:0.8}},
-                                            React.createElement('td', {style:{padding:'0.5rem 0.6rem',fontWeight:'700',color:'#E8ECEF'}}, op.symbol),
-                                            React.createElement('td', {style:{padding:'0.5rem 0.6rem',color:isL?'#88D498':'#F4A9A8',fontWeight:'700',fontSize:'0.75rem'}}, op.direction),
-                                            React.createElement('td', {style:{padding:'0.5rem 0.6rem',textAlign:'right',color:'#E8ECEF'}}, op.entry_price?formatCurrency(op.entry_price):'—'),
-                                            React.createElement('td', {style:{padding:'0.5rem 0.6rem',textAlign:'right'}}, op.item_base?'$'+parseFloat(op.item_base).toFixed(2):'—'),
-                                            React.createElement('td', {style:{padding:'0.5rem 0.6rem',textAlign:'right',color:op.tp1_hit?'#88D498':'#555e7a'}}, op.tp1_hit?'✅':'—'),
-                                            React.createElement('td', {style:{padding:'0.5rem 0.6rem',textAlign:'right',color:op.tp2_hit?'#88D498':'#555e7a'}}, op.tp2_hit?'✅':'—'),
-                                            React.createElement('td', {style:{padding:'0.5rem 0.6rem',textAlign:'right',color:op.tp3_hit?'#88D498':'#555e7a'}}, op.tp3_hit?'✅':'—'),
-                                            React.createElement('td', {style:{padding:'0.5rem 0.6rem',textAlign:'right',color:pc,fontWeight:'700'}}, (pnl>=0?'+':'')+'$'+pnl.toFixed(2)),
-                                            React.createElement('td', {style:{padding:'0.5rem 0.6rem',fontSize:'0.72rem',color:op.status==='cancelled'?'#F4A9A8':'#88D498'}}, op.status==='cancelled'?'Cancelada':'Cerrada'),
-                                            React.createElement('td', {style:{padding:'0.5rem 0.6rem',textAlign:'right',color:'#555e7a',fontSize:'0.73rem'}}, fmtDT(op.closed_at))
+                                        var isExp = expandedHistOp === op.id;
+                                        var tpsHit = [op.tp1_hit,op.tp2_hit,op.tp3_hit].filter(Boolean).length;
+                                        var tpsTotal = [op.tp1_price,op.tp2_price,op.tp3_price].filter(function(p){ return p&&parseFloat(p)>0; }).length;
+                                        return React.createElement('div', {key:op.id,style:{background:'rgba(37,40,54,0.6)',border:'1px solid rgba(58,63,82,0.5)',borderRadius:'10px',overflow:'hidden'}},
+                                            React.createElement('div', {style:{display:'flex',alignItems:'center',padding:'0.7rem 1rem',gap:'0.75rem',flexWrap:'wrap',cursor:'pointer'},onClick:function(){ setExpandedHistOp(isExp?null:op.id); }},
+                                                React.createElement('span', {style:{fontWeight:'800',fontSize:'0.9rem',color:'#E8ECEF',minWidth:'60px'}}, op.symbol),
+                                                React.createElement('span', {style:{color:isL?'#88D498':'#F4A9A8',fontWeight:'700',fontSize:'0.72rem',background:isL?'rgba(136,212,152,0.12)':'rgba(244,169,168,0.12)',border:'1px solid '+(isL?'rgba(136,212,152,0.3)':'rgba(244,169,168,0.3)'),borderRadius:'4px',padding:'0.1rem 0.35rem'}}, op.direction),
+                                                React.createElement('span', {style:{color:'#555e7a',fontSize:'0.75rem'}}, formatCurrency(op.entry_price)),
+                                                React.createElement('span', {style:{color:'#555e7a',fontSize:'0.75rem'}}, op.tf+' · EMA'+op.ema1+'/'+op.ema2),
+                                                tpsHit>0 && React.createElement('span', {style:{color:'#88D498',fontSize:'0.72rem',fontWeight:'600'}}, '🎯 '+tpsHit+'/'+tpsTotal+' TPs'),
+                                                React.createElement('div', {style:{marginLeft:'auto',display:'flex',alignItems:'center',gap:'0.75rem'}},
+                                                    React.createElement('span', {style:{color:pc,fontWeight:'700',fontSize:'0.9rem'}}, (pnl>=0?'+':'')+'$'+pnl.toFixed(4)),
+                                                    React.createElement('span', {style:{color:'#555e7a',fontSize:'0.72rem'}}, fmtDT(op.closed_at)),
+                                                    React.createElement('span', {style:{color:'#555e7a',fontSize:'0.75rem'}}, isExp?'▲':'▼')
+                                                )
+                                            ),
+                                            isExp && React.createElement('div', {style:{borderTop:'1px solid rgba(58,63,82,0.4)',padding:'0.75rem 1rem',background:'rgba(26,29,41,0.5)',display:'flex',justifyContent:'flex-end',gap:'0.75rem',alignItems:'center'}},
+                                                React.createElement('span', {style:{color:'#555e7a',fontSize:'0.78rem',marginRight:'auto'}}, op.cross_date+(op.cross_hour!==null?' '+String(op.cross_hour).padStart(2,'0')+'h':'')+' · Entrada: '+formatCurrency(op.entry_price)+' · PEPP: '+formatCurrency(op.pepp)),
+                                                React.createElement('button', {onClick:function(e){ e.stopPropagation(); handleViewBotDetail(op); },style:{background:'rgba(124,157,212,0.1)',border:'1px solid rgba(124,157,212,0.25)',color:'#7C9DD4',borderRadius:'6px',padding:'0.3rem 0.8rem',cursor:'pointer',fontSize:'0.78rem'}}, '📋 Ver Detalle Completo')
+                                            )
                                         );
-                                    }))
+                                    })
                                 )
                             )
-                        )
+                        ))
                     )
                 );
             }
