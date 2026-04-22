@@ -15,22 +15,15 @@ export default async function handler(req, res) {
         const { path, method = 'GET', ...restParams } = body;
         if (!path) { res.status(400).json({ error: 'Missing path' }); return; }
 
-        // Add timestamp
         const params = { ...restParams, timestamp: Date.now().toString() };
-
-        // Build querystring with sorted keys (required by BingX for signature)
         const sortedKeys = Object.keys(params).sort();
         const qs = sortedKeys.map(k => `${k}=${String(params[k])}`).join('&');
-
-        // Sign the sorted querystring
         const signature = crypto.createHmac('sha256', BINGX_SECRET).update(qs).digest('hex');
-
-        // Final querystring with signature appended
         const finalQs = qs + '&signature=' + signature;
 
-       const url = (method === 'GET' || method === 'DELETE')
-    ? `${BINGX_BASE}${path}?${finalQs}`
-    : `${BINGX_BASE}${path}`;
+        const url = (method === 'GET' || method === 'DELETE')
+            ? `${BINGX_BASE}${path}?${finalQs}`
+            : `${BINGX_BASE}${path}`;
 
         const opts = { method, headers: { 'X-BX-APIKEY': BINGX_API_KEY } };
         if (method === 'POST') {
@@ -39,8 +32,12 @@ export default async function handler(req, res) {
         }
 
         const response = await fetch(url, opts);
-        const data = await response.json();
-        res.status(200).json(data);
+        // Get raw text to preserve large integer precision
+        const rawText = await response.text();
+        // Convert large numeric orderIds to strings to avoid JS precision loss
+        const safeText = rawText.replace(/"orderId"\s*:\s*(\d{15,})/g, '"orderId":"$1"');
+        res.setHeader('Content-Type', 'application/json');
+        res.status(200).send(safeText);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
