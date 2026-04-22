@@ -11877,13 +11877,14 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                                                             var pctFromCurrent = current > 0 && tpPrice > 0 ? (isL ? (tpPrice-current)/current*100 : (current-tpPrice)/current*100) : null;
                                                             var pctFromPepp = pepp > 0 && tpPrice > 0 ? (isL ? (tpPrice-pepp)/pepp*100 : (pepp-tpPrice)/pepp*100) : null;
                                                             var infoColor = pctFromCurrent !== null ? (pctFromCurrent > 0 ? '#88D498' : '#F4A9A8') : '#555e7a';
-                                                            return React.createElement('div', {key:n,style:{display:'grid',gridTemplateColumns:'40px 110px 70px 1fr',gap:'0.4rem',alignItems:'center',marginBottom:'0.4rem'}},
+                                                            var hasValue = tpEditValues[priceKey] && parseFloat(tpEditValues[priceKey]) > 0;
+                                                            return React.createElement('div', {key:n,style:{display:'grid',gridTemplateColumns:'40px 110px 70px 1fr 24px',gap:'0.4rem',alignItems:'center',marginBottom:'0.4rem'}},
                                                                 React.createElement('span', {style:{color:'#7C9DD4',fontSize:'0.75rem',fontWeight:'700'}}, 'TP'+n),
                                                                 React.createElement('input', {
                                                                     type:'number', placeholder:'0.00000', step:'0.000001', min:'0',
                                                                     value: tpEditValues[priceKey],
                                                                     onChange: function(e){ var v=e.target.value; setTpEditValues(function(p){ var u={};u[priceKey]=v;return Object.assign({},p,u); }); },
-                                                                    style:{background:'rgba(37,40,54,0.8)',border:'1px solid #3a3f52',borderRadius:'5px',padding:'0.25rem 0.4rem',color:'#E8ECEF',fontSize:'0.75rem',outline:'none',width:'100%'}
+                                                                    style:{background:'rgba(37,40,54,0.8)',border:'1px solid '+(hasValue?'rgba(124,157,212,0.4)':'#3a3f52'),borderRadius:'5px',padding:'0.25rem 0.4rem',color:'#E8ECEF',fontSize:'0.75rem',outline:'none',width:'100%'}
                                                                 }),
                                                                 React.createElement('input', {
                                                                     type:'number', placeholder:'100', min:'0', max:'100',
@@ -11896,7 +11897,11 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                                                                         (pctFromCurrent>=0?'+':'')+pctFromCurrent.toFixed(2)+'% actual' +
                                                                         (pctFromPepp !== null ? ' · '+(pctFromPepp>=0?'+':'')+pctFromPepp.toFixed(2)+'% PEPP' : '')
                                                                       )
-                                                                    : React.createElement('span', {style:{fontSize:'0.68rem',color:'#555e7a'}}, '—')
+                                                                    : React.createElement('span', {style:{fontSize:'0.68rem',color:'#555e7a'}}, '—'),
+                                                                hasValue && React.createElement('button', {
+                                                                    onClick: function(e){ e.stopPropagation(); setTpEditValues(function(p){ var u={};u[priceKey]='';u[sizeKey]='0';return Object.assign({},p,u); }); },
+                                                                    style:{background:'rgba(244,169,168,0.1)',border:'none',color:'#F4A9A8',borderRadius:'4px',padding:'0.1rem 0.3rem',cursor:'pointer',fontSize:'0.7rem',lineHeight:1}
+                                                                }, '✕')
                                                             );
                                                         }),
                                                         React.createElement('button', {
