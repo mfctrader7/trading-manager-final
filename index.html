@@ -10852,31 +10852,28 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
 
                     // Place new TPs
                     await new Promise(function(r){ setTimeout(r, 500); });
-                    var tp1pct = parseFloat(tpEditValues.tp1);
-                    var tp1size = parseFloat(tpEditValues.tp1size);
-                    var tp2pct = parseFloat(tpEditValues.tp2);
-                    var tp2size = parseFloat(tpEditValues.tp2size);
-                    var tp3size = 100 - (tp1size||0) - (tp2size||0);
-                    var markPrice = parseFloat(livePos.markPrice);
-                    if (tp1pct > 0 && tp1size > 0) {
-                        var tp1price = op.direction === 'LONG' ? markPrice * (1 + tp1pct/100) : markPrice * (1 - tp1pct/100);
+                    var tp1price = parseFloat(tpEditValues.tp1);
+                    var tp1size = parseFloat(tpEditValues.tp1size) || 0;
+                    var tp2price = parseFloat(tpEditValues.tp2);
+                    var tp2size = parseFloat(tpEditValues.tp2size) || 0;
+                    var tp3price = parseFloat(tpEditValues.tp3);
+                    var tp3size = 100 - tp1size - tp2size;
+                    if (tp1price > 0 && tp1size > 0) {
                         await bingxPlaceTpOrder(bingxSym, op.direction, tp1price, totalQty * tp1size/100);
                     }
-                    if (tp2pct > 0 && tp2size > 0) {
-                        var tp2price = op.direction === 'LONG' ? markPrice * (1 + tp2pct/100) : markPrice * (1 - tp2pct/100);
+                    if (tp2price > 0 && tp2size > 0) {
                         await bingxPlaceTpOrder(bingxSym, op.direction, tp2price, totalQty * tp2size/100);
                     }
-                    var tp3pct = parseFloat(tpEditValues.tp3);
-                    if (tp3pct > 0 && tp3size > 0) {
-                        var tp3price = op.direction === 'LONG' ? markPrice * (1 + tp3pct/100) : markPrice * (1 - tp3pct/100);
+                    if (tp3price > 0 && tp3size > 0) {
                         await bingxPlaceTpOrder(bingxSym, op.direction, tp3price, totalQty * tp3size/100);
                     }
-                    // Update Supabase
-                    var tp1priceDB = tp1pct > 0 ? (op.direction === 'LONG' ? markPrice*(1+tp1pct/100) : markPrice*(1-tp1pct/100)) : null;
-                    var tp2priceDB = tp2pct > 0 ? (op.direction === 'LONG' ? markPrice*(1+tp2pct/100) : markPrice*(1-tp2pct/100)) : null;
+                    var markPriceCurrent = parseFloat(livePos.markPrice);
+                    var tp1pct = tp1price > 0 && markPriceCurrent > 0 ? (op.direction==='LONG' ? (tp1price-markPriceCurrent)/markPriceCurrent*100 : (markPriceCurrent-tp1price)/markPriceCurrent*100) : null;
+                    var tp2pct = tp2price > 0 && markPriceCurrent > 0 ? (op.direction==='LONG' ? (tp2price-markPriceCurrent)/markPriceCurrent*100 : (markPriceCurrent-tp2price)/markPriceCurrent*100) : null;
                     await supabaseClient.from('ema_bot_operations').update({
-                        tp1_price: tp1priceDB, tp1_pct: tp1pct||null, tp1_size: tp1size||null,
-                        tp2_price: tp2priceDB, tp2_pct: tp2pct||null, tp2_size: tp2size||null,
+                        tp1_price: tp1price||null, tp1_pct: tp1pct, tp1_size: tp1size||null,
+                        tp2_price: tp2price||null, tp2_pct: tp2pct, tp2_size: tp2size||null,
+                        tp3_price: tp3price||null, tp3_size: tp3size||null,
                     }).eq('id', op.id);
                     botAddLog('✅ TPs actualizados en ' + op.symbol, 'success');
                     setEditingTPs(null);
@@ -11727,6 +11724,18 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                                                         roi !== null ? (roi>=0?'+':'')+roi.toFixed(1)+'%' : '—'
                                                     )
                                                 ),
+                                                // % desde PEPP
+                                                (function(){
+                                                    var pepp = parseFloat(op.pepp || op.entry_price);
+                                                    var peppPct = markPrice && pepp ? (isL ? (markPrice-pepp)/pepp*100 : (pepp-markPrice)/pepp*100) : null;
+                                                    var peppColor = peppPct === null ? '#555e7a' : peppPct >= 0 ? '#88D498' : '#F4A9A8';
+                                                    return React.createElement('div', {style:{minWidth:'75px',textAlign:'right'}},
+                                                        React.createElement('div', {style:{fontSize:'0.7rem',color:'#555e7a'}}, 'vs PEPP'),
+                                                        React.createElement('div', {style:{fontSize:'0.82rem',fontWeight:'700',color:peppColor}},
+                                                            peppPct !== null ? (peppPct>=0?'+':'')+peppPct.toFixed(2)+'%' : '—'
+                                                        )
+                                                    );
+                                                })(),
                                                 // Botones
                                                 React.createElement('div', {style:{display:'flex',gap:'0.4rem',marginLeft:'auto'},onClick:function(e){e.stopPropagation();}},
                                                     React.createElement('span', {style:{color:'#555e7a',fontSize:'0.75rem',alignSelf:'center'}}, isExpanded?'▲':'▼'),
@@ -11784,32 +11793,50 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                                                         );
                                                     })(),
                                                     editingTPs === op.id && React.createElement('div', {style:{background:'rgba(26,29,41,0.8)',border:'1px solid rgba(124,157,212,0.2)',borderRadius:'8px',padding:'0.75rem'},onClick:function(e){e.stopPropagation();}},
-                                                        React.createElement('div', {style:{fontSize:'0.72rem',color:'#7C9DD4',marginBottom:'0.5rem',fontWeight:'600'}}, 'Configurar TPs (% sobre precio actual)'),
+                                                        React.createElement('div', {style:{fontSize:'0.72rem',color:'#7C9DD4',marginBottom:'0.3rem',fontWeight:'600'}}, 'Configurar TPs'),
+                                                        React.createElement('div', {style:{fontSize:'0.68rem',color:'#555e7a',marginBottom:'0.6rem'}}, 'Precio actual: ' + (markPrice ? formatCurrency(markPrice) : '—') + ' · PEPP: ' + formatCurrency(op.pepp||op.entry_price)),
+                                                        // Header
+                                                        React.createElement('div', {style:{display:'grid',gridTemplateColumns:'40px 110px 70px 1fr',gap:'0.4rem',marginBottom:'0.3rem'}},
+                                                            React.createElement('span', {style:{fontSize:'0.65rem',color:'#555e7a'}},''),
+                                                            React.createElement('span', {style:{fontSize:'0.65rem',color:'#555e7a'}},'Precio objetivo'),
+                                                            React.createElement('span', {style:{fontSize:'0.65rem',color:'#555e7a'}},'% posición'),
+                                                            React.createElement('span', {style:{fontSize:'0.65rem',color:'#555e7a'}},'Info calculada')
+                                                        ),
                                                         [1,2,3].map(function(n){
-                                                            var pctKey = 'tp'+n;
+                                                            var priceKey = 'tp'+n;
                                                             var sizeKey = 'tp'+n+'size';
-                                                            return React.createElement('div', {key:n,style:{display:'flex',alignItems:'center',gap:'0.5rem',marginBottom:'0.4rem'}},
-                                                                React.createElement('span', {style:{color:'#555e7a',fontSize:'0.72rem',minWidth:'25px'}}, 'TP'+n),
+                                                            var tpPrice = parseFloat(tpEditValues[priceKey]);
+                                                            var current = markPrice || 0;
+                                                            var pepp = parseFloat(op.pepp || op.entry_price) || 0;
+                                                            var pctFromCurrent = current > 0 && tpPrice > 0 ? (isL ? (tpPrice-current)/current*100 : (current-tpPrice)/current*100) : null;
+                                                            var pctFromPepp = pepp > 0 && tpPrice > 0 ? (isL ? (tpPrice-pepp)/pepp*100 : (pepp-tpPrice)/pepp*100) : null;
+                                                            var infoColor = pctFromCurrent !== null ? (pctFromCurrent > 0 ? '#88D498' : '#F4A9A8') : '#555e7a';
+                                                            return React.createElement('div', {key:n,style:{display:'grid',gridTemplateColumns:'40px 110px 70px 1fr',gap:'0.4rem',alignItems:'center',marginBottom:'0.4rem'}},
+                                                                React.createElement('span', {style:{color:'#7C9DD4',fontSize:'0.75rem',fontWeight:'700'}}, 'TP'+n),
                                                                 React.createElement('input', {
-                                                                    type:'number', placeholder:'% precio', step:'0.1', min:'0',
-                                                                    value: tpEditValues[pctKey],
-                                                                    onChange: function(e){ var v=e.target.value; setTpEditValues(function(p){ var u={};u[pctKey]=v;return Object.assign({},p,u); }); },
-                                                                    style:{background:'rgba(37,40,54,0.8)',border:'1px solid #3a3f52',borderRadius:'5px',padding:'0.25rem 0.4rem',color:'#E8ECEF',fontSize:'0.75rem',width:'80px',outline:'none'}
+                                                                    type:'number', placeholder:'0.00000', step:'0.000001', min:'0',
+                                                                    value: tpEditValues[priceKey],
+                                                                    onChange: function(e){ var v=e.target.value; setTpEditValues(function(p){ var u={};u[priceKey]=v;return Object.assign({},p,u); }); },
+                                                                    style:{background:'rgba(37,40,54,0.8)',border:'1px solid #3a3f52',borderRadius:'5px',padding:'0.25rem 0.4rem',color:'#E8ECEF',fontSize:'0.75rem',outline:'none',width:'100%'}
                                                                 }),
-                                                                React.createElement('span', {style:{color:'#555e7a',fontSize:'0.68rem'}}, '%'),
                                                                 React.createElement('input', {
-                                                                    type:'number', placeholder:'% pos', min:'0', max:'100',
+                                                                    type:'number', placeholder:'100', min:'0', max:'100',
                                                                     value: tpEditValues[sizeKey],
                                                                     onChange: function(e){ var v=e.target.value; setTpEditValues(function(p){ var u={};u[sizeKey]=v;return Object.assign({},p,u); }); },
-                                                                    style:{background:'rgba(37,40,54,0.8)',border:'1px solid #3a3f52',borderRadius:'5px',padding:'0.25rem 0.4rem',color:'#E8ECEF',fontSize:'0.75rem',width:'70px',outline:'none'}
+                                                                    style:{background:'rgba(37,40,54,0.8)',border:'1px solid #3a3f52',borderRadius:'5px',padding:'0.25rem 0.4rem',color:'#E8ECEF',fontSize:'0.75rem',outline:'none',width:'100%'}
                                                                 }),
-                                                                React.createElement('span', {style:{color:'#555e7a',fontSize:'0.68rem'}}, '% pos')
+                                                                pctFromCurrent !== null
+                                                                    ? React.createElement('span', {style:{fontSize:'0.68rem',color:infoColor}},
+                                                                        (pctFromCurrent>=0?'+':'')+pctFromCurrent.toFixed(2)+'% actual' +
+                                                                        (pctFromPepp !== null ? ' · '+(pctFromPepp>=0?'+':'')+pctFromPepp.toFixed(2)+'% PEPP' : '')
+                                                                      )
+                                                                    : React.createElement('span', {style:{fontSize:'0.68rem',color:'#555e7a'}}, '—')
                                                             );
                                                         }),
                                                         React.createElement('button', {
                                                             onClick: function(e){ e.stopPropagation(); saveBotTPs(op); },
                                                             disabled: botTPsSaving,
-                                                            style:{background:'rgba(136,212,152,0.12)',border:'1px solid rgba(136,212,152,0.3)',color:'#88D498',borderRadius:'6px',padding:'0.35rem 0.9rem',cursor:'pointer',fontSize:'0.75rem',fontWeight:'700',marginTop:'0.25rem',opacity:botTPsSaving?0.5:1}
+                                                            style:{background:'rgba(136,212,152,0.12)',border:'1px solid rgba(136,212,152,0.3)',color:'#88D498',borderRadius:'6px',padding:'0.35rem 0.9rem',cursor:'pointer',fontSize:'0.75rem',fontWeight:'700',marginTop:'0.4rem',opacity:botTPsSaving?0.5:1}
                                                         }, botTPsSaving ? '⟳ Guardando...' : '✓ Guardar TPs')
                                                     )
                                                 ),
