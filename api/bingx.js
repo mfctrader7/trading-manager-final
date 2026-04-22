@@ -28,9 +28,9 @@ export default async function handler(req, res) {
         // Final querystring with signature appended
         const finalQs = qs + '&signature=' + signature;
 
-        const url = method === 'GET'
-            ? `${BINGX_BASE}${path}?${finalQs}`
-            : `${BINGX_BASE}${path}`;
+       const url = (method === 'GET' || method === 'DELETE')
+    ? `${BINGX_BASE}${path}?${finalQs}`
+    : `${BINGX_BASE}${path}`;
 
         const opts = { method, headers: { 'X-BX-APIKEY': BINGX_API_KEY } };
         if (method === 'POST') {
