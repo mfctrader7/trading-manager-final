@@ -10653,7 +10653,7 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                 const tp2price = direction === 'LONG'
                     ? crossPrice * (1 + parseFloat(cfg.tp2) / 100)
                     : crossPrice * (1 - parseFloat(cfg.tp2) / 100);
-                const tp3size = 100 - cfg.tp1size - cfg.tp2size;
+                const tp3size = (cfg.tp3 && parseFloat(cfg.tp3) > 0) ? (100 - cfg.tp1size - cfg.tp2size) : 0;
                 const tp3price = direction === 'LONG'
                     ? crossPrice * (1 + parseFloat(cfg.tp3) / 100)
                     : crossPrice * (1 - parseFloat(cfg.tp3) / 100);
@@ -11259,7 +11259,9 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
 
                 // Save config to localStorage for recovery
                 try {
-                    localStorage.setItem('ema_bot_config', JSON.stringify(cfg));
+                    var cfgToSave = Object.assign({}, cfg);
+                    if (!cfgToSave.tp3 || parseFloat(cfgToSave.tp3) <= 0) cfgToSave.tp3size = 0;
+                    localStorage.setItem('ema_bot_config', JSON.stringify(cfgToSave));
                     localStorage.setItem('ema_bot_assets', JSON.stringify(botAssets));
                 } catch(e) {}
 
