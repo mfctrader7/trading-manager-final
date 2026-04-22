@@ -10840,14 +10840,9 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                 setBotTPsSaving(true);
                 try {
                     const bingxSym = op.symbol + '-USDT';
-                    // Cancel existing TP orders
-                    const openData = await bingxRequest('GET', '/openApi/swap/v2/trade/openOrders', { symbol: bingxSym });
-                    const existingTPs = openData && openData.data && openData.data.orders ? 
-                        openData.data.orders.filter(function(o){ return (o.type === 'TAKE_PROFIT_MARKET' || o.type === 'TAKE_PROFIT') && o.positionSide === op.direction; }) : [];
-                    for (var i = 0; i < existingTPs.length; i++) {
-                        await bingxRequest('DELETE', '/openApi/swap/v2/trade/order', { symbol: bingxSym, orderId: existingTPs[i].orderId.toString() });
-                        await new Promise(function(r){ setTimeout(r, 300); });
-                    }
+                    // Cancel existing TP orders server-side (avoids JS integer precision loss)
+                    await bingxRequest('POST', '/__cancelTPs', { symbol: bingxSym, positionSide: op.direction });
+                    await new Promise(function(r){ setTimeout(r, 500); });
                     // Get current position quantity
                     const posData = await bingxRequest('GET', '/openApi/swap/v2/user/positions', { symbol: bingxSym });
                     const positions = posData && posData.data ? posData.data : [];
@@ -11109,12 +11104,9 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                                 await new Promise(function(r){ setTimeout(r, 1000); });
                                 // Cancel existing TPs
                                 var openTpData = await bingxRequest('GET', '/openApi/swap/v2/trade/openOrders', { symbol: bingxSym });
-                                var existingTPs = openTpData && openTpData.data && openTpData.data.orders ?
-                                    openTpData.data.orders.filter(function(o){ return (o.type==='TAKE_PROFIT_MARKET'||o.type==='TAKE_PROFIT') && o.positionSide===op.direction; }) : [];
-                                for (var ti2=0; ti2<existingTPs.length; ti2++) {
-                                    await bingxRequest('DELETE', '/openApi/swap/v2/trade/order', { symbol: bingxSym, orderId: existingTPs[ti2].orderId.toString() });
-                                    await new Promise(function(r){ setTimeout(r, 300); });
-                                }
+                                // Cancel server-side to avoid JS integer precision loss
+                                await bingxRequest('POST', '/__cancelTPs', { symbol: bingxSym, positionSide: op.direction });
+                                await new Promise(function(r){ setTimeout(r, 500); });
                                 // Get updated position size
                                 await new Promise(function(r){ setTimeout(r, 500); });
                                 var updPosData = await bingxRequest('GET', '/openApi/swap/v2/user/positions', { symbol: bingxSym });
