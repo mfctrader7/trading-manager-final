@@ -451,7 +451,7 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
             const [opOpenOrders, setOpOpenOrders] = useState({});
             const [editingTPs, setEditingTPs] = useState(null); // op.id being edited
             const [tpEditValues, setTpEditValues] = useState({ tp1: '', tp1size: '', tp2: '', tp2size: '', tp3: '', tp3size: '' });
-            const [savingBotTPs, setSavingBotTPs] = useState(false);
+            const [botTPsSaving, setBotTPsSaving] = useState(false);
             const [selectedBotOp, setSelectedBotOp] = useState(null);
             const [botOpEntries, setBotOpEntries] = useState([]);
             const [expandedHistOp, setExpandedHistOp] = useState(null);
@@ -3480,7 +3480,7 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
             };
 
             const handleSaveTPs = async () => {
-                setSavingBotTPs(true);
+                setBotTPsSaving(true);
                 setTpError('');
 
                 try {
@@ -3549,7 +3549,7 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                     console.error('❌ Error:', error);
                     setTpError(error.message);
                 } finally {
-                    setSavingBotTPs(false);
+                    setBotTPsSaving(false);
                 }
             };
 
@@ -10832,7 +10832,7 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
             };
 
             const saveBotTPs = async (op) => {
-                setSavingBotTPs(true);
+                setBotTPsSaving(true);
                 try {
                     const bingxSym = op.symbol + '-USDT';
                     // Cancel existing TP orders
@@ -10885,7 +10885,7 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                 } catch(e) {
                     botAddLog('Error editando TPs ' + op.symbol + ': ' + e.message, 'error');
                 } finally {
-                    setSavingBotTPs(false);
+                    setBotTPsSaving(false);
                 }
             };
 
@@ -11808,9 +11808,9 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                                                         }),
                                                         React.createElement('button', {
                                                             onClick: function(e){ e.stopPropagation(); saveBotTPs(op); },
-                                                            disabled: savingBotTPs,
-                                                            style:{background:'rgba(136,212,152,0.12)',border:'1px solid rgba(136,212,152,0.3)',color:'#88D498',borderRadius:'6px',padding:'0.35rem 0.9rem',cursor:'pointer',fontSize:'0.75rem',fontWeight:'700',marginTop:'0.25rem',opacity:savingBotTPs?0.5:1}
-                                                        }, savingBotTPs ? '⟳ Guardando...' : '✓ Guardar TPs')
+                                                            disabled: botTPsSaving,
+                                                            style:{background:'rgba(136,212,152,0.12)',border:'1px solid rgba(136,212,152,0.3)',color:'#88D498',borderRadius:'6px',padding:'0.35rem 0.9rem',cursor:'pointer',fontSize:'0.75rem',fontWeight:'700',marginTop:'0.25rem',opacity:botTPsSaving?0.5:1}
+                                                        }, botTPsSaving ? '⟳ Guardando...' : '✓ Guardar TPs')
                                                     )
                                                 ),
                                                 React.createElement('div', null,
