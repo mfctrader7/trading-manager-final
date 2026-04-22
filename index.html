@@ -415,7 +415,7 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                     const saved = localStorage.getItem('ema_bot_config');
                     if (saved) return JSON.parse(saved);
                 } catch(e) {}
-                return { ema1: 12, ema2: 25, tf: '1h', session: 'open_day', capital: '', itemBase: '', leverage: 3, tp1: '', tp1size: 25, tp2: '', tp2size: 35, tp3: '', tp3size: 40, maxOps: 5 };
+                return { ema1: 12, ema2: 25, tf: '1h', session: 'open_day', capital: '', itemBase: '', leverage: 3, tp1: '', tp1size: 25, tp2: '', tp2size: 35, tp3: '', tp3size: 40, maxOps: 5, autoUpdateTPs: true };
             });
             const [botAssets, setBotAssets] = useState(() => {
                 try {
@@ -455,6 +455,7 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
             const [selectedBotOp, setSelectedBotOp] = useState(null);
             const [botOpEntries, setBotOpEntries] = useState([]);
             const [expandedHistOp, setExpandedHistOp] = useState(null);
+            const [opsFilter, setOpsFilter] = useState('all');
             const [atHistorialLoading, setAtHistorialLoading] = useState(false);
             const [atHistorialDetalle, setAtHistorialDetalle] = useState(null);
             const [projections, setProjections] = useState([]);
@@ -11094,6 +11095,37 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                         await supabaseClient.from('ema_bot_operations').update({ pepp: newPepp }).eq('id', op.id);
                         botAddLog('📥 DCA ' + op.symbol + ' +' + items + 'x @ ' + markPrice.toFixed(4) + ' PEPP→' + newPepp.toFixed(4), 'info');
 
+                        // Auto-update TPs if enabled
+                        if (cfg.autoUpdateTPs && (op.tp1_price || op.tp2_price)) {
+                            try {
+                                await new Promise(function(r){ setTimeout(r, 1000); });
+                                // Cancel existing TPs
+                                var openTpData = await bingxRequest('GET', '/openApi/swap/v2/trade/openOrders', { symbol: bingxSym });
+                                var existingTPs = openTpData && openTpData.data && openTpData.data.orders ?
+                                    openTpData.data.orders.filter(function(o){ return o.type==='TAKE_PROFIT_MARKET'||o.type==='TAKE_PROFIT'; }) : [];
+                                for (var ti2=0; ti2<existingTPs.length; ti2++) {
+                                    await bingxRequest('DELETE', '/openApi/swap/v2/trade/order', { symbol: bingxSym, orderId: existingTPs[ti2].orderId.toString() });
+                                    await new Promise(function(r){ setTimeout(r, 300); });
+                                }
+                                // Get updated position size
+                                await new Promise(function(r){ setTimeout(r, 500); });
+                                var updPosData = await bingxRequest('GET', '/openApi/swap/v2/user/positions', { symbol: bingxSym });
+                                var updPos = updPosData && updPosData.data ? updPosData.data.find(function(p){ return p.positionSide===op.direction; }) : null;
+                                if (updPos) {
+                                    var newQty = parseFloat(updPos.positionAmt);
+                                    var tp1s = op.tp1_size || 100;
+                                    var tp2s = op.tp2_size || 0;
+                                    var tp3s = 100 - tp1s - tp2s;
+                                    if (op.tp1_price && parseFloat(op.tp1_price)>0 && tp1s>0) await bingxPlaceTpOrder(bingxSym, op.direction, parseFloat(op.tp1_price), newQty*tp1s/100);
+                                    if (op.tp2_price && parseFloat(op.tp2_price)>0 && tp2s>0) await bingxPlaceTpOrder(bingxSym, op.direction, parseFloat(op.tp2_price), newQty*tp2s/100);
+                                    if (op.tp3_price && parseFloat(op.tp3_price)>0 && tp3s>0) await bingxPlaceTpOrder(bingxSym, op.direction, parseFloat(op.tp3_price), newQty*tp3s/100);
+                                    botAddLog('🔄 TPs actualizados ' + op.symbol + ' (' + newQty + ' uds)', 'info');
+                                }
+                            } catch(e2) {
+                                console.warn('Auto-update TPs error:', e2.message);
+                            }
+                        }
+
                     } catch(e) {
                         botAddLog('Error DCA ' + op.symbol + ': ' + e.message, 'error');
                     }
@@ -11393,7 +11425,15 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                                 React.createElement('div', null, React.createElement('label', {style:lbl}, 'EMA Lenta'), React.createElement('input', {type:'number',value:botConfig.ema2,disabled:botRunning,onChange:e=>setBotConfig(p=>({...p,ema2:parseInt(e.target.value)||25})),style:{...inp,opacity:botRunning?0.5:1}})),
                                 React.createElement('div', null, React.createElement('label', {style:lbl}, 'Temporalidad'), React.createElement('select', {value:botConfig.tf,disabled:botRunning,onChange:e=>setBotConfig(p=>({...p,tf:e.target.value})),style:{...inp,opacity:botRunning?0.5:1}}, tfOpts.map(o=>React.createElement('option', {key:o.v,value:o.v}, o.l)))),
                                 React.createElement('div', null, React.createElement('label', {style:lbl}, 'Sesión'), React.createElement('select', {value:botConfig.session,disabled:botRunning,onChange:e=>setBotConfig(p=>({...p,session:e.target.value})),style:{...inp,opacity:botRunning?0.5:1}}, sessOpts.map(o=>React.createElement('option', {key:o.v,value:o.v}, o.l)))),
-                                React.createElement('div', null, React.createElement('label', {style:lbl}, 'Máx. Ops.'), React.createElement('input', {type:'number',value:botConfig.maxOps,disabled:botRunning,onChange:e=>setBotConfig(p=>({...p,maxOps:parseInt(e.target.value)||5})),style:{...inp,opacity:botRunning?0.5:1}}))
+                                React.createElement('div', null, React.createElement('label', {style:lbl}, 'Máx. Ops.'), React.createElement('input', {type:'number',value:botConfig.maxOps,disabled:botRunning,onChange:e=>setBotConfig(p=>({...p,maxOps:parseInt(e.target.value)||5})),style:{...inp,opacity:botRunning?0.5:1}})),
+                                React.createElement('div', {style:{display:'flex',flexDirection:'column',gap:'0.3rem'}},
+                                    React.createElement('label', {style:lbl}, 'Auto-actualizar TPs'),
+                                    React.createElement('button', {
+                                        onClick: ()=>setBotConfig(p=>({...p,autoUpdateTPs:!p.autoUpdateTPs})),
+                                        disabled: botRunning,
+                                        style:{background:botConfig.autoUpdateTPs?'rgba(136,212,152,0.12)':'rgba(168,178,193,0.07)',border:'1px solid '+(botConfig.autoUpdateTPs?'rgba(136,212,152,0.3)':'rgba(168,178,193,0.2)'),color:botConfig.autoUpdateTPs?'#88D498':'#A8B2C1',borderRadius:'6px',padding:'0.35rem 0.6rem',cursor:botRunning?'not-allowed':'pointer',fontSize:'0.75rem',fontWeight:'600',opacity:botRunning?0.5:1,textAlign:'left'}
+                                    }, botConfig.autoUpdateTPs ? '✅ Activado' : '⬜ Desactivado')
+                                )
                             ),
                             React.createElement('div', {style:{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(130px, 1fr))',gap:'0.75rem',marginBottom:'0.75rem'}},
                                 React.createElement('div', null, React.createElement('label', {style:lbl}, 'Capital Total (USDT)'), React.createElement('input', {type:'number',placeholder:'1000',value:botConfig.capital,disabled:botRunning,onChange:e=>setBotConfig(p=>({...p,capital:e.target.value})),style:{...inp,opacity:botRunning?0.5:1}})),
@@ -11453,8 +11493,12 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                                     React.createElement('span', {style:{color:'#7C9DD4',fontWeight:'700',fontSize:'0.88rem'}}, fmtCD(botCountdown))
                                 ),
                                 React.createElement('div', {style:{display:'flex',alignItems:'center',gap:'0.4rem'}},
-                                    React.createElement('span', {style:{color:'#555e7a',fontSize:'0.78rem'}}, 'Operaciones abiertas:'),
+                                    React.createElement('span', {style:{color:'#555e7a',fontSize:'0.78rem'}}, 'Abiertas:'),
                                     React.createElement('span', {style:{color:'#E8ECEF',fontWeight:'700'}}, openOps.length + ' / ' + (botConfig.maxOps||5))
+                                ),
+                                React.createElement('div', {style:{display:'flex',alignItems:'center',gap:'0.5rem'}},
+                                    React.createElement('span', {style:{background:'rgba(136,212,152,0.12)',border:'1px solid rgba(136,212,152,0.3)',color:'#88D498',borderRadius:'5px',padding:'0.1rem 0.5rem',fontSize:'0.72rem',fontWeight:'700'}}, '▲ ' + openOps.filter(function(o){return o.direction==='LONG';}).length),
+                                    React.createElement('span', {style:{background:'rgba(244,169,168,0.12)',border:'1px solid rgba(244,169,168,0.3)',color:'#F4A9A8',borderRadius:'5px',padding:'0.1rem 0.5rem',fontSize:'0.72rem',fontWeight:'700'}}, '▼ ' + openOps.filter(function(o){return o.direction==='SHORT';}).length)
                                 )
                             ),
                             React.createElement('button', {onClick:botRunning?stopBot:startBot,style:{background:botRunning?'rgba(244,169,168,0.12)':'rgba(136,212,152,0.12)',border:'1px solid '+(botRunning?'rgba(244,169,168,0.4)':'rgba(136,212,152,0.4)'),color:botRunning?'#F4A9A8':'#88D498',borderRadius:'9px',padding:'0.6rem 1.8rem',cursor:'pointer',fontSize:'0.9rem',fontWeight:'700',transition:'all 0.2s'}}, botRunning ? '⏹ Detener Bot' : '▶ Iniciar Bot')
@@ -11675,11 +11719,30 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                                 );
                             })(),
 
+                            // Filtros de operaciones
+                            openOps.length > 0 && React.createElement('div', {style:{display:'flex',gap:'0.4rem',marginBottom:'0.6rem',flexWrap:'wrap'}},
+                                ['all','LONG','SHORT','profit','loss'].map(function(f){
+                                    var labels = {all:'Todas',LONG:'▲ LONG',SHORT:'▼ SHORT',profit:'✅ Ganancia',loss:'❌ Pérdida'};
+                                    var colors = {all:'#A8B2C1',LONG:'#88D498',SHORT:'#F4A9A8',profit:'#88D498',loss:'#F4A9A8'};
+                                    var active = opsFilter === f;
+                                    return React.createElement('button', {key:f, onClick:()=>setOpsFilter(f), style:{background:active?'rgba(124,157,212,0.15)':'rgba(168,178,193,0.05)',border:'1px solid '+(active?'rgba(124,157,212,0.4)':'rgba(168,178,193,0.15)'),color:active?'#7C9DD4':colors[f]||'#A8B2C1',borderRadius:'5px',padding:'0.2rem 0.55rem',cursor:'pointer',fontSize:'0.72rem',fontWeight:active?'700':'400'}}, labels[f]);
+                                })
+                            ),
+
                             // Lista de operaciones
                             openOps.length === 0
                                 ? React.createElement('div', {style:{color:'#555e7a',fontSize:'0.83rem',textAlign:'center',padding:'1.5rem'}}, 'Sin operaciones abiertas')
                                 : React.createElement('div', {style:{display:'flex',flexDirection:'column',gap:'0.6rem'}},
-                                    openOps.map(function(op){
+                                    openOps.filter(function(op){
+                                        if (opsFilter === 'all') return true;
+                                        if (opsFilter === 'LONG') return op.direction === 'LONG';
+                                        if (opsFilter === 'SHORT') return op.direction === 'SHORT';
+                                        var lp = livePositions.find(function(p){ return p.symbol===op.symbol+'-USDT' && p.positionSide===op.direction; });
+                                        var pnl = lp ? parseFloat(lp.unrealizedProfit||0) : 0;
+                                        if (opsFilter === 'profit') return pnl >= 0;
+                                        if (opsFilter === 'loss') return pnl < 0;
+                                        return true;
+                                    }).map(function(op){
                                         var isL = op.direction==='LONG';
                                         var dc = isL?'#88D498':'#F4A9A8';
                                         var isExpanded = expandedOp === op.id;
