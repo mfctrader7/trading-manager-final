@@ -11835,9 +11835,12 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                                                             onClick: function(e){ e.stopPropagation();
                                                                 setEditingTPs(editingTPs===op.id?null:op.id);
                                                                 setTpEditValues({
-                                                                    tp1: op.tp1_pct||'', tp1size: op.tp1_size||'100',
-                                                                    tp2: op.tp2_pct||'', tp2size: op.tp2_size||'0',
-                                                                    tp3: op.tp3_pct||'', tp3size: op.tp3_size||'0'
+                                                                    tp1: op.tp1_price ? parseFloat(op.tp1_price).toString() : '',
+                                                                    tp1size: op.tp1_size ? op.tp1_size.toString() : '100',
+                                                                    tp2: op.tp2_price ? parseFloat(op.tp2_price).toString() : '',
+                                                                    tp2size: op.tp2_size ? op.tp2_size.toString() : '0',
+                                                                    tp3: op.tp3_price ? parseFloat(op.tp3_price).toString() : '',
+                                                                    tp3size: op.tp3_size ? op.tp3_size.toString() : '0'
                                                                 });
                                                             },
                                                             style:{background:'rgba(124,157,212,0.1)',border:'1px solid rgba(124,157,212,0.25)',color:'#7C9DD4',borderRadius:'5px',padding:'0.15rem 0.45rem',cursor:'pointer',fontSize:'0.68rem'}
