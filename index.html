@@ -11623,7 +11623,7 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                                                         ),
                                                         React.createElement('td', {style:{padding:'0.5rem 0.6rem',color:dirColor,fontWeight:'600'}}, item.lastPrice ? formatCurrency(item.lastPrice) : '—'),
                                                         React.createElement('td', {style:{padding:'0.5rem 0.6rem',color:'#A8B2C1',fontSize:'0.75rem'}},
-                                                            item.crossDate ? item.crossDate + (item.crossHour!==null?' '+String(item.crossHour).padStart(2,'0')+':00':'') : '—'
+                                                            item.crossDate ? item.crossDate + (item.crossHour!==null?' '+String(item.crossHour).padStart(2,'0')+':00 UTC':'') : '—'
                                                         ),
                                                         React.createElement('td', {style:{padding:'0.5rem 0.6rem',color:'#555e7a',fontSize:'0.75rem'}},
                                                             item.hoursAgo !== null ? (item.hoursAgo < 1 ? '<1h' : item.hoursAgo+'h') : '—'
@@ -11651,7 +11651,7 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                                                 ),
                                                 item.lastPrice && React.createElement('div', {style:{color:dirColor,fontWeight:'600',fontSize:'0.8rem',marginBottom:'0.2rem'}}, formatCurrency(item.lastPrice)),
                                                 React.createElement('div', {style:{fontSize:'0.7rem',color:st.color,fontWeight:'600'}}, st.label + (item.hoursAgo !== null ? ' · '+(item.hoursAgo<1?'<1h':item.hoursAgo+'h') : '')),
-                                                item.crossDate && React.createElement('div', {style:{fontSize:'0.68rem',color:'#555e7a',marginTop:'0.15rem'}}, item.crossDate + (item.crossHour!==null?' '+String(item.crossHour).padStart(2,'0')+':00':''))
+                                                item.crossDate && React.createElement('div', {style:{fontSize:'0.68rem',color:'#555e7a',marginTop:'0.15rem'}}, item.crossDate + (item.crossHour!==null?' '+String(item.crossHour).padStart(2,'0')+':00 UTC':''))
                                             );
                                         })
                                     );
@@ -11975,7 +11975,7 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                                                                 var ddColor = parseFloat(e.drawdown_pct) < -5 ? '#F4A9A8' : parseFloat(e.drawdown_pct) > 0 ? '#88D498' : '#A8B2C1';
                                                                 return React.createElement('tr', {key:e.id, style:{borderBottom:'1px solid rgba(58,63,82,0.25)'}},
                                                                     React.createElement('td', {style:{padding:'0.3rem 0.5rem',color:'#7C9DD4',fontWeight:'700'}}, e.entry_number),
-                                                                    React.createElement('td', {style:{padding:'0.3rem 0.5rem',color:'#A8B2C1',whiteSpace:'nowrap'}}, e.entry_date + ' ' + String(e.entry_hour).padStart(2,'0') + 'h'),
+                                                                    React.createElement('td', {style:{padding:'0.3rem 0.5rem',color:'#A8B2C1',whiteSpace:'nowrap'}}, e.entry_date + ' ' + String(e.entry_hour).padStart(2,'0') + ':00 UTC'),
                                                                     React.createElement('td', {style:{padding:'0.3rem 0.5rem',color:'#E8ECEF'}}, formatCurrency(e.entry_price)),
                                                                     React.createElement('td', {style:{padding:'0.3rem 0.5rem',color:'#E8ECEF',fontWeight:'700'}}, e.items + 'x'),
                                                                     React.createElement('td', {style:{padding:'0.3rem 0.5rem',color:'#E8ECEF'}}, '$' + parseFloat(e.margin).toFixed(2)),
@@ -12033,7 +12033,7 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                                                 var ddColor = parseFloat(e.drawdown_pct)<-5?'#F4A9A8':parseFloat(e.drawdown_pct)>0?'#88D498':'#A8B2C1';
                                                 return React.createElement('tr', {key:e.id,style:{borderBottom:'1px solid rgba(58,63,82,0.25)'}},
                                                     React.createElement('td', {style:{padding:'0.4rem 0.6rem',color:'#7C9DD4',fontWeight:'700'}}, e.entry_number),
-                                                    React.createElement('td', {style:{padding:'0.4rem 0.6rem',color:'#A8B2C1',whiteSpace:'nowrap'}}, e.entry_date+' '+String(e.entry_hour).padStart(2,'0')+'h'),
+                                                    React.createElement('td', {style:{padding:'0.4rem 0.6rem',color:'#A8B2C1',whiteSpace:'nowrap'}}, e.entry_date+' '+String(e.entry_hour).padStart(2,'0')+':00 UTC'),
                                                     React.createElement('td', {style:{padding:'0.4rem 0.6rem',color:'#E8ECEF'}}, formatCurrency(e.entry_price)),
                                                     React.createElement('td', {style:{padding:'0.4rem 0.6rem',color:'#E8ECEF',fontWeight:'700'}}, e.items+'x'),
                                                     React.createElement('td', {style:{padding:'0.4rem 0.6rem',color:'#E8ECEF'}}, '$'+parseFloat(e.margin).toFixed(2)),
@@ -12102,7 +12102,7 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                                                 )
                                             ),
                                             isExp && React.createElement('div', {style:{borderTop:'1px solid rgba(58,63,82,0.4)',padding:'0.75rem 1rem',background:'rgba(26,29,41,0.5)',display:'flex',justifyContent:'flex-end',gap:'0.75rem',alignItems:'center'}},
-                                                React.createElement('span', {style:{color:'#555e7a',fontSize:'0.78rem',marginRight:'auto'}}, op.cross_date+(op.cross_hour!==null?' '+String(op.cross_hour).padStart(2,'0')+'h':'')+' · Entrada: '+formatCurrency(op.entry_price)+' · PEPP: '+formatCurrency(op.pepp)),
+                                                React.createElement('span', {style:{color:'#555e7a',fontSize:'0.78rem',marginRight:'auto'}}, op.cross_date+(op.cross_hour!==null?' '+String(op.cross_hour).padStart(2,'0')+':00 UTC':'')+' · Entrada: '+formatCurrency(op.entry_price)+' · PEPP: '+formatCurrency(op.pepp)),
                                                 React.createElement('button', {onClick:function(e){ e.stopPropagation(); handleViewBotDetail(op); },style:{background:'rgba(124,157,212,0.1)',border:'1px solid rgba(124,157,212,0.25)',color:'#7C9DD4',borderRadius:'6px',padding:'0.3rem 0.8rem',cursor:'pointer',fontSize:'0.78rem'}}, '📋 Ver Detalle Completo')
                                             )
                                         );
