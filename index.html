@@ -11842,13 +11842,19 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                                                         React.createElement('button', {
                                                             onClick: function(e){ e.stopPropagation();
                                                                 setEditingTPs(editingTPs===op.id?null:op.id);
+                                                                // Load from BingX live orders if available, sorted by price
+                                                                var liveTPs = opOpenOrders[op.id] ? 
+                                                                    opOpenOrders[op.id].slice().sort(function(a,b){
+                                                                        return op.direction==='LONG' ? parseFloat(a.stopPrice)-parseFloat(b.stopPrice) : parseFloat(b.stopPrice)-parseFloat(a.stopPrice);
+                                                                    }) : [];
+                                                                var totalQty = liveTPs.reduce(function(s,t){ return s+parseFloat(t.origQty||0); }, 0);
                                                                 setTpEditValues({
-                                                                    tp1: op.tp1_price ? parseFloat(op.tp1_price).toString() : '',
-                                                                    tp1size: op.tp1_size ? op.tp1_size.toString() : '100',
-                                                                    tp2: op.tp2_price ? parseFloat(op.tp2_price).toString() : '',
-                                                                    tp2size: op.tp2_size ? op.tp2_size.toString() : '0',
-                                                                    tp3: op.tp3_price ? parseFloat(op.tp3_price).toString() : '',
-                                                                    tp3size: op.tp3_size ? op.tp3_size.toString() : '0'
+                                                                    tp1: liveTPs[0] ? parseFloat(liveTPs[0].stopPrice).toString() : (op.tp1_price ? parseFloat(op.tp1_price).toString() : ''),
+                                                                    tp1size: liveTPs[0] && totalQty > 0 ? Math.round(parseFloat(liveTPs[0].origQty)/totalQty*100).toString() : (op.tp1_size ? op.tp1_size.toString() : '100'),
+                                                                    tp2: liveTPs[1] ? parseFloat(liveTPs[1].stopPrice).toString() : (op.tp2_price ? parseFloat(op.tp2_price).toString() : ''),
+                                                                    tp2size: liveTPs[1] && totalQty > 0 ? Math.round(parseFloat(liveTPs[1].origQty)/totalQty*100).toString() : (op.tp2_size ? op.tp2_size.toString() : '0'),
+                                                                    tp3: liveTPs[2] ? parseFloat(liveTPs[2].stopPrice).toString() : (op.tp3_price ? parseFloat(op.tp3_price).toString() : ''),
+                                                                    tp3size: liveTPs[2] && totalQty > 0 ? Math.round(parseFloat(liveTPs[2].origQty)/totalQty*100).toString() : (op.tp3_size ? op.tp3_size.toString() : '0')
                                                                 });
                                                             },
                                                             style:{background:'rgba(124,157,212,0.1)',border:'1px solid rgba(124,157,212,0.25)',color:'#7C9DD4',borderRadius:'5px',padding:'0.15rem 0.45rem',cursor:'pointer',fontSize:'0.68rem'}
@@ -11858,8 +11864,11 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                                                         var tps = opOpenOrders[op.id];
                                                         if (!tps) return React.createElement('div', {style:{fontSize:'0.75rem',color:'#555e7a'}}, '— consultando...');
                                                         if (tps.length === 0) return React.createElement('div', {style:{fontSize:'0.75rem',color:'#F4A9A8',fontWeight:'600'}}, '⚠ Sin TP configurado');
+                                                        var sorted = tps.slice().sort(function(a,b){
+                                                            return isL ? parseFloat(a.stopPrice)-parseFloat(b.stopPrice) : parseFloat(b.stopPrice)-parseFloat(a.stopPrice);
+                                                        });
                                                         return React.createElement('div', {style:{display:'flex',flexDirection:'column',gap:'0.2rem'}},
-                                                            tps.map(function(tp, i){
+                                                            sorted.map(function(tp, i){
                                                                 return React.createElement('div', {key:tp.orderId, style:{fontSize:'0.75rem',color:'#88D498'}},
                                                                     'TP'+(i+1)+': '+formatCurrency(tp.stopPrice)+' · '+tp.origQty+' uds'
                                                                 );
