@@ -1532,6 +1532,7 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                     
                     // Build price map keyed by coingecko_id (for backward compat) and symbol
                     const priceData = {};
+                    const missingAssets = [];
                     assetList.forEach(a => {
                         const sym = (a.symbol || '').toUpperCase();
                         const ticker = tickers.find(t => t.symbol === sym + '-USDT' || t.symbol === sym + 'USDT');
@@ -1542,8 +1543,26 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                                 usd_24h_change: parseFloat(ticker.priceChangePercent || 0),
                                 usd_market_cap: null
                             };
+                        } else {
+                            missingAssets.push(a);
                         }
                     });
+                    // Fallback to futures for missing assets
+                    for (const a of missingAssets) {
+                        try {
+                            const sym = (a.symbol || '').toUpperCase();
+                            const fRes = await fetch('/api/bingx', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ path: '/openApi/swap/v2/quote/price', method: 'GET', symbol: sym + '-USDT' })
+                            });
+                            const fData = await fRes.json();
+                            if (fData && fData.code === 0 && fData.data && fData.data.price) {
+                                const cgId = a.coingecko_id || sym.toLowerCase();
+                                priceData[cgId] = { usd: parseFloat(fData.data.price), usd_24h_change: 0, usd_market_cap: null };
+                            }
+                        } catch(e) { /* skip */ }
+                    }
                     setAssetPrices(priceData);
                 } catch (err) {
                     console.error('Error fetching prices from BingX:', err);
@@ -1603,6 +1622,23 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                             priceMap[sym] = parseFloat(ticker.lastPrice || ticker.close || 0);
                         }
                     });
+
+                    // For missing symbols, try futures perpetual endpoint
+                    const missing = symbols.filter(sym => !priceMap[sym]);
+                    for (const sym of missing) {
+                        try {
+                            const fRes = await fetch('/api/bingx', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ path: '/openApi/swap/v2/quote/price', method: 'GET', symbol: sym + '-USDT' })
+                            });
+                            const fData = await fRes.json();
+                            if (fData && fData.code === 0 && fData.data && fData.data.price) {
+                                priceMap[sym] = parseFloat(fData.data.price);
+                            }
+                        } catch(e) { /* skip */ }
+                    }
+
                     setLivePrices(priceMap);
                     setLiveLastUpdate(new Date());
                 } catch (err) {
