@@ -1520,15 +1520,32 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
             const fetchAssetPrices = async (assetList) => {
                 setLoadingPrices(true);
                 try {
-                    const symbols = assetList.map(a => a.coingecko_id).filter(Boolean).join(',');
-                    if (!symbols) return;
-                    const data = await cgFetch(
-                        `${COINGECKO_BASE}/simple/price?ids=${symbols}&vs_currencies=usd&include_24hr_change=true&include_market_cap=true`
-                    );
-                    setAssetPrices(data);
+                    // Fetch prices from BingX spot ticker
+                    const response = await fetch('/api/bingx', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ path: '/openApi/spot/v1/ticker/24hr', method: 'GET' })
+                    });
+                    const result = await response.json();
+                    const tickers = result && result.data ? result.data : [];
+                    
+                    // Build price map keyed by coingecko_id (for backward compat) and symbol
+                    const priceData = {};
+                    assetList.forEach(a => {
+                        const sym = (a.symbol || '').toUpperCase();
+                        const ticker = tickers.find(t => t.symbol === sym + '-USDT' || t.symbol === sym + 'USDT');
+                        if (ticker) {
+                            const cgId = a.coingecko_id || sym.toLowerCase();
+                            priceData[cgId] = {
+                                usd: parseFloat(ticker.lastPrice || ticker.close || 0),
+                                usd_24h_change: parseFloat(ticker.priceChangePercent || 0),
+                                usd_market_cap: null
+                            };
+                        }
+                    });
+                    setAssetPrices(priceData);
                 } catch (err) {
-                    console.error('Error fetching prices:', err);
-                    alert('No se pudo obtener precios. CoinGecko puede estar limitando las solicitudes. Intenta en unos segundos.');
+                    console.error('Error fetching prices from BingX:', err);
                 } finally {
                     setLoadingPrices(false);
                 }
@@ -1566,24 +1583,29 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                 try {
                     const allOps = [...operations, ...spotOperations];
                     if (allOps.length === 0) return;
-                    const assetList = currentAssets || assets;
                     const symbols = [...new Set(allOps.map(op => op.crypto.toUpperCase()))];
-                    const relevantAssets = assetList.filter(a => symbols.includes(a.symbol.toUpperCase()));
-                    const cgIds = relevantAssets.map(a => a.coingecko_id).filter(Boolean).join(',');
-                    if (!cgIds) return;
-                    const data = await cgFetch(
-                        'https://api.coingecko.com/api/v3/simple/price?ids=' + cgIds + '&vs_currencies=usd'
-                    );
+                    if (symbols.length === 0) return;
+                    
+                    // Fetch from BingX spot ticker
+                    const response = await fetch('/api/bingx', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ path: '/openApi/spot/v1/ticker/24hr', method: 'GET' })
+                    });
+                    const result = await response.json();
+                    const tickers = result && result.data ? result.data : [];
+                    
                     const priceMap = {};
-                    relevantAssets.forEach(a => {
-                        if (data[a.coingecko_id]) {
-                            priceMap[a.symbol.toUpperCase()] = data[a.coingecko_id].usd;
+                    symbols.forEach(sym => {
+                        const ticker = tickers.find(t => t.symbol === sym + '-USDT' || t.symbol === sym + 'USDT');
+                        if (ticker) {
+                            priceMap[sym] = parseFloat(ticker.lastPrice || ticker.close || 0);
                         }
                     });
                     setLivePrices(priceMap);
                     setLiveLastUpdate(new Date());
                 } catch (err) {
-                    console.error('Error fetching live prices:', err);
+                    console.error('Error fetching live prices from BingX:', err);
                 }
             };
 
