@@ -727,6 +727,9 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
             const [spotOperations, setSpotOperations] = useState([]);
             const [activeTab, setActiveTab] = useState('futuros');
             const [futurosPnlFilter, setFuturosPnlFilter] = useState('all'); // 'all' | 'gain' | 'loss'
+            const [futurosSearch, setFuturosSearch] = useState('');
+            const [futurosDrawdownFilter, setFuturosDrawdownFilter] = useState('all');
+            const [futurosTpFilter, setFuturosTpFilter] = useState('all');
             const [spotPnlFilter, setSpotPnlFilter] = useState('all');
             const [dcaPnlFilter, setDcaPnlFilter] = useState('all');
             const [dcaOperaciones, setDcaOperaciones] = useState([]);
@@ -12448,11 +12451,34 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                                             React.createElement('tbody', null,
                                                 (() => {
                                                     const fOps = operations.filter(op => {
-                                                        if (futurosPnlFilter === 'all') return true;
+                                                        // Search filter
+                                                        if (futurosSearch && !op.crypto.toUpperCase().includes(futurosSearch.toUpperCase())) return false;
+                                                        
                                                         const lp = livePrices[op.crypto.toUpperCase()];
-                                                        if (!lp || !op.pepp || !op.totalUnits) return true;
-                                                        const pnl = (lp - op.pepp) * op.totalUnits * (op.type === 'SHORT' ? -1 : 1);
-                                                        return futurosPnlFilter === 'gain' ? pnl >= 0 : pnl < 0;
+                                                        const pnl = (lp && op.pepp && op.totalUnits) ? (lp - op.pepp) * op.totalUnits * (op.type === 'SHORT' ? -1 : 1) : null;
+                                                        const drawdownPct = (lp && op.pepp) ? Math.abs((lp - op.pepp) / op.pepp * 100) : null;
+                                                        const isGain = pnl !== null ? pnl >= 0 : null;
+
+                                                        // PnL filter
+                                                        if (futurosPnlFilter === 'gain' && isGain !== true) return false;
+                                                        if (futurosPnlFilter === 'loss' && isGain !== false) return false;
+
+                                                        // Drawdown filter
+                                                        if (futurosDrawdownFilter === 'lt5' && (drawdownPct === null || drawdownPct >= 5)) return false;
+                                                        if (futurosDrawdownFilter === '5to10' && (drawdownPct === null || drawdownPct < 5 || drawdownPct >= 10)) return false;
+                                                        if (futurosDrawdownFilter === 'gt10' && (drawdownPct === null || drawdownPct < 10)) return false;
+
+                                                        // TP filter
+                                                        if (futurosTpFilter === 'notp') {
+                                                            const hasTp = op.takeProfits && op.takeProfits.some(tp => !tp.executed && tp.price > 0);
+                                                            if (hasTp) return false;
+                                                        }
+                                                        if (futurosTpFilter === 'hastp') {
+                                                            const hasTp = op.takeProfits && op.takeProfits.some(tp => !tp.executed && tp.price > 0);
+                                                            if (!hasTp) return false;
+                                                        }
+
+                                                        return true;
                                                     });
                                                     let tCap=0, tEscudo=0, tPrest=0, tPos=0, tPnl=0;
                                                     fOps.forEach(op => {
@@ -12598,19 +12624,63 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                                         )
                                     ),
                                     // FILTER PILLS FUTUROS
-                                    React.createElement('div', { style: { display: 'flex', gap: '0.4rem', padding: '0.6rem 0', marginTop: '0.25rem' } },
-                                        React.createElement('span', { style: { fontSize: '0.72rem', color: '#555e7a', alignSelf: 'center', marginRight: '0.25rem' } }, 'Filtrar:'),
-                                        ['all','gain','loss'].map(function(f) {
-                                            const active = futurosPnlFilter === f;
-                                            const lbl = f==='all'?'Todos':f==='gain'?'✅ Ganancia':'❌ Pérdida';
-                                            return React.createElement('button', { key: f, type: 'button',
-                                                onClick: function() { setFuturosPnlFilter(f); },
-                                                style: { padding: '0.25rem 0.65rem', borderRadius: '12px', border: '1px solid', cursor: 'pointer', fontSize: '0.72rem', fontWeight: active?'700':'400',
-                                                    backgroundColor: active ? 'rgba(124,157,212,0.2)' : 'transparent',
-                                                    borderColor: active ? 'rgba(124,157,212,0.5)' : 'rgba(255,255,255,0.08)',
-                                                    color: active ? '#7C9DD4' : '#555e7a' }
-                                            }, lbl);
-                                        })
+                                    React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '0.5rem', padding: '0.6rem 0', marginTop: '0.25rem' } },
+                                        // Search bar
+                                        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' } },
+                                            React.createElement('input', {
+                                                type: 'text', placeholder: '🔍 Buscar activo...',
+                                                value: futurosSearch,
+                                                onChange: function(e) { setFuturosSearch(e.target.value); },
+                                                style: { background: 'rgba(37,40,54,0.8)', border: '1px solid #3a3f52', borderRadius: '8px', padding: '0.3rem 0.6rem', color: '#E8ECEF', fontSize: '0.78rem', outline: 'none', width: '150px' }
+                                            }),
+                                            futurosSearch && React.createElement('button', {
+                                                onClick: function() { setFuturosSearch(''); },
+                                                style: { background: 'none', border: 'none', color: '#555e7a', cursor: 'pointer', fontSize: '0.8rem' }
+                                            }, '✕')
+                                        ),
+                                        // Filter rows
+                                        React.createElement('div', { style: { display: 'flex', gap: '0.4rem', flexWrap: 'wrap', alignItems: 'center' } },
+                                            React.createElement('span', { style: { fontSize: '0.7rem', color: '#555e7a', minWidth: '45px' } }, 'P&L:'),
+                                            ['all','gain','loss'].map(function(f) {
+                                                const active = futurosPnlFilter === f;
+                                                const lbl = f==='all'?'Todos':f==='gain'?'✅ Ganancia':'❌ Pérdida';
+                                                return React.createElement('button', { key: f, type: 'button',
+                                                    onClick: function() { setFuturosPnlFilter(f); },
+                                                    style: { padding: '0.2rem 0.55rem', borderRadius: '10px', border: '1px solid', cursor: 'pointer', fontSize: '0.72rem', fontWeight: active?'700':'400',
+                                                        backgroundColor: active ? 'rgba(124,157,212,0.2)' : 'transparent',
+                                                        borderColor: active ? 'rgba(124,157,212,0.5)' : 'rgba(255,255,255,0.08)',
+                                                        color: active ? '#7C9DD4' : '#555e7a' }
+                                                }, lbl);
+                                            })
+                                        ),
+                                        React.createElement('div', { style: { display: 'flex', gap: '0.4rem', flexWrap: 'wrap', alignItems: 'center' } },
+                                            React.createElement('span', { style: { fontSize: '0.7rem', color: '#555e7a', minWidth: '45px' } }, 'DD:'),
+                                            [['all','Todos'],['lt5','< 5%'],['5to10','5-10%'],['gt10','> 10%']].map(function(pair) {
+                                                const f = pair[0], lbl = pair[1];
+                                                const active = futurosDrawdownFilter === f;
+                                                return React.createElement('button', { key: f, type: 'button',
+                                                    onClick: function() { setFuturosDrawdownFilter(f); },
+                                                    style: { padding: '0.2rem 0.55rem', borderRadius: '10px', border: '1px solid', cursor: 'pointer', fontSize: '0.72rem', fontWeight: active?'700':'400',
+                                                        backgroundColor: active ? 'rgba(244,169,168,0.15)' : 'transparent',
+                                                        borderColor: active ? 'rgba(244,169,168,0.4)' : 'rgba(255,255,255,0.08)',
+                                                        color: active ? '#F4A9A8' : '#555e7a' }
+                                                }, lbl);
+                                            })
+                                        ),
+                                        React.createElement('div', { style: { display: 'flex', gap: '0.4rem', flexWrap: 'wrap', alignItems: 'center' } },
+                                            React.createElement('span', { style: { fontSize: '0.7rem', color: '#555e7a', minWidth: '45px' } }, 'TP:'),
+                                            [['all','Todos'],['notp','⚠ Sin TP'],['hastp','✅ Con TP']].map(function(pair) {
+                                                const f = pair[0], lbl = pair[1];
+                                                const active = futurosTpFilter === f;
+                                                return React.createElement('button', { key: f, type: 'button',
+                                                    onClick: function() { setFuturosTpFilter(f); },
+                                                    style: { padding: '0.2rem 0.55rem', borderRadius: '10px', border: '1px solid', cursor: 'pointer', fontSize: '0.72rem', fontWeight: active?'700':'400',
+                                                        backgroundColor: active ? 'rgba(136,212,152,0.15)' : 'transparent',
+                                                        borderColor: active ? 'rgba(136,212,152,0.4)' : 'rgba(255,255,255,0.08)',
+                                                        color: active ? '#88D498' : '#555e7a' }
+                                                }, lbl);
+                                            })
+                                        )
                                     )
                                 )
                             ),
