@@ -730,6 +730,7 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
             const [futurosSearch, setFuturosSearch] = useState('');
             const [futurosDrawdownFilter, setFuturosDrawdownFilter] = useState('all');
             const [futurosTpFilter, setFuturosTpFilter] = useState('all');
+            const [showTpBreakdown, setShowTpBreakdown] = useState(false);
             const [spotPnlFilter, setSpotPnlFilter] = useState('all');
             const [dcaPnlFilter, setDcaPnlFilter] = useState('all');
             const [dcaOperaciones, setDcaOperaciones] = useState([]);
@@ -7358,7 +7359,6 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                                         (() => {
                                             const allTPs = window.chartData && window.chartData.realTPs ? window.chartData.realTPs.filter(t => t.price > 0 && t.executed === false) : [];
                                             if (allTPs.length === 0) return null;
-                                            const [showBreakdown, setShowBreakdown] = React.useState(false);
                                             const opIds = [...new Set(allTPs.map(t => t.operation_id))];
                                             const renamedAll = [];
                                             opIds.forEach(opId => {
@@ -7370,10 +7370,10 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                                             const cryptos = [...new Set(renamedAll.map(t => t.operationData && t.operationData.crypto))].filter(Boolean).sort();
                                             return React.createElement('div', {style:{marginTop:'1rem'}},
                                                 React.createElement('button', {
-                                                    onClick: () => setShowBreakdown(!showBreakdown),
+                                                    onClick: () => setShowTpBreakdown(!showTpBreakdown),
                                                     style:{background:'rgba(124,157,212,0.08)',border:'1px solid rgba(124,157,212,0.2)',color:'#7C9DD4',borderRadius:'6px',padding:'0.3rem 0.8rem',cursor:'pointer',fontSize:'0.78rem',marginBottom:'0.75rem'}
-                                                }, showBreakdown ? '▲ Ocultar desglose' : '▼ Ver desglose por activo'),
-                                                showBreakdown && React.createElement('div', {style:{overflowX:'auto'}},
+                                                }, showTpBreakdown ? '▲ Ocultar desglose' : '▼ Ver desglose por activo'),
+                                                showTpBreakdown && React.createElement('div', {style:{overflowX:'auto'}},
                                                     React.createElement('table', {style:{width:'100%',borderCollapse:'collapse',fontSize:'0.78rem'}},
                                                         React.createElement('thead', null,
                                                             React.createElement('tr', null,
