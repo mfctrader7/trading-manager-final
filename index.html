@@ -7299,16 +7299,24 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                                         (() => {
                                             const allTPs = window.chartData && window.chartData.realTPs ? window.chartData.realTPs.filter(t => t.price > 0 && t.executed === false) : [];
                                             if (allTPs.length === 0) return React.createElement('p', { style: { color: '#A8B2C1', fontSize: '0.9rem' } }, '📋 Configura Take Profits en tus operaciones para ver las ganancias proyectadas.');
-                                            const levels = [...new Set(allTPs.map(t => t.level))].sort((a,b) => a-b);
-                                            // Renombrar niveles secuencialmente: TP1, TP2... independiente del nivel en Supabase
-                                            const levelLabels = levels.reduce((acc, l, i) => { acc[l] = `TP${i+1}`; return acc; }, {});
+                                            // Re-numerar TPs pendientes secuencialmente por operación, ignorando nivel original
+                                            // Agrupar por operación y asignar índice secuencial
+                                            const opIds = [...new Set(allTPs.map(t => t.operation_id))];
+                                            const renamedTPs = [];
+                                            opIds.forEach(opId => {
+                                                const opTPs = allTPs.filter(t => t.operation_id === opId).sort((a,b) => a.level - b.level);
+                                                opTPs.forEach((tp, idx) => renamedTPs.push({...tp, virtualLevel: idx + 1}));
+                                            });
+                                            const maxLevel = Math.max(...renamedTPs.map(t => t.virtualLevel));
+                                            const levels = Array.from({length: maxLevel}, (_, i) => i + 1);
+                                            const levelLabels = levels.reduce((acc, l) => { acc[l] = `TP${l}`; return acc; }, {});
                                             const thStyle = { padding: '0.5rem 0.75rem', backgroundColor: 'rgba(124,157,212,0.15)', color: '#7C9DD4', textAlign: 'center', fontWeight: '600', border: '1px solid rgba(124,157,212,0.1)', fontSize: '0.8rem' };
                                             const tdStyle = { padding: '0.5rem 0.75rem', color: '#88D498', textAlign: 'center', border: '1px solid rgba(168,178,193,0.08)', fontSize: '0.82rem' };
                                             const tdLabelStyle = { padding: '0.5rem 0.75rem', color: '#A8B2C1', fontWeight: '600', border: '1px solid rgba(168,178,193,0.08)', backgroundColor: 'rgba(37,41,54,0.4)', fontSize: '0.82rem' };
                                             const tdTotalStyle = { padding: '0.5rem 0.75rem', color: '#F4D896', fontWeight: '700', textAlign: 'center', border: '1px solid rgba(168,178,193,0.08)', backgroundColor: 'rgba(37,41,54,0.5)', fontSize: '0.82rem' };
                                             const rows = ['futuros', 'spot'];
                                             const getProfit = (type, level) => {
-                                                return allTPs.filter(t => t.level === level && t.operationData && t.operationData.operationType === type)
+                                                return renamedTPs.filter(t => t.virtualLevel === level && t.operationData && t.operationData.operationType === type)
                                                     .reduce((s, t) => s + (t.projected_profit || 0), 0);
                                             };
                                             return React.createElement('div', { style: { overflowX: 'auto' } },
@@ -7354,15 +7362,22 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                                         (() => {
                                             const allTPs = window.chartData && window.chartData.realTPs ? window.chartData.realTPs.filter(t => t.price > 0 && t.executed === false) : [];
                                             if (allTPs.length === 0) return React.createElement('p', { style: { color: '#A8B2C1', fontSize: '0.9rem' } }, '📋 Configura Take Profits en tus operaciones para ver el capital que se liberará.');
-                                            const levels = [...new Set(allTPs.map(t => t.level))].sort((a,b) => a-b);
-                                            const levelLabels = levels.reduce((acc, l, i) => { acc[l] = `TP${i+1}`; return acc; }, {});
+                                            const opIds2 = [...new Set(allTPs.map(t => t.operation_id))];
+                                            const renamedTPs2 = [];
+                                            opIds2.forEach(opId => {
+                                                const opTPs = allTPs.filter(t => t.operation_id === opId).sort((a,b) => a.level - b.level);
+                                                opTPs.forEach((tp, idx) => renamedTPs2.push({...tp, virtualLevel: idx + 1}));
+                                            });
+                                            const maxLevel2 = Math.max(...renamedTPs2.map(t => t.virtualLevel));
+                                            const levels = Array.from({length: maxLevel2}, (_, i) => i + 1);
+                                            const levelLabels = levels.reduce((acc, l) => { acc[l] = `TP${l}`; return acc; }, {});
                                             const thStyle = { padding: '0.5rem 0.75rem', backgroundColor: 'rgba(124,157,212,0.15)', color: '#7C9DD4', textAlign: 'center', fontWeight: '600', border: '1px solid rgba(124,157,212,0.1)', fontSize: '0.8rem' };
                                             const tdStyle = { padding: '0.5rem 0.75rem', color: '#7C9DD4', textAlign: 'center', border: '1px solid rgba(168,178,193,0.08)', fontSize: '0.82rem' };
                                             const tdLabelStyle = { padding: '0.5rem 0.75rem', color: '#A8B2C1', fontWeight: '600', border: '1px solid rgba(168,178,193,0.08)', backgroundColor: 'rgba(37,41,54,0.4)', fontSize: '0.82rem' };
                                             const tdTotalStyle = { padding: '0.5rem 0.75rem', color: '#F4D896', fontWeight: '700', textAlign: 'center', border: '1px solid rgba(168,178,193,0.08)', backgroundColor: 'rgba(37,41,54,0.5)', fontSize: '0.82rem' };
                                             const rows = ['futuros', 'spot'];
-                                            const getCapital = (type, level) => {
-                                                return allTPs.filter(t => t.level === level && t.operationData && t.operationData.operationType === type)
+                                            const getCapital = (type, level) => { // uses renamedTPs2
+                                                return renamedTPs.filter(t => t.virtualLevel === level && t.operationData && t.operationData.operationType === type)
                                                     .reduce((s, t) => {
                                                         const opCapital = ((t.operationData.ownCapital || 0) + (t.operationData.additionalMargin || 0));
                                                         return s + opCapital * (t.percentage / 100);
