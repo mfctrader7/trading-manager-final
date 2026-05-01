@@ -7297,7 +7297,7 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                                     React.createElement('div', { style: { padding: '1.5rem' } },
                                         React.createElement('h3', { style: { color: '#E8ECEF', fontSize: '1.1rem', marginBottom: '1.25rem' } }, '🎯 Ganancias por TP'),
                                         (() => {
-                                            const allTPs = window.chartData && window.chartData.realTPs ? window.chartData.realTPs.filter(t => t.price > 0) : [];
+                                            const allTPs = window.chartData && window.chartData.realTPs ? window.chartData.realTPs.filter(t => t.price > 0 && t.executed === false) : [];
                                             if (allTPs.length === 0) return React.createElement('p', { style: { color: '#A8B2C1', fontSize: '0.9rem' } }, '📋 Configura Take Profits en tus operaciones para ver las ganancias proyectadas.');
                                             const levels = [...new Set(allTPs.map(t => t.level))].sort((a,b) => a-b);
                                             // Renombrar niveles secuencialmente: TP1, TP2... independiente del nivel en Supabase
@@ -7352,7 +7352,7 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                                     React.createElement('div', { style: { padding: '1.5rem' } },
                                         React.createElement('h3', { style: { color: '#E8ECEF', fontSize: '1.1rem', marginBottom: '1.25rem' } }, '🔓 Capital Liberado por TP'),
                                         (() => {
-                                            const allTPs = window.chartData && window.chartData.realTPs ? window.chartData.realTPs.filter(t => t.price > 0) : [];
+                                            const allTPs = window.chartData && window.chartData.realTPs ? window.chartData.realTPs.filter(t => t.price > 0 && t.executed === false) : [];
                                             if (allTPs.length === 0) return React.createElement('p', { style: { color: '#A8B2C1', fontSize: '0.9rem' } }, '📋 Configura Take Profits en tus operaciones para ver el capital que se liberará.');
                                             const levels = [...new Set(allTPs.map(t => t.level))].sort((a,b) => a-b);
                                             const levelLabels = levels.reduce((acc, l, i) => { acc[l] = `TP${i+1}`; return acc; }, {});
