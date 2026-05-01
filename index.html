@@ -7355,18 +7355,20 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                                             );
                                         })(),
 
-                                        // Desglose por activo
+                                        // Desglose por activo — usa allOperationTPs para alinearse con las tarjetas
                                         (() => {
-                                            const allTPs = window.chartData && window.chartData.realTPs ? window.chartData.realTPs.filter(t => t.price > 0 && t.executed === false) : [];
-                                            if (allTPs.length === 0) return null;
-                                            const opIds = [...new Set(allTPs.map(t => t.operation_id))];
+                                            if (!allOperationTPs || allOperationTPs.length === 0) return null;
+                                            // Re-numerar por operación
+                                            const opIds = [...new Set(allOperationTPs.map(t => t.operation_id))];
                                             const renamedAll = [];
                                             opIds.forEach(opId => {
-                                                const opTPs = allTPs.filter(t => t.operation_id === opId).sort((a,b) => a.level - b.level);
+                                                const opTPs = allOperationTPs.filter(t => t.operation_id === opId).sort((a,b) => a.level - b.level);
                                                 opTPs.forEach((tp, idx) => renamedAll.push({...tp, virtualLevel: idx + 1}));
                                             });
-                                            const maxL = Math.max(...renamedAll.map(t => t.virtualLevel));
+                                            const maxL = renamedAll.length > 0 ? Math.max(...renamedAll.map(t => t.virtualLevel)) : 0;
+                                            if (maxL === 0) return null;
                                             const cols = Array.from({length: maxL}, (_, i) => i + 1);
+                                            // Agrupar por crypto sumando todas las operaciones del mismo activo
                                             const cryptos = [...new Set(renamedAll.map(t => t.operationData && t.operationData.crypto))].filter(Boolean).sort();
                                             return React.createElement('div', {style:{marginTop:'1rem'}},
                                                 React.createElement('button', {
