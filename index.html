@@ -12468,14 +12468,13 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                                                         if (futurosDrawdownFilter === '5to10' && (drawdownPct === null || drawdownPct < 5 || drawdownPct >= 10)) return false;
                                                         if (futurosDrawdownFilter === 'gt10' && (drawdownPct === null || drawdownPct < 10)) return false;
 
-                                                        // TP filter
-                                                        if (futurosTpFilter === 'notp') {
-                                                            const hasTp = op.takeProfits && op.takeProfits.some(tp => !tp.executed && tp.price > 0);
-                                                            if (hasTp) return false;
-                                                        }
-                                                        if (futurosTpFilter === 'hastp') {
-                                                            const hasTp = op.takeProfits && op.takeProfits.some(tp => !tp.executed && tp.price > 0);
-                                                            if (!hasTp) return false;
+                                                        // TP filter - use allOperationTPs
+                                                        if (futurosTpFilter !== 'all') {
+                                                            const hasTp = allOperationTPs.some(function(tp) {
+                                                                return tp.operationId === op.id && !tp.executed && parseFloat(tp.price) > 0;
+                                                            });
+                                                            if (futurosTpFilter === 'notp' && hasTp) return false;
+                                                            if (futurosTpFilter === 'hastp' && !hasTp) return false;
                                                         }
 
                                                         return true;
