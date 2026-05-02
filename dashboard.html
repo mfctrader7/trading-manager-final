@@ -1411,7 +1411,7 @@ async function updateLivePrices() {
   for(const asset of Object.keys(ASSETS)) {
     try {
       const sym=asset+'USDT';
-      const r=await fetch('https://api.binance.com/api/v3/ticker/price?symbol='+sym);
+      const r=await fetch('/api/binance?path=/api/v3/ticker/price&symbol='+sym);
       if(!r.ok) continue;
       const d=await r.json();
       const price=parseFloat(d.price);
@@ -1598,7 +1598,7 @@ async function fetchAndSave(asset, iv) {
     // Fetch from Binance
     const ivMs={'1w':604800000,'3d':259200000,'1d':86400000,'12h':43200000,'8h':28800000,'4h':14400000,'2h':7200000,'1h':3600000,'30m':1800000,'15m':900000,'5m':300000,'1m':60000};
     const limit = Math.min(1000, Math.ceil((Date.now()-startTime)/(ivMs[iv]||3600000))+2);
-    const url = `https://api.binance.com/api/v3/klines?symbol=${sym}&interval=${iv}&startTime=${startTime}&limit=${limit}`;
+    const url = `/api/binance?path=/api/v3/klines&symbol=${sym}&interval=${iv}&startTime=${startTime}&limit=${limit}`;
     const r = await fetch(url);
     if(!r.ok) return false;
     const klines = await r.json();
