@@ -2134,6 +2134,19 @@ async function loadData() {
   const lm=document.getElementById('loading-msg');
   if(!SYM) {
     document.getElementById('chart-loading').style.display='none';
+    candles = [];
+    if(ctx) {
+      ctx.clearRect(0,0,cw,ch);
+      ctx.save();
+      ctx.fillStyle = 'rgba(255,255,255,0.15)';
+      ctx.font = 'bold 14px Inter';
+      ctx.textAlign = 'center';
+      ctx.fillText(`${currentAsset} no tiene par en Binance`, cw/2, ch/2 - 10);
+      ctx.font = '11px Inter';
+      ctx.fillStyle = 'rgba(255,255,255,0.08)';
+      ctx.fillText('Los datos se obtendrán desde BingX próximamente', cw/2, ch/2 + 12);
+      ctx.restore();
+    }
     return;
   }
 
