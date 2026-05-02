@@ -537,10 +537,10 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                     for (const op of allOperations) {
                         console.log(`🔍 Revisando TPs para ${op.crypto} (ID: ${op.id})`);
                         
-                        // ✅ NUEVO: Cargar entries para calcular PEPP y units reales
+                        // Cargar entries con mismos campos que usan las tarjetas
                         const { data: entries, error: entriesError } = await supabaseClient
                             .from('entries')
-                            .select('entry_price, executed, units, i_ponderada, margin')
+                            .select('executed, units, margin, created_at')
                             .eq('operation_id', op.id);
                         
                         let realPEPP = 0;
