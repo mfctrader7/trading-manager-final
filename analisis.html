@@ -2153,24 +2153,6 @@ async function fetchLivePrice() {
   }catch{}
 }
 
-async function loadData() {
-    // For multi-day TFs always update last candle, for intraday/daily only if it's today's candle
-    if(isMultiDay || last.date===todayDate){
-      last.close=price;
-      if(price>last.high) last.high=price;
-      if(price<last.low)  last.low=price;
-    }
-    document.getElementById('hdr-price').textContent=fp(price);
-    document.getElementById('pr-price').textContent=fp(price);
-    document.getElementById('last-update').textContent=new Date().toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
-    renderPricePanel();
-    renderMetrics();
-    renderSesgo();
-    if(opData) renderOpPanel();
-    drawChart();
-  }catch{}
-}
-
 // ============================================================
 // DATA LOAD
 // ============================================================
