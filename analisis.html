@@ -2087,6 +2087,7 @@ async function syncCurrentAsset() {
 }
 
 async function fetchTodayOpen() {
+  if(!SYM) return;
   try {
     const r = await fetch(`https://api.binance.com/api/v3/klines?symbol=${SYM}&interval=1d&limit=1`);
     if(!r.ok) return;
@@ -2096,6 +2097,7 @@ async function fetchTodayOpen() {
 }
 
 async function fetchLivePrice() {
+  if(!SYM) return;
   try {
     const r=await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${SYM}`);
     if(!r.ok) return;
@@ -2130,6 +2132,10 @@ async function fetchLivePrice() {
 async function loadData() {
   document.getElementById('chart-loading').style.display='flex';
   const lm=document.getElementById('loading-msg');
+  if(!SYM) {
+    document.getElementById('chart-loading').style.display='none';
+    return;
+  }
 
   // Reset daily candles and open to prevent stale data from previous asset
   candles1d = [];
