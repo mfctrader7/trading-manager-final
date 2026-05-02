@@ -547,17 +547,17 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                         let realTotalUnits = 0;
                         
                         if (!entriesError && entries && entries.length > 0) {
-                            const totalExecuted = entries.reduce((sum, e) => sum + parseFloat(e.executed || 0), 0);
-                            const totalIPonderada = entries.reduce((sum, e) => sum + parseFloat(e.i_ponderada || 0), 0);
-                            const totalUnitsFromEntries = entries.reduce((sum, e) => sum + parseFloat(e.units || 0), 0);
-                            const totalMarginFromEntries = entries.reduce((sum, e) => sum + parseFloat(e.margin || 0), 0);
-                            // PEPP correcto: ejecutado_total / unidades_totales
-                            realPEPP = totalUnitsFromEntries > 0 ? totalExecuted / totalUnitsFromEntries : 0;
-                            // Aplicar ratio de capital para reflejar unidades reales actuales
-                            // ops vienen en camelCase desde loadOperations()
-                            const currentCapital = (parseFloat(op.ownCapital || op.own_capital) || 0) + (parseFloat(op.additionalMargin || op.additional_margin) || 0);
-                            const capitalRatio = totalMarginFromEntries > 0 ? currentCapital / totalMarginFromEntries : 1;
-                            realTotalUnits = totalUnitsFromEntries * capitalRatio;
+                            // Fetch executed TPs for this operation (needed for calcPEPPFull)
+                            const { data: execTPs } = await supabaseClient
+                                .from('take_profits')
+                                .select('units_sold, created_at')
+                                .eq('operation_id', op.id)
+                                .eq('executed', true);
+                            
+                            // Use calcPEPPFull to match card calculation (accounts for partial TPs)
+                            const peppResult = calcPEPPFull(entries, execTPs || []);
+                            realPEPP = peppResult.pepp;
+                            realTotalUnits = peppResult.totalUnits;
                             
                             console.log(`📊 ${op.crypto} - PEPP real: ${realPEPP}, Units reales: ${realTotalUnits}`);
                         }
