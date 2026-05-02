@@ -7427,8 +7427,8 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                                             const tdLabelStyle = { padding: '0.5rem 0.75rem', color: '#A8B2C1', fontWeight: '600', border: '1px solid rgba(168,178,193,0.08)', backgroundColor: 'rgba(37,41,54,0.4)', fontSize: '0.82rem' };
                                             const tdTotalStyle = { padding: '0.5rem 0.75rem', color: '#F4D896', fontWeight: '700', textAlign: 'center', border: '1px solid rgba(168,178,193,0.08)', backgroundColor: 'rgba(37,41,54,0.5)', fontSize: '0.82rem' };
                                             const rows = ['futuros', 'spot'];
-                                            const getCapital = (type, level) => { // uses renamedTPs2
-                                                return renamedTPs.filter(t => t.virtualLevel === level && t.operationData && t.operationData.operationType === type)
+                                            const getCapital = (type, level) => {
+                                                return renamedTPs2.filter(t => t.virtualLevel === level && t.operationData && t.operationData.operationType === type)
                                                     .reduce((s, t) => {
                                                         const opCapital = ((t.operationData.ownCapital || 0) + (t.operationData.additionalMargin || 0));
                                                         return s + opCapital * (t.percentage / 100);
