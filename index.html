@@ -14580,41 +14580,41 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                     // Check if TPs are configured
                     const hasTPs = window.chartData && window.chartData.totalTPs > 0;
                     
-                    let futuresData, spotData;
+                    let futuresData, spotData, chartLabels;
                     if (hasTPs && window.chartData.realTPs) {
-                        // Use existing projected_profit OR calculate if system hasn't calculated it yet
-                        console.log('📊 Usando datos del sistema para TPs:', window.chartData.realTPs);
-                        futuresData = [0, 0, 0, 0, 0]; // Default zeros
-                        spotData = [0, 0, 0, 0, 0]; // Default zeros
+                        // Re-number TPs sequentially per operation (same as analysis table)
+                        const allRealTPs = window.chartData.realTPs.filter(t => t.price > 0 && t.executed === false);
+                        const opIdsChart = [...new Set(allRealTPs.map(t => t.operation_id))];
+                        const renamedChart = [];
+                        opIdsChart.forEach(opId => {
+                            const opTPs = allRealTPs.filter(t => t.operation_id === opId).sort((a,b) => a.level - b.level);
+                            opTPs.forEach((tp, idx) => renamedChart.push({...tp, virtualLevel: idx + 1}));
+                        });
+                        const maxLevelChart = renamedChart.length > 0 ? Math.max(...renamedChart.map(t => t.virtualLevel)) : 2;
+                        chartLabels = Array.from({length: maxLevelChart}, (_, i) => `TP${i+1}`);
+                        futuresData = new Array(maxLevelChart).fill(0);
+                        spotData = new Array(maxLevelChart).fill(0);
                         
-                        window.chartData.realTPs.forEach(tp => {
-                            if (tp.level && tp.level <= 5) {
-                                const profit = tp.projected_profit || 0;
-                                if (profit > 0) {
-                                    // ✅ FIX: += para acumular TODAS las operaciones del mismo nivel
-                                    if (tp.operationData && tp.operationData.operationType === 'futuros') {
-                                        futuresData[tp.level - 1] += Math.round(profit);
-                                        console.log(`✅ TP${tp.level} FUTUROS acumulado: $${futuresData[tp.level - 1]}`);
-                                    } else if (tp.operationData && tp.operationData.operationType === 'spot') {
-                                        spotData[tp.level - 1] += Math.round(profit);
-                                        console.log(`✅ TP${tp.level} SPOT acumulado: $${spotData[tp.level - 1]}`);
-                                    }
+                        renamedChart.forEach(tp => {
+                            const profit = tp.projected_profit || 0;
+                            if (profit > 0 && tp.virtualLevel <= maxLevelChart) {
+                                if (tp.operationData && tp.operationData.operationType === 'futuros') {
+                                    futuresData[tp.virtualLevel - 1] += Math.round(profit);
+                                } else if (tp.operationData && tp.operationData.operationType === 'spot') {
+                                    spotData[tp.virtualLevel - 1] += Math.round(profit);
                                 }
                             }
                         });
-                        
-                        console.log('📊 Ganancias finales FUTUROS:', futuresData);
-                        console.log('📊 Ganancias finales SPOT:', spotData);
                     } else {
-                        // Show zeros when no TPs
-                        futuresData = [0, 0, 0, 0, 0];
-                        spotData = [0, 0, 0, 0, 0];
+                        chartLabels = ['TP1', 'TP2'];
+                        futuresData = [0, 0];
+                        spotData = [0, 0];
                     }
                     
                     analyticsCharts.profits = new Chart(ctx2, {
                         type: 'bar',
                         data: {
-                            labels: ['TP1', 'TP2', 'TP3', 'TP4', 'TP5'],
+                            labels: chartLabels,
                             datasets: [{
                                 label: 'Futuros',
                                 data: futuresData,
