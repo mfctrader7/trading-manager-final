@@ -14661,32 +14661,39 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                 if (ctx3) {
                     const hasTPs = window.chartData && window.chartData.totalTPs > 0;
                     
-                    let futuresCapitalData, spotCapitalData;
+                    let futuresCapitalData, spotCapitalData, releasedLabels;
                     if (hasTPs && window.chartData.realTPs) {
-                        futuresCapitalData = [0]; // Inicio = 0
-                        let cumulativeRelease = 0;
+                        // Re-number TPs sequentially (same as other charts)
+                        const allRealTPs2 = window.chartData.realTPs.filter(t => t.price > 0 && t.executed === false);
+                        const opIdsChart2 = [...new Set(allRealTPs2.map(t => t.operation_id))];
+                        const renamedChart2 = [];
+                        opIdsChart2.forEach(opId => {
+                            const opTPs = allRealTPs2.filter(t => t.operation_id === opId).sort((a,b) => a.level - b.level);
+                            opTPs.forEach((tp, idx) => renamedChart2.push({...tp, virtualLevel: idx + 1}));
+                        });
+                        const maxLevelChart2 = renamedChart2.length > 0 ? Math.max(...renamedChart2.map(t => t.virtualLevel)) : 2;
+                        releasedLabels = ['Inicio', ...Array.from({length: maxLevelChart2}, (_, i) => `TP${i+1}`)];
                         
-                        for (let i = 1; i <= 5; i++) {
-                            // ✅ FIX: filter() para obtener TODOS los TPs del nivel i, luego sumar
-                            const tpsAtLevel = window.chartData.realTPs.filter(tp => 
-                                tp.level === i && tp.price > 0 && tp.operationData && tp.operationData.operationType !== 'spot'
+                        futuresCapitalData = [0];
+                        let cumulativeRelease = 0;
+                        for (let i = 1; i <= maxLevelChart2; i++) {
+                            const tpsAtLevel = renamedChart2.filter(tp => 
+                                tp.virtualLevel === i && tp.price > 0 && tp.operationData && tp.operationData.operationType !== 'spot'
                             );
                             let levelRelease = 0;
                             tpsAtLevel.forEach(tp => {
                                 const opCapital = (tp.operationData.ownCapital || 0) + (tp.operationData.additionalMargin || 0);
                                 levelRelease += opCapital * (tp.percentage / 100);
-                                console.log(`💰 TP${i} ${tp.operationData.crypto}: $${Math.round(opCapital * (tp.percentage / 100))}`);
                             });
                             cumulativeRelease += levelRelease;
                             futuresCapitalData.push(Math.round(cumulativeRelease));
                         }
                         
-                        // SPOT capital liberado
                         spotCapitalData = [0];
                         let cumulativeReleaseSpot = 0;
-                        for (let i = 1; i <= 5; i++) {
-                            const tpsAtLevel = window.chartData.realTPs.filter(tp => 
-                                tp.level === i && tp.price > 0 && tp.operationData && tp.operationData.operationType === 'spot'
+                        for (let i = 1; i <= maxLevelChart2; i++) {
+                            const tpsAtLevel = renamedChart2.filter(tp => 
+                                tp.virtualLevel === i && tp.price > 0 && tp.operationData && tp.operationData.operationType === 'spot'
                             );
                             let levelRelease = 0;
                             tpsAtLevel.forEach(tp => {
@@ -14696,18 +14703,16 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                             cumulativeReleaseSpot += levelRelease;
                             spotCapitalData.push(Math.round(cumulativeReleaseSpot));
                         }
-                        
-                        console.log('📊 Capital liberado Futuros:', futuresCapitalData);
-                        console.log('📊 Capital liberado SPOT:', spotCapitalData);
                     } else {
-                        futuresCapitalData = [0, 0, 0, 0, 0, 0];
-                        spotCapitalData = [0, 0, 0, 0, 0, 0];
+                        releasedLabels = ['Inicio', 'TP1', 'TP2'];
+                        futuresCapitalData = [0, 0, 0];
+                        spotCapitalData = [0, 0, 0];
                     }
                     
                     analyticsCharts.released = new Chart(ctx3, {
                         type: 'line',
                         data: {
-                            labels: ['Inicio', 'TP1', 'TP2', 'TP3', 'TP4', 'TP5'],
+                            labels: releasedLabels,
                             datasets: [{
                                 label: 'Futuros',
                                 data: futuresCapitalData,
