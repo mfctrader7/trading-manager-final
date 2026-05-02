@@ -432,6 +432,10 @@ const BINANCE_EXCEPTIONS = {
   'NIGHT':   null,
   'XAUT':    null,
 };
+const BINGX_EXCEPTIONS = {
+  'TONCOIN': 'TON-USDT',
+  'NIGHT':   'NIGHT-USDT',
+};
 const DEFAULT_COLOR = '#a0aec0';
 
 // ASSETS se carga dinámicamente desde Supabase — ver loadAssets()
@@ -1410,12 +1414,13 @@ function setToday(){
 async function updateLivePrices() {
   for(const asset of Object.keys(ASSETS)) {
     try {
-      const sym=asset+'USDT';
-      const r=await fetch('/api/binance?path=/api/v3/ticker/price&symbol='+sym);
+      const bingxSym = ASSETS[asset]?.bingx;
+      if(!bingxSym) continue;
+      const r=await fetch(`/api/bingx?path=/openApi/swap/v2/quote/price&symbol=${bingxSym}`);
       if(!r.ok) continue;
       const d=await r.json();
-      const price=parseFloat(d.price);
-      // Update in results
+      const price=parseFloat(d?.data?.price);
+      if(isNaN(price)) continue;
       if(analysisResults[asset]) {
         Object.values(analysisResults[asset]).forEach(p=>{ if(p) p.price=price; });
       }
@@ -1519,10 +1524,12 @@ async function loadAssets() {
       const binanceOverride = BINANCE_EXCEPTIONS[sym];
       const binance = binanceOverride === null ? null
                     : binanceOverride || sym + 'USDT';
+      const bingx = BINGX_EXCEPTIONS[sym] || sym + '-USDT';
       ASSETS[sym] = {
         label: sym,
         color: DEFAULT_COLOR,
         binance,
+        bingx,
         cgId: a.coingecko_id,
         name: a.name
       };
@@ -1570,9 +1577,10 @@ const UPDATE_TFS = [...UPDATE_TFS_INTRA, ...UPDATE_TFS_DAILY];
 
 async function fetchAndSave(asset, iv) {
   try {
-    // Saltar activos sin par en Binance
-    if(ASSETS[asset]?.binance === null) return;
-    const sym = ASSETS[asset]?.binance || asset+'USDT';
+    const bingxSym = ASSETS[asset]?.bingx;
+    if(!bingxSym) return; // sin par en BingX, saltar
+    const bingxIv = iv; // BingX usa los mismos intervalos
+
     // Find last candle in Supabase
     const {data:last} = await sb.from('price_history_daily')
       .select('ts,fecha').eq('user_id',UID).eq('simbolo',asset).eq('intervalo',iv)
@@ -1581,37 +1589,36 @@ async function fetchAndSave(asset, iv) {
     const isIntraday = !['1d','3d','1w'].includes(iv);
     let startTime;
     if(last&&last.length) {
-      // Always go back 3 candles to overwrite potentially incorrect data
       const ivMs2={'1w':604800000,'3d':259200000,'1d':86400000,'12h':43200000,'8h':28800000,'4h':14400000,'2h':7200000,'1h':3600000,'30m':1800000,'15m':900000,'5m':300000,'1m':60000};
       const candleMs = ivMs2[iv] || 3600000;
       const lastTs = isIntraday ? last[0].ts : new Date(last[0].fecha+'T00:00:00Z').getTime();
-      startTime = lastTs - (candleMs * 3); // go back 3 candles
+      startTime = lastTs - (candleMs * 3);
     } else {
-      // No data — load buffer
       const bufDays={'1w':730,'1d':365,'12h':180,'8h':120,'4h':90,'2h':60,'1h':45,'5m':7};
       const days = bufDays[iv]||90;
       startTime = Date.now() - days*86400000;
     }
 
-    if(startTime > Date.now() - 60000) return true; // already up to date
+    if(startTime > Date.now() - 60000) return true;
 
-    // Fetch from Binance
+    // Fetch from BingX
     const ivMs={'1w':604800000,'3d':259200000,'1d':86400000,'12h':43200000,'8h':28800000,'4h':14400000,'2h':7200000,'1h':3600000,'30m':1800000,'15m':900000,'5m':300000,'1m':60000};
     const limit = Math.min(1000, Math.ceil((Date.now()-startTime)/(ivMs[iv]||3600000))+2);
-    const url = `/api/binance?path=/api/v3/klines&symbol=${sym}&interval=${iv}&startTime=${startTime}&limit=${limit}`;
+    const url = `/api/bingx?path=/openApi/swap/v3/quote/klines&symbol=${bingxSym}&interval=${bingxIv}&startTime=${startTime}&limit=${limit}`;
     const r = await fetch(url);
     if(!r.ok) return false;
-    const klines = await r.json();
-    if(!klines.length) return true;
+    const d = await r.json();
+    const klines = d?.data;
+    if(!klines||!klines.length) return true;
 
-    // Build rows
+    // Build rows — BingX devuelve {open,close,high,low,volume,time}
     const rows = klines.map(k => ({
       user_id: UID, simbolo: asset, intervalo: iv,
-      fecha: new Date(k[0]).toISOString().slice(0,10),
-      ts: k[0],
-      open: parseFloat(k[1]), high: parseFloat(k[2]),
-      low: parseFloat(k[3]), close: parseFloat(k[4]),
-      volume: parseFloat(k[5])
+      fecha: new Date(k.time).toISOString().slice(0,10),
+      ts: k.time,
+      open: parseFloat(k.open), high: parseFloat(k.high),
+      low: parseFloat(k.low), close: parseFloat(k.close),
+      volume: parseFloat(k.volume)
     }));
 
     // Save in batches
