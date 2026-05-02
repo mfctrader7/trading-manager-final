@@ -593,9 +593,16 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                     setAllOperationTPs(allTPs);
                     
                     // Update global chart data with real TP information
+                    // Add virtualLevel (sequential per operation) to match analysis table
                     if (window.chartData) {
                         window.chartData.totalTPs = totalTPs;
-                        window.chartData.realTPs = allTPs;
+                        const opIdsForVirtual = [...new Set(allTPs.map(t => t.operation_id))];
+                        const allTPsWithVirtual = [];
+                        opIdsForVirtual.forEach(opId => {
+                            const opTPs = allTPs.filter(t => t.operation_id === opId).sort((a,b) => a.level - b.level);
+                            opTPs.forEach((tp, idx) => allTPsWithVirtual.push({...tp, virtualLevel: idx + 1}));
+                        });
+                        window.chartData.realTPs = allTPsWithVirtual;
                     }
                     
                     // If no operations, explicitly clear chartData TPs
@@ -14582,15 +14589,9 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                     
                     let futuresData, spotData, chartLabels;
                     if (hasTPs && window.chartData.realTPs) {
-                        // Re-number TPs sequentially per operation (same as analysis table)
-                        const allRealTPs = window.chartData.realTPs.filter(t => t.price > 0 && t.executed === false);
-                        const opIdsChart = [...new Set(allRealTPs.map(t => t.operation_id))];
-                        const renamedChart = [];
-                        opIdsChart.forEach(opId => {
-                            const opTPs = allRealTPs.filter(t => t.operation_id === opId).sort((a,b) => a.level - b.level);
-                            opTPs.forEach((tp, idx) => renamedChart.push({...tp, virtualLevel: idx + 1}));
-                        });
-                        const maxLevelChart = renamedChart.length > 0 ? Math.max(...renamedChart.map(t => t.virtualLevel)) : 2;
+                        // Use virtualLevel already set in window.chartData.realTPs
+                        const renamedChart = window.chartData.realTPs.filter(t => t.price > 0 && t.executed === false);
+                        const maxLevelChart = renamedChart.length > 0 ? Math.max(...renamedChart.map(t => t.virtualLevel || 1)) : 2;
                         chartLabels = Array.from({length: maxLevelChart}, (_, i) => `TP${i+1}`);
                         futuresData = new Array(maxLevelChart).fill(0);
                         spotData = new Array(maxLevelChart).fill(0);
@@ -14663,15 +14664,9 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                     
                     let futuresCapitalData, spotCapitalData, releasedLabels;
                     if (hasTPs && window.chartData.realTPs) {
-                        // Re-number TPs sequentially (same as other charts)
-                        const allRealTPs2 = window.chartData.realTPs.filter(t => t.price > 0 && t.executed === false);
-                        const opIdsChart2 = [...new Set(allRealTPs2.map(t => t.operation_id))];
-                        const renamedChart2 = [];
-                        opIdsChart2.forEach(opId => {
-                            const opTPs = allRealTPs2.filter(t => t.operation_id === opId).sort((a,b) => a.level - b.level);
-                            opTPs.forEach((tp, idx) => renamedChart2.push({...tp, virtualLevel: idx + 1}));
-                        });
-                        const maxLevelChart2 = renamedChart2.length > 0 ? Math.max(...renamedChart2.map(t => t.virtualLevel)) : 2;
+                        // Use virtualLevel already set in window.chartData.realTPs
+                        const renamedChart2 = window.chartData.realTPs.filter(t => t.price > 0 && t.executed === false);
+                        const maxLevelChart2 = renamedChart2.length > 0 ? Math.max(...renamedChart2.map(t => t.virtualLevel || 1)) : 2;
                         releasedLabels = ['Inicio', ...Array.from({length: maxLevelChart2}, (_, i) => `TP${i+1}`)];
                         
                         futuresCapitalData = [0];
