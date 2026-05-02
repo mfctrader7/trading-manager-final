@@ -489,6 +489,10 @@ const BINANCE_EXCEPTIONS = {
   'NIGHT':   null, // sin par en Binance
   'XAUT':    null, // sin par en Binance
 };
+const BINGX_EXCEPTIONS = {
+  'TONCOIN': 'TON-USDT',
+  'NIGHT':   'NIGHT-USDT',
+};
 const DEFAULT_COLOR = '#a0aec0';
 
 // ASSETS se carga dinámicamente desde Supabase — ver loadAssets()
@@ -2086,29 +2090,70 @@ async function syncCurrentAsset() {
   setTimeout(()=>{btn.textContent='⟳ Sync';btn.disabled=false;}, 3000);
 }
 
+// Helper BingX — precio live
+async function fetchBingxPrice(bingxSym) {
+  const r = await fetch(`/api/bingx?path=/openApi/swap/v2/quote/price&symbol=${bingxSym}`);
+  if(!r.ok) return null;
+  const d = await r.json();
+  const p = parseFloat(d?.data?.price);
+  return isNaN(p) ? null : p;
+}
+
+// Helper BingX — velas históricas
+async function fetchBingxKlines(bingxSym, interval, limit, startTime=null) {
+  let url = `/api/bingx?path=/openApi/swap/v3/quote/klines&symbol=${bingxSym}&interval=${interval}&limit=${limit}`;
+  if(startTime) url += `&startTime=${startTime}`;
+  const r = await fetch(url);
+  if(!r.ok) return null;
+  const d = await r.json();
+  if(!d?.data?.length) return null;
+  return d.data.reverse().map(k=>({
+    ts: k.time,
+    date: new Date(k.time).toISOString().slice(0,10),
+    open: parseFloat(k.open),
+    high: parseFloat(k.high),
+    low: parseFloat(k.low),
+    close: parseFloat(k.close),
+    volume: parseFloat(k.volume)
+  }));
+}
+
+// Mapeo TF Binance → BingX
+const TF_BINGX = {
+  '1m':'1m','5m':'5m','15m':'15m','30m':'30m',
+  '1h':'1h','2h':'2h','4h':'4h','8h':'8h','12h':'12h',
+  '1d':'1d','3d':'3d','1w':'1w','1M':'1M'
+};
+
 async function fetchTodayOpen() {
   if(!SYM) return;
   try {
-    const r = await fetch(`/api/binance?path=/api/v3/klines&symbol=${SYM}&interval=1d&limit=1`);
-    if(!r.ok) return;
-    const d = await r.json();
-    if(d&&d[0]) todayOpen = parseFloat(d[0][1]);
+    const bingxSym = ASSETS[currentAsset]?.bingx;
+    if(!bingxSym) return;
+    const klines = await fetchBingxKlines(bingxSym, '1d', 1);
+    if(klines?.length) todayOpen = klines[klines.length-1].open;
   } catch(e) {}
 }
 
 async function fetchLivePrice() {
   if(!SYM) return;
   try {
-    const r=await fetch(`/api/binance?path=/api/v3/ticker/price&symbol=${SYM}`);
-    if(!r.ok) return;
-    const d=await r.json();
-    const price=parseFloat(d.price);
+    const bingxSym = ASSETS[currentAsset]?.bingx;
+    if(!bingxSym) return;
+    const price = await fetchBingxPrice(bingxSym);
+    if(!price) return;
     livePrice = price;
-    if(!candles.length) return;
-    // Update last candle close with live price
-    const last=candles[candles.length-1];
-    const todayDate=today().slice(0,10);
-    const isMultiDay=['1M','1w','3d'].includes(currentTF);
+    document.getElementById('pr-price').textContent=fp(price);
+    document.getElementById('last-update').textContent=new Date().toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    renderPricePanel();
+    renderMetrics();
+    renderSesgo();
+    if(opData) renderOpPanel();
+    drawChart();
+  }catch{}
+}
+
+async function loadData() {
     // For multi-day TFs always update last candle, for intraday/daily only if it's today's candle
     if(isMultiDay || last.date===todayDate){
       last.close=price;
@@ -2141,10 +2186,10 @@ async function loadData() {
       ctx.fillStyle = 'rgba(255,255,255,0.15)';
       ctx.font = 'bold 14px Inter';
       ctx.textAlign = 'center';
-      ctx.fillText(`${currentAsset} no tiene par en Binance`, cw/2, ch/2 - 10);
+      ctx.fillText(`${currentAsset} — cargando desde BingX`, cw/2, ch/2 - 10);
       ctx.font = '11px Inter';
       ctx.fillStyle = 'rgba(255,255,255,0.08)';
-      ctx.fillText('Los datos se obtendrán desde BingX próximamente', cw/2, ch/2 + 12);
+      ctx.fillText('Sin par directo en Binance', cw/2, ch/2 + 12);
       ctx.restore();
     }
     return;
@@ -2191,8 +2236,8 @@ async function loadData() {
     }
 
     if(fetchFrom<=td){
-      lm.textContent='Binance '+cfg.label+': desde '+fetchFrom+'...';
-      const newC=await fetchFromBinance(iv,fetchFrom,td);
+      lm.textContent='BingX '+cfg.label+': desde '+fetchFrom+'...';
+      const newC=await fetchFromBingX(iv,fetchFrom,td);
       if(newC.length){
         lm.textContent='Guardando '+newC.length+' velas...';
         await saveToSupabase(newC,iv);
@@ -2268,17 +2313,20 @@ async function loadData() {
   document.getElementById('chart-loading').style.display='none';
 }
 
-async function fetchFromBinance(iv,start,end) {
-  const sTs=new Date(start+'T00:00:00Z').getTime();
-  const eTs=new Date(end+'T23:59:59Z').getTime();
-  let all=[],batchStart=sTs;
-  while(batchStart<=eTs){
-    let raw=null;
-    try{const r=await fetch(`/api/binance?path=/api/v3/klines&symbol=${SYM}&interval=${iv}&startTime=${batchStart}&endTime=${eTs}&limit=1000`);if(r.ok){raw=await r.json();}}catch{}
-    if(!raw||!raw.length) break;
-    all=all.concat(raw.map(k=>({ts:k[0],date:new Date(k[0]).toISOString().slice(0,10),open:+k[1],high:+k[2],low:+k[3],close:+k[4],volume:+k[5]})));
-    batchStart=raw[raw.length-1][0]+1000;
-    if(raw.length<1000) break;
+async function fetchFromBingX(iv, start, end) {
+  const bingxSym = ASSETS[currentAsset]?.bingx;
+  if(!bingxSym) return [];
+  const bingxIv = TF_BINGX[iv] || iv;
+  const sTs = new Date(start+'T00:00:00Z').getTime();
+  const eTs = new Date(end+'T23:59:59Z').getTime();
+  let all = [], batchStart = sTs;
+  while(batchStart <= eTs) {
+    const klines = await fetchBingxKlines(bingxSym, bingxIv, 1000, batchStart);
+    if(!klines || !klines.length) break;
+    const filtered = klines.filter(k => k.ts >= batchStart && k.ts <= eTs);
+    all = all.concat(filtered);
+    batchStart = klines[klines.length-1].ts + 1000;
+    if(klines.length < 1000) break;
   }
   return all;
 }
@@ -2591,8 +2639,10 @@ async function loadAssets() {
       const binanceOverride = BINANCE_EXCEPTIONS[sym];
       const binance = binanceOverride === null ? null
                     : binanceOverride || sym + 'USDT';
+      const bingx = BINGX_EXCEPTIONS[sym] || sym + '-USDT';
       ASSETS[sym] = {
         binance,
+        bingx,
         label: sym + '/USDT',
         color: DEFAULT_COLOR,
         cgId: a.coingecko_id,
@@ -2632,10 +2682,10 @@ async function loadFullHistory() {
     const days = maxDays[cfg.binance] || 90;
     const histStart = new Date(Date.now()-days*86400000).toISOString().slice(0,10);
 
-    setStatus('Descargando '+days+' días de '+cfg.label+' desde Binance...');
-    const allC = await fetchFromBinance(cfg.binance, histStart, td);
+    setStatus('Descargando '+days+' días de '+cfg.label+' desde BingX...');
+    const allC = await fetchFromBingX(cfg.binance, histStart, td);
 
-    if(!allC.length){ setStatus('Sin datos de Binance.'); return; }
+    if(!allC.length){ setStatus('Sin datos de BingX.'); return; }
 
     setStatus('Guardando '+allC.length+' velas de '+cfg.label+' en Supabase...');
     await saveToSupabase(allC, cfg.binance);
