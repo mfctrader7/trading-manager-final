@@ -1932,7 +1932,7 @@ async function renderRSI() {
       const num=parseInt(tf.iv);
       const ivMs=(tf.iv.endsWith('m')?num*60:tf.iv.endsWith('h')?num*3600:tf.iv==='1w'?604800:86400)*1000;
       const end=Date.now(), start=end-neededCandles*ivMs;
-      const r=await fetch(`https://api.binance.com/api/v3/klines?symbol=${SYM}&interval=${tf.iv}&startTime=${start}&endTime=${end}&limit=${neededCandles}`);
+      const r=await fetch(`/api/binance?path=/api/v3/klines&symbol=${SYM}&interval=${tf.iv}&startTime=${start}&endTime=${end}&limit=${neededCandles}`);
       const d=r.ok?await r.json():[];
       const cl=d.map(k=>parseFloat(k[4]));
       const emaCross=calcEMACross(cl);
@@ -2061,7 +2061,7 @@ async function syncCurrentAsset() {
     }
 
     if(startTime < Date.now() - 60000) {
-      const url = `https://api.binance.com/api/v3/klines?symbol=${sym}&interval=${iv}&startTime=${startTime}&limit=1000`;
+      const url = `/api/binance?path=/api/v3/klines&symbol=${sym}&interval=${iv}&startTime=${startTime}&limit=1000`;
       const r = await fetch(url);
       if(r.ok) {
         const klines = await r.json();
@@ -2089,7 +2089,7 @@ async function syncCurrentAsset() {
 async function fetchTodayOpen() {
   if(!SYM) return;
   try {
-    const r = await fetch(`https://api.binance.com/api/v3/klines?symbol=${SYM}&interval=1d&limit=1`);
+    const r = await fetch(`/api/binance?path=/api/v3/klines&symbol=${SYM}&interval=1d&limit=1`);
     if(!r.ok) return;
     const d = await r.json();
     if(d&&d[0]) todayOpen = parseFloat(d[0][1]);
@@ -2099,7 +2099,7 @@ async function fetchTodayOpen() {
 async function fetchLivePrice() {
   if(!SYM) return;
   try {
-    const r=await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${SYM}`);
+    const r=await fetch(`/api/binance?path=/api/v3/ticker/price&symbol=${SYM}`);
     if(!r.ok) return;
     const d=await r.json();
     const price=parseFloat(d.price);
@@ -2274,9 +2274,7 @@ async function fetchFromBinance(iv,start,end) {
   let all=[],batchStart=sTs;
   while(batchStart<=eTs){
     let raw=null;
-    for(const base of ['https://api.binance.com','https://api1.binance.com']){
-      try{const r=await fetch(`${base}/api/v3/klines?symbol=${SYM}&interval=${iv}&startTime=${batchStart}&endTime=${eTs}&limit=1000`);if(r.ok){raw=await r.json();break;}}catch{}
-    }
+    try{const r=await fetch(`/api/binance?path=/api/v3/klines&symbol=${SYM}&interval=${iv}&startTime=${batchStart}&endTime=${eTs}&limit=1000`);if(r.ok){raw=await r.json();}}catch{}
     if(!raw||!raw.length) break;
     all=all.concat(raw.map(k=>({ts:k[0],date:new Date(k[0]).toISOString().slice(0,10),open:+k[1],high:+k[2],low:+k[3],close:+k[4],volume:+k[5]})));
     batchStart=raw[raw.length-1][0]+1000;
@@ -2318,7 +2316,7 @@ function toggleSubPanel(type, show) {
 async function fetchAndDrawOI() {
   try {
     const sym = ASSETS[currentAsset]?.binance || currentAsset+'USDT';
-    const r = await fetch(`https://fapi.binance.com/futures/data/openInterestHist?symbol=${sym}&period=1h&limit=48`);
+    const r = await fetch(`/api/binance?path=/futures/data/openInterestHist&symbol=${sym}&period=1h&limit=48`);
     if(!r.ok) { drawSubPanelError('oi','Sin datos futuros'); return; }
     oiData = await r.json();
     drawOI();
@@ -2328,7 +2326,7 @@ async function fetchAndDrawOI() {
 async function fetchAndDrawFR() {
   try {
     const sym = ASSETS[currentAsset]?.binance || currentAsset+'USDT';
-    const r = await fetch(`https://fapi.binance.com/fapi/v1/fundingRate?symbol=${sym}&limit=48`);
+    const r = await fetch(`/api/binance?path=/fapi/v1/fundingRate&symbol=${sym}&limit=48`);
     if(!r.ok) { drawSubPanelError('fr','Sin datos futuros'); return; }
     frData = await r.json();
     drawFR();
