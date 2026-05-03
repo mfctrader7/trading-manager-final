@@ -1932,13 +1932,17 @@ async function renderRSI() {
       continue;
     }
     try{
-      const ms={5:300,30:1800,1:3600,2:7200,4:14400,8:28800,1440:86400,10080:604800};
       const num=parseInt(tf.iv);
       const ivMs=(tf.iv.endsWith('m')?num*60:tf.iv.endsWith('h')?num*3600:tf.iv==='1w'?604800:86400)*1000;
-      const end=Date.now(), start=end-neededCandles*ivMs;
-      const r=await fetch(`/api/binance?path=/api/v3/klines&symbol=${SYM}&interval=${tf.iv}&startTime=${start}&endTime=${end}&limit=${neededCandles}`);
-      const d=r.ok?await r.json():[];
-      const cl=d.map(k=>parseFloat(k[4]));
+      const startTs = Date.now() - neededCandles*ivMs;
+      const isIntra = !['1d','1w'].includes(tf.iv);
+      const {data:rows} = await sb.from('price_history_daily')
+        .select('close,ts')
+        .eq('user_id',UID).eq('simbolo',currentAsset).eq('intervalo',tf.iv)
+        .gte(isIntra?'ts':'ts', startTs)
+        .order('ts',{ascending:true})
+        .limit(neededCandles);
+      const cl = (rows||[]).map(r=>parseFloat(r.close));
       const emaCross=calcEMACross(cl);
       results.push({lbl:tf.lbl,rsi:calcRSI(cl,14),emaCross});
     }catch{results.push({lbl:tf.lbl,rsi:null,emaCross:'neutral'});}
@@ -2065,16 +2069,19 @@ async function syncCurrentAsset() {
     }
 
     if(startTime < Date.now() - 60000) {
-      const url = `/api/binance?path=/api/v3/klines&symbol=${sym}&interval=${iv}&startTime=${startTime}&limit=1000`;
+      const bingxSym = ASSETS[currentAsset]?.bingx;
+      const bingxIv = TF_BINGX[iv] || iv;
+      const url = `/api/bingx-public?path=/openApi/swap/v3/quote/klines&symbol=${bingxSym}&interval=${bingxIv}&startTime=${startTime}&limit=1000`;
       const r = await fetch(url);
       if(r.ok) {
-        const klines = await r.json();
+        const d = await r.json();
+        const klines = d?.data || [];
         if(klines.length) {
           const rows = klines.map(k=>({
             user_id:UID, simbolo:currentAsset, intervalo:iv,
-            fecha:new Date(k[0]).toISOString().slice(0,10), ts:k[0],
-            open:parseFloat(k[1]), high:parseFloat(k[2]),
-            low:parseFloat(k[3]), close:parseFloat(k[4]), volume:parseFloat(k[5])
+            fecha:new Date(k.time).toISOString().slice(0,10), ts:k.time,
+            open:parseFloat(k.open), high:parseFloat(k.high),
+            low:parseFloat(k.low), close:parseFloat(k.close), volume:parseFloat(k.volume)
           }));
           await sb.from('price_history_daily').upsert(rows,{onConflict:'user_id,simbolo,intervalo,ts'});
           btn.textContent = '✓ '+klines.length+' velas';
