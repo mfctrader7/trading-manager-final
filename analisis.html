@@ -2133,7 +2133,6 @@ const TF_BINGX = {
 };
 
 async function fetchTodayOpen() {
-  if(!SYM) return;
   try {
     const bingxSym = ASSETS[currentAsset]?.bingx;
     if(!bingxSym) return;
@@ -2143,7 +2142,6 @@ async function fetchTodayOpen() {
 }
 
 async function fetchLivePrice() {
-  if(!SYM) return;
   try {
     const bingxSym = ASSETS[currentAsset]?.bingx;
     if(!bingxSym) return;
@@ -2166,7 +2164,7 @@ async function fetchLivePrice() {
 async function loadData() {
   document.getElementById('chart-loading').style.display='flex';
   const lm=document.getElementById('loading-msg');
-  if(!SYM) {
+  if(!SYM && !ASSETS[currentAsset]?.bingx) {
     document.getElementById('chart-loading').style.display='none';
     candles = [];
     if(ctx) {
@@ -2175,10 +2173,7 @@ async function loadData() {
       ctx.fillStyle = 'rgba(255,255,255,0.15)';
       ctx.font = 'bold 14px Inter';
       ctx.textAlign = 'center';
-      ctx.fillText(`${currentAsset} — cargando desde BingX`, cw/2, ch/2 - 10);
-      ctx.font = '11px Inter';
-      ctx.fillStyle = 'rgba(255,255,255,0.08)';
-      ctx.fillText('Sin par directo en Binance', cw/2, ch/2 + 12);
+      ctx.fillText(`${currentAsset} — sin datos disponibles`, cw/2, ch/2 - 10);
       ctx.restore();
     }
     return;
