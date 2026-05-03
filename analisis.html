@@ -2092,7 +2092,7 @@ async function syncCurrentAsset() {
 
 // Helper BingX — precio live
 async function fetchBingxPrice(bingxSym) {
-  const r = await fetch(`/api/bingx?path=/openApi/swap/v2/quote/price&symbol=${bingxSym}`);
+  const r = await fetch(`/api/bingx-public?path=/openApi/swap/v2/quote/price&symbol=${bingxSym}`);
   if(!r.ok) return null;
   const d = await r.json();
   const p = parseFloat(d?.data?.price);
@@ -2101,7 +2101,7 @@ async function fetchBingxPrice(bingxSym) {
 
 // Helper BingX — velas históricas
 async function fetchBingxKlines(bingxSym, interval, limit, startTime=null) {
-  let url = `/api/bingx?path=/openApi/swap/v3/quote/klines&symbol=${bingxSym}&interval=${interval}&limit=${limit}`;
+  let url = `/api/bingx-public?path=/openApi/swap/v3/quote/klines&symbol=${bingxSym}&interval=${interval}&limit=${limit}`;
   if(startTime) url += `&startTime=${startTime}`;
   const r = await fetch(url);
   if(!r.ok) return null;
