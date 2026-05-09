@@ -773,46 +773,52 @@ async function fetchOpData(asset) {
 
     // Calcular PEPP y total_units desde entries
     const {data: entries} = await sb.from('entries')
-      .select('entry_price, units, margin')
+      .select('entry_price, units, margin, executed, created_at')
       .eq('operation_id', active.id);
     if(!entries || !entries.length) return;
-
-    let totalUnits = 0, weightedSum = 0, capitalInvertido = 0;
-    entries.forEach(e => {
-      const u = parseFloat(e.units) || 0;
-      const p = parseFloat(e.entry_price) || 0;
-      const m = parseFloat(e.margin) || 0;
-      totalUnits += u;
-      weightedSum += p * u;
-      capitalInvertido += m;
-    });
-    if(!totalUnits) return;
-    const pepp = weightedSum / totalUnits;
 
     const leverage = parseFloat(active.leverage) || 1;
     const marginDeleverage = parseFloat(active.margin_deleverage) || 0;
     const additionalMargin = parseFloat(active.additional_margin) || 0;
-
-    // Para 100% SD = posición total - capital invertido - escudo
-    const totalPosValue = pepp * totalUnits;
-    const sdFalta = Math.max(0, totalPosValue - capitalInvertido - marginDeleverage);
-    const totalPos = pepp * totalUnits;
     const isLong = active.type === 'LONG';
-    const liqPrice = isLong
-      ? pepp * (1 - 1/leverage - marginDeleverage/totalPos)
-      : pepp * (1 + 1/leverage + marginDeleverage/totalPos);
 
     // Cargar TPs
     const {data: tps} = await sb.from('take_profits')
-      .select('price, percentage, projected_profit, executed, units_sold')
+      .select('price, percentage, projected_profit, executed, units_sold, created_at')
       .eq('operation_id', active.id)
       .order('price', {ascending: isLong});
 
-    // Restar unidades ya vendidas en TPs ejecutados → posición real activa
-    const unitsSold = (tps||[]).filter(t=>t.executed).reduce((s,t)=>s+(parseFloat(t.units_sold)||0), 0);
-    const totalUnitsActive = Math.max(0, totalUnits - unitsSold);
-    const capitalRatio = totalUnits > 0 ? totalUnitsActive / totalUnits : 1;
-    const capitalInvertidoActive = capitalInvertido * capitalRatio;
+    // calcPEPPFull — algoritmo validado contra BingX y Trading Manager
+    // Procesa entradas y TPs ejecutados cronológicamente
+    const executedTPs = (tps||[]).filter(t=>t.executed && parseFloat(t.units_sold||0)>0);
+    const events = [];
+    entries.forEach(e => events.push({type:'entry', date:new Date(e.created_at), data:e}));
+    executedTPs.forEach(t => events.push({type:'tp', date:new Date(t.created_at), data:t}));
+    events.sort((a,b) => a.date - b.date);
+
+    let accExec = 0, accUnits = 0, capitalInvertido = 0;
+    entries.forEach(e => capitalInvertido += parseFloat(e.margin)||0);
+
+    for(const ev of events) {
+      if(ev.type === 'entry') {
+        accExec += parseFloat(ev.data.executed || 0);
+        accUnits += parseFloat(ev.data.units || 0);
+      } else {
+        const pepp = accUnits > 0 ? accExec / accUnits : 0;
+        const unitsSold = parseFloat(ev.data.units_sold || 0);
+        accExec -= pepp * unitsSold;
+        accUnits -= unitsSold;
+      }
+    }
+
+    const pepp = accUnits > 0 ? accExec / accUnits : 0;
+    const totalUnitsActive = Math.max(0, accUnits);
+    const capitalInvertidoActive = accExec; // valor real activo en dólares
+
+    const totalPos = pepp * totalUnitsActive;
+    const liqPrice = isLong
+      ? pepp * (1 - 1/leverage - marginDeleverage/totalPos)
+      : pepp * (1 + 1/leverage + marginDeleverage/totalPos);
     const sdFaltaActive = Math.max(0, pepp * totalUnitsActive - capitalInvertidoActive - marginDeleverage);
 
     opData = {
