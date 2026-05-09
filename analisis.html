@@ -315,6 +315,7 @@ header {
   <div class="hdr-right">
     <div class="live-dot"></div>
     <span style="font-size:0.65rem;color:var(--text3)" id="last-update">—</span>
+    <span style="font-size:0.65rem;color:var(--text3);font-variant-numeric:tabular-nums;" id="candle-countdown"></span>
     <div class="hdr-sep"></div>
     <button class="sess-btn" id="sess-asia" title="Asia: 00:00–09:00 UTC">🌙 Asia</button>
     <button class="sess-btn" id="sess-eu" title="Europa: 08:00–16:30 UTC">🇪🇺 Europa</button>
@@ -2138,6 +2139,44 @@ async function fetchTodayOpen() {
   } catch(e) {}
 }
 
+// Intervalo de refresh según TF
+const REFRESH_MS = {
+  '1m':60000, '5m':60000, '15m':60000,
+  '30m':300000, '1h':300000, '2h':300000, '4h':300000,
+  '8h':900000, '12h':900000, '1d':900000, '3d':900000, '1w':900000, '1M':900000
+};
+
+// Duración de cada vela en ms
+const CANDLE_MS = {
+  '1m':60000,'5m':300000,'15m':900000,'30m':1800000,
+  '1h':3600000,'2h':7200000,'4h':14400000,'8h':28800000,
+  '12h':43200000,'1d':86400000,'3d':259200000,'1w':604800000,'1M':2592000000
+};
+
+function updateCandleCountdown() {
+  const el = document.getElementById('candle-countdown');
+  if(!el) return;
+  const ms = CANDLE_MS[currentTF];
+  if(!ms) { el.textContent=''; return; }
+  const remaining = ms - (Date.now() % ms);
+  const totalSec = Math.floor(remaining / 1000);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  if(h > 0) {
+    el.textContent = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+  } else {
+    el.textContent = `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  }
+}
+
+let countdownInterval = null;
+function startCountdown() {
+  if(countdownInterval) clearInterval(countdownInterval);
+  updateCandleCountdown();
+  countdownInterval = setInterval(updateCandleCountdown, 1000);
+}
+
 async function fetchLivePrice() {
   try {
     const bingxSym = ASSETS[currentAsset]?.bingx;
@@ -2282,10 +2321,12 @@ async function loadData() {
       .eq('user_id',UID).eq('fecha',td).eq('temporalidad',currentTF+'_'+currentAsset).maybeSingle();
     if(nota) document.getElementById('nota-text').value=nota.notas||'';
 
-    // Live price every 10s
+    // Live price con refresh adaptativo según TF
     if(liveInterval) clearInterval(liveInterval);
     fetchLivePrice();
-    liveInterval=setInterval(fetchLivePrice,10000);
+    const refreshMs = REFRESH_MS[currentTF] || 60000;
+    liveInterval = setInterval(fetchLivePrice, refreshMs);
+    startCountdown();
 
   }catch(e){
     setStatus('Error: '+e.message);
@@ -2569,6 +2610,7 @@ function setTF(tf) {
     if(!b.classList.contains('soon'))
       b.classList.toggle('active', b.textContent.trim()===TF_CONFIG[tf].label);
   });
+  startCountdown();
   loadData();
 }
 
