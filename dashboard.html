@@ -545,6 +545,35 @@ function emaCrossSignal(cruce, e12, e25) {
   return {dir:'corto', tipo:'tendencia', label:'CORTO', cls:'s-corto'};
 }
 
+// Funciones de scoring — se mantienen para el panel de detalle
+function scoreRSI(rsi,dir){
+  if(rsi==null)return 0;
+  const low=rsi<45,mid=rsi>=45&&rsi<=55,high=rsi>55;
+  const up=dir==='up',down=dir==='down';
+  if(low&&up)return 2;if(low&&down)return 1;
+  if(mid&&up)return 1;if(mid&&down)return -1;
+  if(high&&up)return -1;if(high&&down)return -2;
+  return 0;
+}
+function scoreEMA(price,e12,e25,e200,cruce){
+  if(!price||!e12||!e25)return 0;
+  let s=0;
+  if(price>e12)s++;else s--;
+  if(price>e25)s++;else s--;
+  if(e12>e25)s++;else s--;
+  if(cruce==='bull')s+=2;if(cruce==='bear')s-=2;
+  if(e200){if(price>e200)s++;else s--;}
+  return s;
+}
+function scoreVP(price,vah,poc,val){
+  if(!price||!vah||!val)return 0;
+  const pocPct=Math.abs(price-poc)/poc*100;
+  if(pocPct<=2)return 0;
+  if(price>vah)return 2;if(price>poc)return 1;
+  if(price<val)return -2;if(price<poc)return -1;
+  return 0;
+}
+
 function rsiIcon(v) {
   if(v==null) return {icon:'—', col:'var(--text3)', cat:'none', label:'—'};
   if(v<30)  return {icon:'🧊', col:'#60d0ff', cat:'ice',    label:v.toFixed(0)};
