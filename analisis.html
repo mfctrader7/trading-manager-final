@@ -860,21 +860,20 @@ function renderOpPanel() {
   };
   const fp2 = v => (v>=0?'+':'')+v.toFixed(1)+'%';
 
-  const tpRows = opData.tps.map((tp,i)=>{
+  const tpRows = opData.tps.filter(t=>!t.executed).map((tp,i)=>{
     const dist = curPrice ? (tp.price - curPrice)/curPrice*100 : 0;
-    const unitsForCalc = tp.executed ? tp.unitsSold : opData.totalUnits * tp.pct/100;
+    const unitsForCalc = opData.totalUnits * tp.pct/100;
     const profit = (tp.price - opData.pepp) * unitsForCalc;
-    const capitalLiberado = opData.totalMargin * (tp.pct/100);
+    const capitalLiberado = opData.margenReal * (tp.pct/100);
     const roi = capitalLiberado > 0 ? profit/capitalLiberado*100 : 0;
-    const col = tp.executed ? '#666' : '#00e5ff';
-    const profCol = tp.executed ? '#666' : '#00c9a7';
-    const roiCol = tp.executed ? '#666' : '#f5a623';
-    const label = tp.executed ? `✓T${i+1}` : `TP${i+1}`;
-    const distTxt = tp.executed ? 'ejec.' : fp2(dist);
+    const col = '#00e5ff';
+    const profCol = '#00c9a7';
+    const roiCol = '#f5a623';
+    const label = `TP${i+1}`;
     return `<div style="display:grid;grid-template-columns:28px 1fr 36px 42px 36px;gap:2px;padding:3px 0;border-bottom:0.5px solid var(--border);align-items:baseline;">
       <span style="color:${col};font-weight:500;">${label}</span>
       <span style="color:var(--text);">${fp(tp.price)}</span>
-      <span style="color:${profCol};text-align:right;">${distTxt}</span>
+      <span style="color:${profCol};text-align:right;">${fp2(dist)}</span>
       <span style="color:${profCol};text-align:right;">${fm(profit,0)}</span>
       <span style="color:${roiCol};text-align:right;">${fp2(roi)}</span>
     </div>`;
@@ -1653,19 +1652,12 @@ function drawChart() {
     // Línea liquidación
     drawOpLine(liqPrice, '#f5a623', `LIQ ${fp(liqPrice)}`, true, 0.8);
 
-    // TPs — ganancia calculada al vuelo
-    opData.tps.forEach((tp, i) => {
+    // TPs pendientes únicamente — ganancia calculada al vuelo
+    opData.tps.filter(t=>!t.executed).forEach((tp, i) => {
       const n = i+1;
-      const executed = tp.executed;
-      const col = executed ? '#888' : '#00e5ff';
-      const alpha = executed ? 0.45 : 1;
       const projProfit = (tp.price - opData.pepp) * (opData.totalUnits * tp.pct / 100);
-      const lbl = executed
-        ? `✅TP${n} ${fp(tp.price)}`
-        : `TP${n} ${tp.pct}% ${fp(tp.price)}`;
-      const profitTxt = executed ? null : fMoney(projProfit);
-      const profitCol = executed ? null : '#00c9a7';
-      drawOpLine(tp.price, col, lbl, executed, alpha, profitCol, profitTxt);
+      const lbl = `TP${n} ${tp.pct}% ${fp(tp.price)}`;
+      drawOpLine(tp.price, '#00e5ff', lbl, false, 1, '#00c9a7', fMoney(projProfit));
     });
 
     // Métricas en barra lateral derecha — PEPP, TPs, LIQ
@@ -1695,9 +1687,8 @@ function drawChart() {
 
     drawOpMetric(opData.pepp, opData.type, peppCol, false, true);
     drawOpMetric(liqPrice, 'LIQ', '#f5a623', true);
-    opData.tps.forEach((tp, i) => {
-      const col = tp.executed ? '#666' : '#00e5ff';
-      drawOpMetric(tp.price, `TP${i+1}`, col, tp.executed);
+    opData.tps.filter(t=>!t.executed).forEach((tp, i) => {
+      drawOpMetric(tp.price, `TP${i+1}`, '#00e5ff', false);
     });
   }
 
