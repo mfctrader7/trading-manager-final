@@ -291,6 +291,7 @@ header{
     <option value="15">Auto: 15m</option>
     <option value="60">Auto: 1h</option>
   </select>
+  <span id="refresh-countdown" style="font-size:0.62rem;color:var(--text3);font-variant-numeric:tabular-nums;min-width:32px;text-align:center;"></span>
   <div class="update-progress" id="update-progress" style="max-width:220px;">
     <span id="update-status" style="color:var(--text3);">Listo</span>
     <div class="progress-assets" id="progress-assets"></div>
@@ -1676,6 +1677,9 @@ async function updateAll() {
   btn.textContent = '⟳ Actualizar todo';
   isUpdating = false;
 
+  // Reiniciar countdown tras actualización
+  if(autoRefreshMode !== 'off') startRefreshCountdown(15 * 60 * 1000);
+
   // Run analysis after update
   await runAnalysis();
   // Save signal timestamps
@@ -1684,10 +1688,37 @@ async function updateAll() {
 
 let lastUpdateTime = Date.now();
 
+let refreshCountdownInterval = null;
+let nextRefreshAt = null;
+
+function startRefreshCountdown(ms) {
+  if(refreshCountdownInterval) clearInterval(refreshCountdownInterval);
+  const el = document.getElementById('refresh-countdown');
+  if(!el) return;
+  nextRefreshAt = Date.now() + ms;
+  refreshCountdownInterval = setInterval(() => {
+    const remaining = Math.max(0, nextRefreshAt - Date.now());
+    if(!remaining) { nextRefreshAt = Date.now() + ms; }
+    const totalSec = Math.floor(remaining / 1000);
+    const m = Math.floor(totalSec / 60);
+    const s = totalSec % 60;
+    el.textContent = `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  }, 1000);
+}
+
+function stopRefreshCountdown() {
+  if(refreshCountdownInterval) clearInterval(refreshCountdownInterval);
+  refreshCountdownInterval = null;
+  const el = document.getElementById('refresh-countdown');
+  if(el) el.textContent = '';
+}
+
 function setAutoRefresh(val) {
   autoRefreshMode = val;
   if(autoRefreshInterval) { clearInterval(autoRefreshInterval); autoRefreshInterval=null; }
+  stopRefreshCountdown();
   if(val !== 'off') {
+    const tickMs = 15 * 60 * 1000;
     // Intradiarias cada 15min, diarias en cada ciclo completo
     autoRefreshInterval = setInterval(async () => {
       // Detect hibernation — if more than 5min passed since last tick, force full update
@@ -1697,13 +1728,16 @@ function setAutoRefresh(val) {
       if(gap > 5 * 60 * 1000) {
         console.log('Hibernación detectada — actualizando todo');
         await updateAll();
+        nextRefreshAt = Date.now() + tickMs;
         return;
       }
       // Smart refresh: always update intraday, only update daily every full cycle
       const ms = parseInt(val) * 60 * 1000;
       const cyclesPassed = Math.floor(gap / (15 * 60 * 1000));
       await updateAllSmart(cyclesPassed > 0);
-    }, 15 * 60 * 1000); // tick every 15min
+      nextRefreshAt = Date.now() + tickMs;
+    }, tickMs);
+    startRefreshCountdown(tickMs);
     document.getElementById('update-status').textContent = `Auto-refresh cada 15m (intra) / ${val}m (diarias)`;
     document.getElementById('update-status').style.color = 'var(--blue)';
   } else {
