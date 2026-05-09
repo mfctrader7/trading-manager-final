@@ -782,17 +782,6 @@ async function fetchOpData(asset) {
     const additionalMargin = parseFloat(active.additional_margin) || 0;
     const isLong = active.type === 'LONG';
 
-    // Capital real = SUM(entries.margin) — lo que el usuario puso de su bolsillo
-    let margenReal = 0;
-    entries.forEach(e => margenReal += parseFloat(e.margin)||0);
-
-    // Total margin para ROI = margenReal + additionalMargin + marginDeleverage
-    // (igual que trading manager: ownCapital + additionalMargin + marginDeleverage)
-    const totalMargin = margenReal + additionalMargin + marginDeleverage;
-
-    // Inversión total = margenReal × leverage
-    const inversionTotal = margenReal * leverage;
-
     // Cargar TPs
     const {data: tps} = await sb.from('take_profits')
       .select('price, percentage, projected_profit, executed, units_sold, created_at')
@@ -800,7 +789,6 @@ async function fetchOpData(asset) {
       .order('price', {ascending: isLong});
 
     // calcPEPPFull — algoritmo validado contra BingX y Trading Manager
-    // Procesa entradas y TPs ejecutados cronológicamente
     const executedTPs = (tps||[]).filter(t=>t.executed && parseFloat(t.units_sold||0)>0);
     const events = [];
     entries.forEach(e => events.push({type:'entry', date:new Date(e.created_at), data:e}));
@@ -808,7 +796,6 @@ async function fetchOpData(asset) {
     events.sort((a,b) => a.date - b.date);
 
     let accExec = 0, accUnits = 0;
-
     for(const ev of events) {
       if(ev.type === 'entry') {
         accExec += parseFloat(ev.data.executed || 0);
@@ -823,6 +810,11 @@ async function fetchOpData(asset) {
 
     const pepp = accUnits > 0 ? accExec / accUnits : 0;
     const totalUnitsActive = Math.max(0, accUnits);
+
+    // Capital correcto — basado en calcPEPPFull igual que trading manager
+    const inversionTotal = pepp * totalUnitsActive;
+    const margenReal = inversionTotal / leverage;
+    const totalMargin = margenReal + additionalMargin + marginDeleverage;
 
     const totalPos = pepp * totalUnitsActive;
     const liqPrice = isLong
@@ -841,7 +833,6 @@ async function fetchOpData(asset) {
       capitalInvertido: margenReal, // para compatibilidad con renderOpPanel
       escudo: marginDeleverage,
       sdFalta: Math.max(0, inversionTotal - margenReal - marginDeleverage),
-      additionalMargin,
       tps: (tps||[]).map(t=>({price:parseFloat(t.price), pct:t.percentage, executed:t.executed, unitsSold:parseFloat(t.units_sold)||0}))
     };
     renderOpPanel();
