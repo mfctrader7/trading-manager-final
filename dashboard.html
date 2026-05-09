@@ -483,13 +483,7 @@ let rsiEmaFilter={tf:'1d', rsi:'all', ema:'all'};
 let rankCache = {}; // {asset: rank}
 let sortMode3 = 'score'; // 'score' | 'name' | 'rank'
 
-const CG_IDS = {
-  'BTC':'bitcoin','ETH':'ethereum','XRP':'ripple','SOL':'solana','ADA':'cardano',
-  'AVAX':'avalanche-2','DOGE':'dogecoin','LINK':'chainlink','HBAR':'hedera-hashgraph',
-  'LTC':'litecoin','AAVE':'aave','UNI':'uniswap','APE':'apecoin','EGLD':'elrond-erd-2',
-  'SAND':'the-sandbox','OP':'optimism','XLM':'stellar','RENDER':'render-token',
-  'PEPE':'pepe','SHIB':'shiba-inu','RAY':'raydium','SUI':'sui','NIGHT':'nightverse-game'
-};
+let CG_IDS = {}; // se construye dinámicamente en loadAssets() desde Supabase
 let prevAssetListHTML = {}; // {asset: html} for differential updates
 let vpFilter={d:'all', w:'all', m:'all'};
 let vpFilterUnified = 'all';
@@ -1534,6 +1528,8 @@ async function loadAssets() {
         cgId: a.coingecko_id,
         name: a.name
       };
+      // Construir CG_IDS dinámicamente
+      if(a.coingecko_id) CG_IDS[sym] = a.coingecko_id;
     });
   } catch(e) { console.warn('loadAssets error:', e); }
 }
