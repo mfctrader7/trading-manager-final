@@ -86,7 +86,9 @@ header{
 .sesgo-badge{font-size:0.65rem;font-weight:700;padding:0.15rem 0.5rem;border-radius:4px;text-align:center;white-space:nowrap;}
 .s-largo{background:rgba(0,201,167,0.18);color:var(--green);}
 .s-largo-d{background:rgba(0,201,167,0.08);color:rgba(0,201,167,0.65);}
+.s-largo-prox{background:linear-gradient(135deg,rgba(245,197,24,0.2),rgba(0,201,167,0.2));color:var(--yellow);border:1px solid rgba(0,201,167,0.3);}
 .s-neutro{background:rgba(245,197,24,0.12);color:var(--yellow);}
+.s-corto-prox{background:linear-gradient(135deg,rgba(245,197,24,0.2),rgba(255,77,106,0.2));color:var(--yellow);border:1px solid rgba(255,77,106,0.3);}
 .s-corto-d{background:rgba(255,77,106,0.08);color:rgba(255,77,106,0.65);}
 .s-corto{background:rgba(255,77,106,0.18);color:var(--red);}
 
@@ -372,7 +374,7 @@ header{
         <span style="font-size:0.58rem;color:var(--text2);">TEMPORALIDADES</span>
         <span style="font-size:0.58rem;color:var(--text2);">SEÑAL</span>
       </div>
-      <div id="asset-list" style="overflow-y:auto;max-height:184px;min-height:60px;"><div class="loading"><div class="spinner"></div><span>Cargando...</span></div></div>
+      <div id="asset-list" style="overflow-y:auto;max-height:307px;min-height:60px;"><div class="loading"><div class="spinner"></div><span>Cargando...</span></div></div>
     </div>
 
     <!-- BOTTOM: Detail panel — same width as asset list -->
@@ -447,33 +449,20 @@ let ASSETS = {};
 const PROFILES={
   swing:{
     label:'Swing', icon:'📈',
-    tfs:[
-      {tf:'12h',label:'12H', weight:0.25, cruce:5},
-      {tf:'1d', label:'1D',  weight:0.35, cruce:5},
-      {tf:'1w', label:'1W',  weight:0.40, cruce:3},
-    ]
+    tfSignal:'1d',   // TF de señal confirmada
+    tfAviso:'8h',    // TF de alerta de proximidad
   },
   day:{
     label:'Day Trading', icon:'⚡',
-    tfs:[
-      {tf:'2h', label:'2H',  weight:0.15, cruce:5},
-      {tf:'4h', label:'4H',  weight:0.25, cruce:5},
-      {tf:'8h', label:'8H',  weight:0.30, cruce:5},
-      {tf:'1d', label:'1D',  weight:0.30, cruce:5},
-    ]
+    tfSignal:'1h',
+    tfAviso:'30m',
   },
   scalp:{
     label:'Scalping', icon:'🎯',
-    tfs:[
-      {tf:'5m', label:'5m',  weight:0.35, cruce:5},
-      {tf:'1h', label:'1H',  weight:0.35, cruce:5},
-      {tf:'2h', label:'2H',  weight:0.30, cruce:5},
-    ]
+    tfSignal:'15m',
+    tfAviso:'5m',
   }
 };
-
-// Alert threshold
-const ALERT_LONG=65, ALERT_SHORT=35;
 
 let currentProfile='swing';
 let sortMode='score';
@@ -546,33 +535,16 @@ function calcVP(cands,levels=120){
 }
 
 // ── Scoring ──
-function scoreRSI(rsi,dir){
-  if(rsi==null)return 0;
-  const low=rsi<45,mid=rsi>=45&&rsi<=55,high=rsi>55;
-  const up=dir==='up',down=dir==='down';
-  if(low&&up)return 2;if(low&&down)return 1;
-  if(mid&&up)return 1;if(mid&&down)return -1;
-  if(high&&up)return -1;if(high&&down)return -2;
-  return 0;
+// Nueva lógica de señales basada en cruce EMA 12/25
+function emaCrossSignal(cruce, e12, e25) {
+  const dir = e12 > e25 ? 'largo' : 'corto';
+  if(cruce === 'bull') return {dir:'largo', tipo:'confirmada', label:'LARGO', cls:'s-largo'};
+  if(cruce === 'bear') return {dir:'corto', tipo:'confirmada', label:'CORTO', cls:'s-corto'};
+  // Sin cruce reciente — usar posición relativa
+  if(dir === 'largo') return {dir:'largo', tipo:'tendencia', label:'LARGO', cls:'s-largo'};
+  return {dir:'corto', tipo:'tendencia', label:'CORTO', cls:'s-corto'};
 }
-function scoreEMA(price,e12,e25,e200,cruce){
-  if(!price||!e12||!e25)return 0;
-  let s=0;
-  if(price>e12)s++;else s--;
-  if(price>e25)s++;else s--;
-  if(e12>e25)s++;else s--;
-  if(cruce==='bull')s+=2;if(cruce==='bear')s-=2;
-  if(e200){if(price>e200)s++;else s--;}
-  return s;
-}
-function scoreVP(price,vah,poc,val){
-  if(!price||!vah||!val)return 0;
-  const pocPct=Math.abs(price-poc)/poc*100;
-  if(pocPct<=2)return 0;
-  if(price>vah)return 2;if(price>poc)return 1;
-  if(price<val)return -2;if(price<poc)return -1;
-  return 0;
-}
+
 function rsiIcon(v) {
   if(v==null) return {icon:'—', col:'var(--text3)', cat:'none', label:'—'};
   if(v<30)  return {icon:'🧊', col:'#60d0ff', cat:'ice',    label:v.toFixed(0)};
@@ -593,9 +565,6 @@ function toPercent(sEma,sRsi,sVp){
   const raw=sEma+sRsi+sVp;
   return Math.round(((raw+11)/22)*100);
 }
-// Convert internal 0-100 score to directional display
-// Returns {label, cls, dir, dirPct}
-// dirPct = 0-100% strength of the signal direction
 function pctToSesgo(p){
   if(p>65){
     const dirPct=Math.round((p-65)/35*100);
@@ -670,27 +639,27 @@ async function loadCandles(asset,iv,refDate){
   return data.map(r=>({date:r.fecha,ts:r.ts||0,open:+r.open,high:+r.high,low:+r.low,close:+r.close,volume:+r.volume}));
 }
 
-async function analyzeOne(asset,tfCfg,refDate){
-  const candles=await loadCandles(asset,tfCfg.tf,refDate);
-  if(candles.length<30)return null;
-  const closes=candles.map(c=>c.close);
-  const price=closes[closes.length-1];
-  const e12a=calcEMA(closes,12),e25a=calcEMA(closes,25),e200a=calcEMA(closes,200);
-  const ema12=e12a[e12a.length-1],ema25=e25a[e25a.length-1],ema200=e200a[e200a.length-1];
-  const rsi=calcRSI(closes,14);
-  const pivots=findPivots(candles,5);
-  const rsiDir=getRSIDir(closes,pivots);
-  const cruce=detectCross(e12a,e25a,tfCfg.cruce);
-  const vp=getVP(candles,tfCfg.tf,refDate);
-  const sEma=scoreEMA(price,ema12,ema25,ema200,cruce);
-  const sRsi=scoreRSI(rsi,rsiDir);
-  const sVp=vp?scoreVP(price,vp?.vah,vp?.poc,vp?.val):0;
-  const p=toPercent(sEma,sRsi,sVp);
-  return{
-    tf:tfCfg.tf,label:tfCfg.label,weight:tfCfg.weight,
-    price,ema12,ema25,ema200,rsi,rsiDir,cruce,
-    vah:vp?.vah,poc:vp?.poc,val:vp?.val,
-    sEma,sRsi,sVp,pct:p,sesgo:pctToSesgo(p)
+async function analyzeOne(asset, iv, refDate) {
+  const candles = await loadCandles(asset, iv, refDate);
+  if(candles.length < 30) return null;
+  const closes = candles.map(c => c.close);
+  const price = closes[closes.length-1];
+  const e12a = calcEMA(closes,12), e25a = calcEMA(closes,25), e200a = calcEMA(closes,200);
+  const ema12 = e12a[e12a.length-1], ema25 = e25a[e25a.length-1], ema200 = e200a[e200a.length-1];
+  const rsi = calcRSI(closes, 14);
+  const cruce = detectCross(e12a, e25a, 3); // cruce en últimas 3 velas
+  const vp = getVP(candles, iv, refDate);
+  // Mantener scores para panel de detalle (RSI MTF, EMA grid, VP)
+  const pivots = findPivots(candles, 5);
+  const rsiDir = getRSIDir(closes, pivots);
+  const sEma = scoreEMA(price, ema12, ema25, ema200, cruce);
+  const sRsi = scoreRSI(rsi, rsiDir);
+  const sVp = vp ? scoreVP(price, vp?.vah, vp?.poc, vp?.val) : 0;
+  const p = toPercent(sEma, sRsi, sVp);
+  return {
+    tf:iv, price, ema12, ema25, ema200, rsi, rsiDir, cruce,
+    vah:vp?.vah, poc:vp?.poc, val:vp?.val,
+    sEma, sRsi, sVp, pct:p, sesgo:pctToSesgo(p)
   };
 }
 
@@ -708,17 +677,45 @@ async function runAnalysis(){
 
   for(const asset of Object.keys(ASSETS)){
     analysisResults[asset]={};
-    for(const [profileKey,profile] of Object.entries(PROFILES)){
-      const tfResults=[];
-      for(const tfCfg of profile.tfs){
-        const r=await analyzeOne(asset,tfCfg,refDate);
-        if(r)tfResults.push(r);
+    // Precio actual
+    const priceRef = await analyzeOne(asset, '1d', refDate);
+    const price = priceRef?.price || 0;
+
+    for(const [profileKey, profile] of Object.entries(PROFILES)){
+      // Analizar TF señal y TF aviso
+      const rSignal = await analyzeOne(asset, profile.tfSignal, refDate);
+      const rAviso  = await analyzeOne(asset, profile.tfAviso,  refDate);
+
+      if(!rSignal){ analysisResults[asset][profileKey]=null; continue; }
+
+      // Determinar señal final
+      let finalSesgo;
+      if(rSignal.cruce === 'bull') {
+        // Cruce alcista confirmado en TF señal
+        finalSesgo = {label:'LARGO', cls:'s-largo', dir:'largo', dirPct:100, tipo:'confirmada'};
+      } else if(rSignal.cruce === 'bear') {
+        // Cruce bajista confirmado en TF señal
+        finalSesgo = {label:'CORTO', cls:'s-corto', dir:'corto', dirPct:100, tipo:'confirmada'};
+      } else if(rAviso?.cruce === 'bull') {
+        // Cruce alcista en TF de aviso — alerta de proximidad
+        finalSesgo = {label:'⚠ LARGO', cls:'s-largo-prox', dir:'largo', dirPct:50, tipo:'proximidad'};
+      } else if(rAviso?.cruce === 'bear') {
+        // Cruce bajista en TF de aviso — alerta de proximidad
+        finalSesgo = {label:'⚠ CORTO', cls:'s-corto-prox', dir:'corto', dirPct:50, tipo:'proximidad'};
+      } else {
+        // Sin cruce reciente — usar posición relativa EMA12 vs EMA25 en TF señal
+        const dir = rSignal.ema12 > rSignal.ema25 ? 'largo' : 'corto';
+        finalSesgo = dir === 'largo'
+          ? {label:'LARGO', cls:'s-largo', dir:'largo', dirPct:0, tipo:'tendencia'}
+          : {label:'CORTO', cls:'s-corto', dir:'corto', dirPct:0, tipo:'tendencia'};
       }
-      if(!tfResults.length){analysisResults[asset][profileKey]=null;continue;}
-      let wp=0,tw=0;
-      tfResults.forEach(r=>{wp+=r.pct*r.weight;tw+=r.weight;});
-      const finalPct=tw>0?Math.round(wp/tw):50;
-      analysisResults[asset][profileKey]={tfs:tfResults,finalPct,finalSesgo:pctToSesgo(finalPct),price:tfResults[0].price};
+
+      analysisResults[asset][profileKey] = {
+        tfs: [rSignal, rAviso].filter(Boolean),
+        finalPct: finalSesgo.dir==='largo' ? (finalSesgo.tipo==='confirmada'?85:finalSesgo.tipo==='proximidad'?70:55) : (finalSesgo.tipo==='confirmada'?15:finalSesgo.tipo==='proximidad'?30:45),
+        finalSesgo,
+        price
+      };
     }
   }
 
