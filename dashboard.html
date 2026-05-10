@@ -816,8 +816,8 @@ async function loadDetailData(asset) {
     return calcVPDash(d.candles.filter(c=>c.date>=td.slice(0,7)+'-01'));
   })();
   const vpSemestral = (() => {
-    // Semestral: velas 1d o 1w desde hace 6 meses
-    const d = results['1w'] || results['1d'];
+    // Semestral: velas 1w — misma granularidad que analisis.html
+    const d = results['1w'];
     if(!d) return null;
     const sixMonthsAgo = new Date(Date.now() - 180*86400000).toISOString().slice(0,10);
     return calcVPDash(d.candles.filter(c=>c.date>=sixMonthsAgo));
@@ -2197,9 +2197,13 @@ async function loadVpForAsset(asset) {
       .gte('fecha',td.slice(0,7)+'-01').order('fecha',{ascending:true});
     const monthC = d1d||[];
 
-    // VP Semestral — 1d desde hace 6 meses
+    // VP Semestral — 1w (misma granularidad que analisis.html)
     const sixMonthsAgo = new Date(Date.now() - 180*86400000).toISOString().slice(0,10);
-    const semC = (d1d||[]).filter(r=>r.fecha>=sixMonthsAgo);
+    const {data:d1w} = await sb.from('price_history_daily')
+      .select('open,high,low,close,volume,fecha')
+      .eq('user_id',UID).eq('simbolo',asset).eq('intervalo','1w')
+      .gte('fecha',sixMonthsAgo).order('fecha',{ascending:true});
+    const semC = d1w||[];
 
     const toCandle = r => ({open:+r.open,high:+r.high,low:+r.low,close:+r.close,volume:+r.volume,date:r.fecha});
 
@@ -2210,7 +2214,7 @@ async function loadVpForAsset(asset) {
       s: calcVPDash(semC.length>2 ? semC.map(toCandle) : null),
     };
   } catch(e) {
-    vpCache[asset] = {d:null, w:null, m:null};
+    vpCache[asset] = {d:null, w:null, m:null, s:null};
   }
   return vpCache[asset];
 }
