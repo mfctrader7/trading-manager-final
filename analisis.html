@@ -2160,10 +2160,13 @@ function updateCandleCountdown() {
   if(!ms) { el.textContent=''; return; }
   const remaining = ms - (Date.now() % ms);
   const totalSec = Math.floor(remaining / 1000);
-  const h = Math.floor(totalSec / 3600);
+  const d = Math.floor(totalSec / 86400);
+  const h = Math.floor((totalSec % 86400) / 3600);
   const m = Math.floor((totalSec % 3600) / 60);
   const s = totalSec % 60;
-  if(h > 0) {
+  if(d > 0) {
+    el.textContent = `${d}d:${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+  } else if(h > 0) {
     el.textContent = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
   } else {
     el.textContent = `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
@@ -2184,6 +2187,44 @@ async function fetchLivePrice() {
     const price = await fetchBingxPrice(bingxSym);
     if(!price) return;
     livePrice = price;
+
+    // Actualizar última vela con precio live
+    if(candles.length) {
+      const last = candles[candles.length-1];
+      const candleMs = CANDLE_MS[currentTF] || 86400000;
+      const now = Date.now();
+      const currentCandleStart = Math.floor(now / candleMs) * candleMs;
+
+      if(last.ts < currentCandleStart) {
+        // Nueva vela — descargar de BingX
+        try {
+          const bingxIv = TF_BINGX[currentTF] || currentTF;
+          const newKlines = await fetchBingxKlines(bingxSym, bingxIv, 3);
+          if(newKlines?.length) {
+            // Añadir velas nuevas que no existan
+            const lastTs = last.ts;
+            const nuevas = newKlines.filter(k => k.ts > lastTs);
+            if(nuevas.length) {
+              candles.push(...nuevas);
+              // Guardar en Supabase en background
+              if(SYM) saveToSupabase(nuevas, currentTF).catch(()=>{});
+            } else {
+              // Actualizar última vela con datos frescos
+              const fresh = newKlines[newKlines.length-1];
+              last.close = fresh.close;
+              last.high = Math.max(last.high, fresh.high);
+              last.low = Math.min(last.low, fresh.low);
+            }
+          }
+        } catch(e) {}
+      } else {
+        // Misma vela — solo actualizar close/high/low
+        last.close = price;
+        if(price > last.high) last.high = price;
+        if(price < last.low) last.low = price;
+      }
+    }
+
     document.getElementById('pr-price').textContent=fp(price);
     document.getElementById('last-update').textContent=new Date().toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
     renderPricePanel();
