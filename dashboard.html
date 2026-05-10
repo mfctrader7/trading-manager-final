@@ -663,13 +663,15 @@ async function loadCandles(asset,iv,refDate){
   const days=bufDays[iv]||90;
   const dateOnly=toDateOnly(refDate);
   const start=new Date(new Date(dateOnly+'T00:00:00Z').getTime()-days*86400000).toISOString().slice(0,10);
+  const isIntra = !['1d','1w'].includes(iv);
   const{data}=await sb.from('price_history_daily')
     .select('fecha,open,high,low,close,volume,ts')
     .eq('user_id',UID).eq('simbolo',asset).eq('intervalo',iv)
     .gte('fecha',start).lte('fecha',toDateOnly(refDate))
-    .order(iv==='1d'||iv==='1w'?'fecha':'ts',{ascending:true});
+    .order(isIntra?'ts':'fecha',{ascending:false})
+    .limit(1000);
   if(!data||!data.length)return[];
-  return data.map(r=>({date:r.fecha,ts:r.ts||0,open:+r.open,high:+r.high,low:+r.low,close:+r.close,volume:+r.volume}));
+  return [...data].reverse().map(r=>({date:r.fecha,ts:r.ts||0,open:+r.open,high:+r.high,low:+r.low,close:+r.close,volume:+r.volume}));
 }
 
 async function analyzeOne(asset, iv, refDate) {
