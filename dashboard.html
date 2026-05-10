@@ -924,36 +924,41 @@ function renderAssetList(){
     const barColor=isLargo?'var(--green)':isCorto?'var(--red)':'var(--yellow)';
     const dirPct=sesgo.dirPct||0;
 
-    // TF pills — show directional % 
-    const pills=data.tfs.map(t=>{
-      const ts=pctToSesgo(t.pct);
-      const cls=ts.dir==='largo'?'pill-bull':ts.dir==='corto'?'pill-bear':'pill-neut';
-      const disp=ts.dir==='neutro'?'N':(ts.dir==='largo'?'L':'C')+ts.dirPct+'%';
-      return`<span class="tf-pill ${cls}">${t.label} ${disp}${t.cruce?'⚡':''}</span>`;
-    }).join('');
+    // TF pills — nueva lógica señal/aviso
+    const tfSignal = PROFILES[currentProfile]?.tfSignal?.toUpperCase() || '';
+    const tfAviso  = PROFILES[currentProfile]?.tfAviso?.toUpperCase() || '';
+    const rSignal  = data.tfs?.[0];
+    const rAviso   = data.tfs?.[1];
+
+    const makePill = (r, tfLbl, tipo) => {
+      if(!r) return '';
+      const cruce = r.cruce;
+      const dir = r.ema12 > r.ema25 ? 'largo' : 'corto';
+      const hasSignal = cruce === 'bull' || cruce === 'bear';
+      const isAlcista = cruce === 'bull' || (!hasSignal && dir === 'largo');
+      const cls = tipo === 'signal'
+        ? (isAlcista ? 'pill-bull' : 'pill-bear')
+        : (hasSignal ? 'pill-neut' : isAlcista ? 'pill-bull' : 'pill-bear');
+      const icon = hasSignal ? (tipo === 'signal' ? '⚡' : '⚠') : (isAlcista ? 'L' : 'C');
+      return `<span class="tf-pill ${cls}">${tfLbl}${icon}</span>`;
+    };
+
+    const pills = makePill(rSignal, tfSignal, 'signal') + makePill(rAviso, tfAviso, 'aviso');
 
     const logoUrl = rankCache[asset]?.logo;
     const rank = rankCache[asset]?.rank;
+    const sesgoBadgeCol = sesgo.tipo==='confirmada' ? sesgo.cls : sesgo.tipo==='proximidad' ? (sesgo.dir==='largo'?'s-largo-prox':'s-corto-prox') : (sesgo.dir==='largo'?'s-largo-d':'s-corto-d');
     const rowHTML = `<div class="asset-row" id="asset-row-${asset}" onclick="renderDetail('${asset}')">
       <span class="asset-name" style="display:flex;align-items:center;gap:4px;color:${ASSETS[asset].color}">
-        ${logoUrl?`<img src="${logoUrl}" style="width:16px;height:16px;border-radius:50%;flex-shrink:0;" onerror="this.style.display='none'">`:''}
+        ${logoUrl?`<img src="${logoUrl}" style="width:16px;height:16px;border-radius:50%;flex-shrink:0;" onerror="this.style.display='none'">` : ''}
         ${asset}${rank?`<span style="font-size:0.55rem;color:var(--text3);font-weight:400">#${rank}</span>`:''}
       </span>
       <span class="asset-price">${fp(data.price)}</span>
-      <div>
-        <div class="inline-bar">
-          <div class="inline-fill" style="width:100%;background:var(--bg3)"></div>
-          ${isLargo||isCorto?`<div style="position:absolute;${isLargo?'left:0':'right:0'};top:0;width:${dirPct}%;height:100%;background:${barColor};opacity:0.25;border-radius:3px;"></div>`:''}
-          <div class="inline-ptr" style="left:${pct}%;background:${barColor}"></div>
-        </div>
-        <div style="font-size:0.6rem;color:${barColor};font-weight:700;margin-top:2px;">
-          ${isLargo?'LARGO '+dirPct+'%':isCorto?'CORTO '+dirPct+'%':'NEUTRO'}
-        </div>
-      </div>
+      <div></div>
       <div class="tf-pills">${pills}</div>
-      <span class="sesgo-badge ${sesgo.cls}">${sesgo.label} ${isLargo||isCorto?dirPct+'%':''}</span>
+      <span class="sesgo-badge ${sesgoBadgeCol}">${sesgo.label}</span>
     </div>`;
-    newHTMLMap[asset] = rowHTML;
+        newHTMLMap[asset] = rowHTML;
     return rowHTML;
   }).join('');
 
@@ -1197,57 +1202,60 @@ async function renderDetail(asset){
 
   function tempPanelHTML(t, profileKey) {
     if(!t) return '';
-    const cx=90, cy=58, r=52;
-    const needleRad = (180 + 90 + t.needleAngle) * Math.PI/180;
-    const nx = cx + (r-4)*Math.cos(needleRad);
-    const ny = cy + (r-4)*Math.sin(needleRad);
-
-    const infoTooltip = `EMAs: promedio de señales (alcista/bajista) en ${t.emaTfsLbl}&#10;RSI: promedio RSI en ${t.rsiTfsLbl}&#10;VP: posición del precio respecto a VAH/POC/VAL&#10;Estructura: dirección EMA en ${t.estTfLbl}`;
+    const infoTooltip = `EMAs: promedio de señales (alcista/bajista) en ${t.emaTfsLbl}&#10;RSI: promedio RSI en ${t.rsiTfsLbl}&#10;VP: posición del precio respecto a VAH/POC/VAL&#10;Estructura: dirección EMA en ${t.estTfLbl}&#10;Divergencia: señales de acumulación o distribución basadas en RSI`;
 
     let html = '';
     html += '<div style="margin-top:0.4rem;">';
 
-    // Aguja + label
-    html += '<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">';
-    html += '<svg width="180" height="70" style="overflow:visible;flex-shrink:0;">';
-    html += '<defs><linearGradient id="tg'+profileKey+'" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#4f8ef7"/><stop offset="40%" stop-color="#f5c518"/><stop offset="100%" stop-color="#ff4d6a"/></linearGradient></defs>';
-    html += '<path d="M '+(cx-r)+' '+cy+' A '+r+' '+r+' 0 0 1 '+(cx+r)+' '+cy+'" fill="none" stroke="var(--bg2)" stroke-width="14" stroke-linecap="round"/>';
-    html += '<path d="M '+(cx-r)+' '+cy+' A '+r+' '+r+' 0 0 1 '+(cx+r)+' '+cy+'" fill="none" stroke="url(#tg'+profileKey+')" stroke-width="14" stroke-linecap="round" opacity="0.8"/>';
-    html += '<line x1="'+cx+'" y1="'+cy+'" x2="'+nx.toFixed(1)+'" y2="'+ny.toFixed(1)+'" stroke="'+t.tempCol+'" stroke-width="2.5" stroke-linecap="round"/>';
-    html += '<circle cx="'+cx+'" cy="'+cy+'" r="4" fill="'+t.tempCol+'"/>';
-    html += '<text x="'+(cx-r-2)+'" y="'+(cy+12)+'" font-size="8" fill="#4f8ef7" text-anchor="middle">frío</text>';
-    html += '<text x="'+(cx+r+2)+'" y="'+(cy+12)+'" font-size="8" fill="#ff4d6a" text-anchor="middle">cal.</text>';
-    html += '</svg>';
-    html += '<div style="flex:1;">';
-    html += '<div style="font-size:1rem;font-weight:700;color:'+t.tempCol+';">'+t.tempLabel+'</div>';
-    html += '<div style="font-size:0.62rem;color:var(--text3);">'+t.tempSub+'</div>';
-    html += '</div>';
-    // Botón info
-    html += '<div title="'+infoTooltip+'" style="cursor:help;width:18px;height:18px;border-radius:50%;border:1px solid var(--border2);display:flex;align-items:center;justify-content:center;font-size:0.65rem;color:var(--text3);flex-shrink:0;">ⓘ</div>';
+    // Header con título y ⓘ siempre visible
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">';
+    html += '<span style="font-size:0.6rem;color:var(--text3);letter-spacing:0.04em;">TEMPERATURA</span>';
+    html += '<div title="'+infoTooltip+'" style="cursor:help;width:16px;height:16px;border-radius:50%;border:1px solid var(--border2);display:flex;align-items:center;justify-content:center;font-size:0.6rem;color:var(--text3);flex-shrink:0;">ⓘ</div>';
     html += '</div>';
 
-    // 4 barras
+    // Aguja + label
+    html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">';
+    html += '<svg width="140" height="60" style="overflow:visible;flex-shrink:0;">';
+    html += '<defs><linearGradient id="tg'+profileKey+'" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#4f8ef7"/><stop offset="40%" stop-color="#f5c518"/><stop offset="100%" stop-color="#ff4d6a"/></linearGradient></defs>';
+    const cx2=70, cy2=52, r2=45;
+    const needleRad2 = (180 + 90 + t.needleAngle) * Math.PI/180;
+    const nx2 = cx2 + (r2-4)*Math.cos(needleRad2);
+    const ny2 = cy2 + (r2-4)*Math.sin(needleRad2);
+    html += '<path d="M '+(cx2-r2)+' '+cy2+' A '+r2+' '+r2+' 0 0 1 '+(cx2+r2)+' '+cy2+'" fill="none" stroke="var(--bg2)" stroke-width="12" stroke-linecap="round"/>';
+    html += '<path d="M '+(cx2-r2)+' '+cy2+' A '+r2+' '+r2+' 0 0 1 '+(cx2+r2)+' '+cy2+'" fill="none" stroke="url(#tg'+profileKey+')" stroke-width="12" stroke-linecap="round" opacity="0.8"/>';
+    html += '<line x1="'+cx2+'" y1="'+cy2+'" x2="'+nx2.toFixed(1)+'" y2="'+ny2.toFixed(1)+'" stroke="'+t.tempCol+'" stroke-width="2" stroke-linecap="round"/>';
+    html += '<circle cx="'+cx2+'" cy="'+cy2+'" r="3" fill="'+t.tempCol+'"/>';
+    html += '<text x="'+(cx2-r2-2)+'" y="'+(cy2+10)+'" font-size="7" fill="#4f8ef7" text-anchor="middle">frío</text>';
+    html += '<text x="'+(cx2+r2+2)+'" y="'+(cy2+10)+'" font-size="7" fill="#ff4d6a" text-anchor="middle">cal.</text>';
+    html += '</svg>';
+    html += '<div style="flex:1;min-width:0;">';
+    html += '<div style="font-size:0.85rem;font-weight:700;color:'+t.tempCol+';">'+t.tempLabel+'</div>';
+    html += '<div style="font-size:0.58rem;color:var(--text3);white-space:normal;line-height:1.3;">'+t.tempSub+'</div>';
+    html += '</div>';
+    html += '</div>';
+
+    // 5 barras — EMAs, RSI, VP, Estructura, Divergencia
+    const divCol = t.divMsg ? (t.divMsg.includes('acumulación') || t.divMsg.includes('sobrevendido') ? '#00c9a7' : '#ff4d6a') : 'var(--text3)';
+    const divTxt = t.divMsg ? (t.divMsg.includes('acumulación') ? 'div. alcista' : t.divMsg.includes('distribución') ? 'div. bajista' : t.divMsg.includes('sobrevendido') ? 'sobrevendido' : 'sobrecomprado') : 'sin divergencia';
+    const divW = t.divMsg ? (t.divMsg.includes('alcista') || t.divMsg.includes('sobrevendido') ? 25 : 75) : 50;
+
     const bars = [
       {label:'EMAs', tfsLbl:t.emaTfsLbl, w:t.emaW, col:t.emaCol, txt:t.emaLabel},
       {label:'RSI MTF', tfsLbl:t.rsiTfsLbl, w:t.rsiW, col:t.rsiCol, txt:t.rsiLabel},
       {label:'VP', tfsLbl:t.vpTfsLbl, w:t.vpW, col:t.vpCol, txt:t.vpLabel},
       {label:'Estructura', tfsLbl:t.estTfLbl, w:t.estW, col:t.estCol, txt:t.estLabel},
+      {label:'Divergencia', tfsLbl:'RSI', w:divW, col:divCol, txt:divTxt},
     ];
     bars.forEach(b => {
-      html += '<div style="margin-bottom:6px;">';
+      html += '<div style="margin-bottom:5px;">';
       html += '<div style="display:flex;justify-content:space-between;margin-bottom:2px;">';
-      html += '<span style="font-size:0.63rem;color:var(--text2);">'+b.label+' <span style="font-size:0.58rem;color:var(--text3);">'+b.tfsLbl+'</span></span>';
-      html += '<span style="font-size:0.63rem;font-weight:600;color:'+b.col+';">'+b.txt+'</span>';
+      html += '<span style="font-size:0.6rem;color:var(--text2);">'+b.label+' <span style="font-size:0.57rem;color:var(--text3);">'+b.tfsLbl+'</span></span>';
+      html += '<span style="font-size:0.6rem;font-weight:600;color:'+b.col+';">'+b.txt+'</span>';
       html += '</div>';
-      html += '<div style="height:4px;background:var(--bg2);border-radius:2px;overflow:hidden;">';
+      html += '<div style="height:3px;background:var(--bg2);border-radius:2px;overflow:hidden;">';
       html += '<div style="width:'+b.w+'%;height:100%;background:'+b.col+';border-radius:2px;"></div>';
       html += '</div></div>';
     });
-
-    // Mensaje divergencia
-    if(t.divMsg) {
-      html += '<div style="margin-top:6px;font-size:0.62rem;color:var(--text3);border-top:0.5px solid var(--border);padding-top:5px;">'+t.divMsg+'</div>';
-    }
 
     html += '</div>';
     return html;
