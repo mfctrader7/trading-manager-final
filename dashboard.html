@@ -286,6 +286,30 @@ header{
   <div class="hdr-sep"></div>
   <button class="btn" id="btn-cuaderno" onclick="toggleCuaderno()">📓 Cuaderno</button>
   <div class="hdr-sep" style="margin-left:auto;"></div>
+  <div style="position:relative;">
+    <button class="btn" id="btn-alertas" onclick="toggleAlertasPanel()" style="font-size:0.75rem;">🔔</button>
+    <div id="alertas-panel" style="display:none;position:absolute;right:0;top:32px;background:var(--bg1);border:0.5px solid var(--border);border-radius:8px;padding:10px 14px;min-width:200px;z-index:100;box-shadow:0 4px 12px rgba(0,0,0,0.3);">
+      <div style="font-size:0.65rem;color:var(--text3);margin-bottom:8px;letter-spacing:0.04em;">🔔 ALERTAS DE SONIDO</div>
+      <div style="display:flex;flex-direction:column;gap:6px;">
+        <label style="display:flex;justify-content:space-between;align-items:center;font-size:0.68rem;color:var(--text2);cursor:pointer;">
+          <span>📈 Swing <span style="color:var(--text3);font-size:0.6rem;">1D/8H</span></span>
+          <input type="checkbox" id="alert-swing" onchange="saveAlertPrefs()" style="cursor:pointer;">
+        </label>
+        <label style="display:flex;justify-content:space-between;align-items:center;font-size:0.68rem;color:var(--text2);cursor:pointer;">
+          <span>⚡ Day <span style="color:var(--text3);font-size:0.6rem;">1H/30m</span></span>
+          <input type="checkbox" id="alert-day" onchange="saveAlertPrefs()" style="cursor:pointer;">
+        </label>
+        <label style="display:flex;justify-content:space-between;align-items:center;font-size:0.68rem;color:var(--text2);cursor:pointer;">
+          <span>🎯 Scalp <span style="color:var(--text3);font-size:0.6rem;">15m/5m</span></span>
+          <input type="checkbox" id="alert-scalp" onchange="saveAlertPrefs()" style="cursor:pointer;">
+        </label>
+        <label style="display:flex;justify-content:space-between;align-items:center;font-size:0.68rem;color:var(--text2);cursor:pointer;">
+          <span>🎯 POC <span style="color:var(--text3);font-size:0.6rem;">±0.3%</span></span>
+          <input type="checkbox" id="alert-poc" onchange="saveAlertPrefs()" style="cursor:pointer;">
+        </label>
+      </div>
+    </div>
+  </div>
   <button class="refresh-btn" id="refresh-btn" onclick="updateAll()">⟳ Actualizar todo</button>
   <select class="auto-select" id="auto-select" onchange="setAutoRefresh(this.value)">
     <option value="off">Auto: Off</option>
@@ -757,6 +781,7 @@ async function runAnalysis(){
   document.getElementById('last-update').textContent=new Date().toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
   renderAll();
   await updateSignalHistory();
+  checkSignalAlerts();
 }
 
 
@@ -1652,6 +1677,7 @@ function requestNotificationPermission() {
 }
 
 function showPocNotification(asset, period, price, poc, fromAbove) {
+  if(!alertPrefs.poc) return; // toggle POC desactivado
   const periodLabel = period === 'd' ? 'Diario' : period === 'w' ? 'Semanal' : 'Mensual';
   const dir = fromAbove ? '↓ bajando al' : '↑ subiendo al';
   const msg = `${asset} ${dir} POC ${periodLabel} — ${fp(poc)}`;
@@ -1727,7 +1753,119 @@ function showToast(msg, type) {
   setTimeout(()=>{t.style.opacity='0';t.style.transform='translateY(10px)';t.style.transition='all 0.3s';setTimeout(()=>t.remove(),300);},4000);
 }
 
-// ── BADGE COUNTS ──
+// ── ALERT SOUND SYSTEM ──
+const alertPrefs = { swing: false, day: false, scalp: false, poc: false };
+const signalAlertCooldown = {}; // {asset_profile: timestamp}
+const SIGNAL_COOLDOWN_MS = 15 * 60 * 1000; // 15 min entre alertas de señal
+
+function toggleAlertasPanel() {
+  const p = document.getElementById('alertas-panel');
+  p.style.display = p.style.display === 'none' ? 'block' : 'none';
+}
+
+// Cerrar panel al hacer click fuera
+document.addEventListener('click', e => {
+  const panel = document.getElementById('alertas-panel');
+  const btn = document.getElementById('btn-alertas');
+  if(panel && !panel.contains(e.target) && e.target !== btn) {
+    panel.style.display = 'none';
+  }
+});
+
+function saveAlertPrefs() {
+  alertPrefs.swing = document.getElementById('alert-swing')?.checked || false;
+  alertPrefs.day   = document.getElementById('alert-day')?.checked   || false;
+  alertPrefs.scalp = document.getElementById('alert-scalp')?.checked || false;
+  alertPrefs.poc   = document.getElementById('alert-poc')?.checked   || false;
+  localStorage.setItem('alertPrefs', JSON.stringify(alertPrefs));
+  // Actualizar icono del botón
+  const anyActive = Object.values(alertPrefs).some(v=>v);
+  document.getElementById('btn-alertas').textContent = anyActive ? '🔔' : '🔕';
+}
+
+function loadAlertPrefs() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('alertPrefs') || '{}');
+    Object.assign(alertPrefs, saved);
+    if(document.getElementById('alert-swing')) document.getElementById('alert-swing').checked = alertPrefs.swing;
+    if(document.getElementById('alert-day'))   document.getElementById('alert-day').checked   = alertPrefs.day;
+    if(document.getElementById('alert-scalp')) document.getElementById('alert-scalp').checked = alertPrefs.scalp;
+    if(document.getElementById('alert-poc'))   document.getElementById('alert-poc').checked   = alertPrefs.poc;
+    const anyActive = Object.values(alertPrefs).some(v=>v);
+    const btn = document.getElementById('btn-alertas');
+    if(btn) btn.textContent = anyActive ? '🔔' : '🔕';
+  } catch(e) {}
+}
+
+function playSignalSound(profile, tipo) {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    // Frecuencias según perfil
+    const freqs = {
+      swing: [220, 280],  // grave — señal importante
+      day:   [440, 520],  // medio
+      scalp: [660, 880],  // agudo — urgente
+    };
+    const [f1, f2] = freqs[profile] || [440, 520];
+    const isConfirmed = tipo === 'confirmada';
+
+    osc.frequency.setValueAtTime(f1, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(f2, ctx.currentTime + 0.2);
+    if(isConfirmed) {
+      // Doble pitido para confirmadas
+      osc.frequency.setValueAtTime(f1, ctx.currentTime + 0.3);
+      osc.frequency.exponentialRampToValueAtTime(f2, ctx.currentTime + 0.5);
+    }
+    gain.gain.setValueAtTime(0.3, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + (isConfirmed ? 0.6 : 0.3));
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + (isConfirmed ? 0.6 : 0.3));
+  } catch(e) {}
+}
+
+function checkSignalAlerts() {
+  if(!analysisResults || !Object.keys(analysisResults).length) return;
+  const now = Date.now();
+
+  Object.entries(analysisResults).forEach(([asset, profiles]) => {
+    Object.entries(profiles).forEach(([profileKey, data]) => {
+      if(!data || !alertPrefs[profileKey]) return;
+      const sesgo = data.finalSesgo;
+      if(!sesgo) return;
+
+      // Solo alertar en señales confirmadas o proximidad
+      if(sesgo.tipo !== 'confirmada' && sesgo.tipo !== 'proximidad') return;
+
+      const key = `${asset}_${profileKey}`;
+      const lastAlert = signalAlertCooldown[key] || 0;
+      if(now - lastAlert < SIGNAL_COOLDOWN_MS) return;
+
+      signalAlertCooldown[key] = now;
+
+      const icon = sesgo.dir === 'largo' ? '🟢' : '🔴';
+      const tipoLabel = sesgo.tipo === 'confirmada' ? '⚡ Señal' : '⚠ Proximidad';
+      const profileLabel = PROFILES[profileKey]?.label || profileKey;
+
+      // Toast
+      showToast(`${icon} <b>${asset}</b> — ${tipoLabel} ${sesgo.label}<br><span style="color:var(--text3);font-size:0.62rem;">${profileLabel}</span>`, sesgo.dir === 'largo' ? '#00c9a7' : '#ff4d6a');
+
+      // Notificación del sistema
+      if('Notification' in window && Notification.permission === 'granted') {
+        new Notification(`${icon} ${tipoLabel} — ${asset}`, {
+          body: `${sesgo.label} en ${profileLabel}`
+        });
+      }
+
+      // Sonido
+      playSignalSound(profileKey, sesgo.tipo);
+    });
+  });
+}
 function updateBadges(){
   Object.keys(PROFILES).forEach(pKey=>{
     const tab=document.getElementById('tab-'+pKey);
@@ -1833,6 +1971,7 @@ document.addEventListener('DOMContentLoaded',async ()=>{
   fetchRanks();
   // Solicitar permiso de notificaciones del sistema
   requestNotificationPermission();
+  loadAlertPrefs();
 
   // Detectar gap desde última actualización real
   const lastReal = parseInt(localStorage.getItem('lastUpdateTime') || '0');
