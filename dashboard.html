@@ -1018,17 +1018,23 @@ function renderAlerts(){
   const alerts=[];
   for(const asset of Object.keys(ASSETS)){
     const d=analysisResults[asset]?.[currentProfile];
-    if(!d)continue;
-    const trigTFs=d.tfs.filter(t=>t.pct>ALERT_LONG||t.pct<ALERT_SHORT);
-    if(!trigTFs.length)continue;
-    // Only alert if at least 2 TFs are signaling
-    if(trigTFs.length<1)continue;
-    const isLong=d.finalPct>ALERT_LONG;
-    const isShort=d.finalPct<ALERT_SHORT;
-    if(!isLong&&!isShort)continue;
-    alerts.push({asset,data:d,trigTFs,isLong});
+    if(!d) continue;
+    const sesgo = d.finalSesgo;
+    if(!sesgo) continue;
+    if(sesgo.tipo !== 'confirmada' && sesgo.tipo !== 'proximidad') continue;
+    alerts.push({asset, data:d, sesgo});
   }
-  alerts.sort((a,b)=>b.isLong?(b.data.finalPct-a.data.finalPct):(a.data.finalPct-b.data.finalPct));
+
+  alerts.sort((a,b)=>{
+    const order = {confirmada:0, proximidad:1};
+    const oa = order[a.sesgo.tipo] ?? 2;
+    const ob = order[b.sesgo.tipo] ?? 2;
+    if(oa !== ob) return oa - ob;
+    const ta = (signalCache[a.asset+'_'+currentProfile]?.detected_at) || '';
+    const tb = (signalCache[b.asset+'_'+currentProfile]?.detected_at) || '';
+    return tb.localeCompare(ta);
+  });
+
   document.getElementById('alert-count').textContent=alerts.length+' alertas activas';
 
   if(!alerts.length){
@@ -1037,29 +1043,36 @@ function renderAlerts(){
   }
 
   document.getElementById('alerts-list').innerHTML=alerts.map(a=>{
-    const col=a.isLong?'var(--green)':'var(--red)';
-    const icon=a.isLong?'🟢':'🔴';
-    const pills=a.trigTFs.map(t=>{
-      const cls=t.pct>65?'pill-bull':'pill-bear';
-      return`<span class="tf-pill ${cls}">${t.label} ${t.pct}%${t.cruce?'⚡':''}</span>`;
-    }).join('');
-    const signals=a.trigTFs.map(t=>{
-      const parts=[];
-      if(t.cruce==='bull')parts.push('cruce alcista reciente');
-      if(t.cruce==='bear')parts.push('cruce bajista reciente');
-      if(t.rsiDir==='up'&&t.rsi<45)parts.push('RSI subiendo desde zona baja');
-      if(t.rsiDir==='down'&&t.rsi>55)parts.push('RSI cayendo desde zona alta');
-      return parts.length?`${t.label}: ${parts.join(', ')}`:'';
-    }).filter(Boolean).join(' · ');
+    const col = a.sesgo.dir==='largo' ? 'var(--green)' : 'var(--red)';
+    const icon = a.sesgo.dir==='largo' ? '🟢' : '🔴';
+    const tipoIcon = a.sesgo.tipo==='confirmada' ? '⚡' : '⚠';
+    const tipoLabel = a.sesgo.tipo==='confirmada' ? 'Señal confirmada' : 'Proximidad';
+    const rSignal = a.data.tfs?.[0];
+    const rAviso  = a.data.tfs?.[1];
+    const tfSignal = PROFILES[currentProfile]?.tfSignal?.toUpperCase() || '';
+    const tfAviso  = PROFILES[currentProfile]?.tfAviso?.toUpperCase() || '';
+
+    const makePillAlert = (r, tfLbl) => {
+      if(!r) return '';
+      const cruce = r.cruce;
+      const dir = r.ema12 > r.ema25 ? 'largo' : 'corto';
+      const isAlcista = cruce === 'bull' || (!cruce && dir === 'largo');
+      const cls = isAlcista ? 'pill-bull' : 'pill-bear';
+      const ic = cruce ? (cruce==='bull'?'⚡L':'⚡C') : (isAlcista?'L':'C');
+      return `<span class="tf-pill ${cls}">${tfLbl} ${ic}</span>`;
+    };
+
+    const pills = makePillAlert(rSignal, tfSignal) + makePillAlert(rAviso, tfAviso);
+    const age = formatSignalAge((signalCache[a.asset+'_'+currentProfile]||{}).detected_at);
 
     return`<div class="alert-card" onclick="renderDetail('${a.asset}')">
       <div class="alert-header">
         <span class="alert-asset" style="color:${ASSETS[a.asset].color}">${icon} ${a.asset}</span>
-        <span style="font-size:0.75rem;font-weight:800;color:${col}">${a.data.finalSesgo.dir==='neutro'?'NEUTRO':a.data.finalSesgo.dirPct+'%'}</span>
-        <span style="font-size:0.62rem;color:var(--yellow);margin-left:auto;">${formatSignalAge((signalCache[a.asset+'_'+currentProfile]||{}).detected_at)}</span>
+        <span style="font-size:0.68rem;font-weight:700;color:${col}">${tipoIcon} ${a.sesgo.label}</span>
+        <span style="font-size:0.62rem;color:var(--yellow);margin-left:auto;">${age}</span>
       </div>
       <div class="alert-tf-row">${pills}</div>
-      ${signals?`<div class="alert-signal">${signals}</div>`:''}
+      <div class="alert-signal">${tipoLabel} — ${PROFILES[currentProfile]?.label||''}</div>
     </div>`;
   }).join('');
 }
