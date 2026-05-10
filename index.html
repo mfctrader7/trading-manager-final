@@ -738,6 +738,8 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
             const [futurosDrawdownFilter, setFuturosDrawdownFilter] = useState('all');
             const [futurosTpFilter, setFuturosTpFilter] = useState('all');
             const [showTpBreakdown, setShowTpBreakdown] = useState(false);
+            const [withdrawals, setWithdrawals] = useState([]);
+            const [withdrawalsLoading, setWithdrawalsLoading] = useState(false);
             const [spotPnlFilter, setSpotPnlFilter] = useState('all');
             const [dcaPnlFilter, setDcaPnlFilter] = useState('all');
             const [dcaOperaciones, setDcaOperaciones] = useState([]);
@@ -1607,6 +1609,26 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                     alert('Error buscando en CoinGecko: ' + err.message);
                 } finally {
                     setAssetSearching(false);
+                }
+            };
+
+            const loadWithdrawals = async () => {
+                setWithdrawalsLoading(true);
+                try {
+                    const response = await fetch('/api/bingx-real', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ path: '/openApi/api/v3/capital/withdraw/history', coin: 'USDT', limit: '100' })
+                    });
+                    const data = await response.json();
+                    const list = Array.isArray(data) ? data : (data.data || []);
+                    // Filter completed withdrawals (status 6)
+                    const completed = list.filter(w => w.status === 6 || w.status === '6');
+                    setWithdrawals(completed);
+                } catch(e) {
+                    console.error('Error loading withdrawals:', e);
+                } finally {
+                    setWithdrawalsLoading(false);
                 }
             };
 
@@ -8746,6 +8768,59 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                 );
             }
 
+            if (currentView === 'withdrawals') {
+                const totalWithdrawn = withdrawals.reduce((s, w) => s + parseFloat(w.amount || 0), 0);
+                return React.createElement('div', { style: { padding: '2rem', maxWidth: '900px', margin: '0 auto' } },
+                    React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' } },
+                        React.createElement('h1', { style: styles.title }, '💸 Retiros USDT'),
+                        React.createElement('button', {
+                            onClick: loadWithdrawals,
+                            disabled: withdrawalsLoading,
+                            style: { background: 'rgba(124,157,212,0.1)', border: '1px solid rgba(124,157,212,0.25)', color: '#7C9DD4', borderRadius: '8px', padding: '0.5rem 1rem', cursor: 'pointer', fontSize: '0.85rem' }
+                        }, withdrawalsLoading ? '⟳ Cargando...' : '↻ Actualizar')
+                    ),
+                    // Summary card
+                    React.createElement('div', { style: { background: 'rgba(37,40,54,0.8)', border: '1px solid rgba(124,157,212,0.2)', borderRadius: '12px', padding: '1.25rem 1.5rem', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '2rem' } },
+                        React.createElement('div', null,
+                            React.createElement('div', { style: { fontSize: '0.75rem', color: '#555e7a', marginBottom: '0.25rem' } }, 'Total retirado'),
+                            React.createElement('div', { style: { fontSize: '1.5rem', fontWeight: '800', color: '#88D498' } }, '$' + totalWithdrawn.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' USDT')
+                        ),
+                        React.createElement('div', null,
+                            React.createElement('div', { style: { fontSize: '0.75rem', color: '#555e7a', marginBottom: '0.25rem' } }, 'Nº retiros'),
+                            React.createElement('div', { style: { fontSize: '1.5rem', fontWeight: '800', color: '#E8ECEF' } }, withdrawals.length)
+                        )
+                    ),
+                    // Table
+                    withdrawalsLoading
+                        ? React.createElement('div', { style: { textAlign: 'center', color: '#555e7a', padding: '2rem' } }, '⟳ Cargando retiros...')
+                        : withdrawals.length === 0
+                            ? React.createElement('div', { style: { textAlign: 'center', color: '#555e7a', padding: '2rem' } }, 'No se encontraron retiros completados')
+                            : React.createElement('div', { style: { overflowX: 'auto' } },
+                                React.createElement('table', { style: { width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' } },
+                                    React.createElement('thead', null,
+                                        React.createElement('tr', null,
+                                            ['Fecha', 'Importe', 'Red', 'Dirección', 'Comisión'].map(h =>
+                                                React.createElement('th', { key: h, style: { padding: '0.6rem 0.75rem', textAlign: h === 'Importe' || h === 'Comisión' ? 'right' : 'left', color: '#A8B2C1', fontWeight: '600', fontSize: '0.75rem', textTransform: 'uppercase', borderBottom: '1px solid #3a3f52', whiteSpace: 'nowrap' } }, h)
+                                            )
+                                        )
+                                    ),
+                                    React.createElement('tbody', null,
+                                        withdrawals.map((w, i) => {
+                                            const date = new Date(w.applyTime).toLocaleDateString('es-ES', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+                                            return React.createElement('tr', { key: w.id || i, style: { borderBottom: '1px solid rgba(58,63,82,0.3)' } },
+                                                React.createElement('td', { style: { padding: '0.6rem 0.75rem', color: '#A8B2C1' } }, date),
+                                                React.createElement('td', { style: { padding: '0.6rem 0.75rem', color: '#88D498', fontWeight: '700', textAlign: 'right' } }, '+$' + parseFloat(w.amount).toLocaleString('es-ES', { minimumFractionDigits: 2 })),
+                                                React.createElement('td', { style: { padding: '0.6rem 0.75rem', color: '#E8ECEF' } }, w.network || '—'),
+                                                React.createElement('td', { style: { padding: '0.6rem 0.75rem', color: '#555e7a', fontSize: '0.78rem', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, w.address || '—'),
+                                                React.createElement('td', { style: { padding: '0.6rem 0.75rem', color: '#A8B2C1', textAlign: 'right' } }, parseFloat(w.transactionFee || 0) > 0 ? '-$' + w.transactionFee : '—')
+                                            );
+                                        })
+                                    )
+                                )
+                            )
+                );
+            }
+
             if (currentView === 'projections') {
                 const pCapital = projForm.capital || 500;
                 const pRoi = projForm.roi || 19.97;
@@ -12306,7 +12381,8 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                                 openDropdown === 'history' && React.createElement('div', { style: dropdownMenuStyle },
                                     React.createElement('button', { onClick: () => { setCurrentView('closed-operations'); loadExecutedTPsHistory(); setOpenDropdown(null); }, style: dropdownItemStyle }, '📋 Historial Operaciones'),
                                     React.createElement('button', { onClick: () => { loadDcaSaved(); setCurrentView('dca-history'); setOpenDropdown(null); }, style: dropdownItemStyle }, '📚 Historial DCA'),
-                                    React.createElement('button', { onClick: () => { loadProjections(); setCurrentView('projections'); setOpenDropdown(null); }, style: dropdownItemStyle }, '📐 Proyecciones')
+                                    React.createElement('button', { onClick: () => { loadProjections(); setCurrentView('projections'); setOpenDropdown(null); }, style: dropdownItemStyle }, '📐 Proyecciones'),
+                                    React.createElement('button', { onClick: () => { loadWithdrawals(); setCurrentView('withdrawals'); setOpenDropdown(null); }, style: dropdownItemStyle }, '💸 Retiros')
                                 )
                             ),
 
