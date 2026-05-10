@@ -1096,54 +1096,153 @@ async function renderDetail(asset){
   const TF_ORDER = ['1m','5m','15m','30m','1h','2h','4h','8h','12h','1d','1w'];
   const TF_LBL2 = {'1m':'1m','5m':'5m','15m':'15m','30m':'30m','1h':'1H','2h':'2H','4h':'4H','8h':'8H','12h':'12H','1d':'1D','1w':'1W'};
 
-  // ── GAUGE SVG ──
-  function gaugeSVG(pct, dir) {
-    const W=180, H=95;
-    // pct = dirPct (0-100 strength), dir = 'largo'|'corto'|'neutro'
-    // Map to angle: -90 (full corto) to +90 (full largo), 0 = neutro
-    let angle = 0;
-    if(dir==='largo') angle = (pct/100)*90;
-    else if(dir==='corto') angle = -(pct/100)*90;
+  // ── NUEVO PANEL DE TEMPERATURA ──
+  function calcTempPanel(asset, profileKey) {
+    const profile = PROFILES[profileKey];
+    if(!profile || !analysisResults[asset]) return null;
 
-    const cx=W/2, cy=H-10, r=65, r2=45;
-    // Arc path helper
-    const arc = (startDeg, endDeg, radius, col, opacity=1, sw=18) => {
-      const s=startDeg*Math.PI/180, e=endDeg*Math.PI/180;
-      const x1=cx+radius*Math.cos(s), y1=cy+radius*Math.sin(s);
-      const x2=cx+radius*Math.cos(e), y2=cy+radius*Math.sin(e);
-      const large = Math.abs(endDeg-startDeg)>180?1:0;
-      return '<path d="M'+x1+' '+y1+' A'+radius+' '+radius+' 0 '+large+' 1 '+x2+' '+y2+'" fill="none" stroke="'+col+'" stroke-width="'+sw+'" opacity="'+opacity+'" stroke-linecap="round"/>';
-    };
+    const tfSignal = profile.tfSignal;
+    const tfAviso  = profile.tfAviso;
 
-    let svg = '<svg width="'+W+'" height="'+H+'" style="overflow:visible;">';
-    // Background arc (full semicircle)
-    svg += arc(180, 360, r, 'var(--bg2)', 1, 20);
-    // Colored zones
-    svg += arc(180, 210, r, '#ff4d6a', 0.9, 20);   // Corto fuerte
-    svg += arc(210, 240, r, '#ff4d6a', 0.5, 20);   // Corto débil
-    svg += arc(240, 300, r, '#f5c518', 0.7, 20);   // Neutro
-    svg += arc(300, 330, r, '#00c9a7', 0.5, 20);   // Largo débil
-    svg += arc(330, 360, r, '#00c9a7', 0.9, 20);   // Largo fuerte
+    // TFs por indicador según perfil
+    const emaTfs    = profileKey==='swing' ? ['1w','1d'] : profileKey==='day' ? ['1d','8h','4h'] : ['1h','30m','15m'];
+    const rsiTfs    = profileKey==='swing' ? ['1w','1d','12h'] : profileKey==='day' ? ['8h','4h','2h'] : ['1h','30m','15m'];
+    const vpTfs     = profileKey==='swing' ? ['w','m'] : profileKey==='day' ? ['w','d'] : ['d'];
+    const estTf     = profileKey==='swing' ? '1w' : profileKey==='day' ? '4h' : '15m';
+    const estTfLbl  = profileKey==='swing' ? '1W' : profileKey==='day' ? '4H' : '15m';
+    const emaTfsLbl = profileKey==='swing' ? '1W · 1D' : profileKey==='day' ? '1D · 8H · 4H' : '1H · 30m · 15m';
+    const rsiTfsLbl = profileKey==='swing' ? '1W · 1D · 12H' : profileKey==='day' ? '8H · 4H · 2H' : '1H · 30m · 15m';
+    const vpTfsLbl  = profileKey==='swing' ? 'Mensual · Semanal' : profileKey==='day' ? 'Semanal · Diario' : 'Diario';
 
-    // Needle
-    const needleAngle = (180 + 90 + angle) * Math.PI/180;
-    const nx = cx + (r-2)*Math.cos(needleAngle);
-    const ny = cy + (r-2)*Math.sin(needleAngle);
-    const needleCol = dir==='largo'?'#00c9a7':dir==='corto'?'#ff4d6a':'#f5c518';
-    svg += '<line x1="'+cx+'" y1="'+cy+'" x2="'+nx+'" y2="'+ny+'" stroke="'+needleCol+'" stroke-width="3" stroke-linecap="round"/>';
-    svg += '<circle cx="'+cx+'" cy="'+cy+'" r="5" fill="'+needleCol+'"/>';
+    // EMA score: promedio de señales por TF
+    let emaSum = 0, emaCount = 0;
+    emaTfs.forEach(tf => {
+      const r = analysisResults[asset]?.[profileKey]?.tfs?.find(t => t?.tf === tf)
+             || Object.values(analysisResults[asset]||{}).flatMap(p=>p?.tfs||[]).find(t=>t?.tf===tf);
+      if(r) {
+        const sig = r.ema12 > r.ema25 ? 1 : r.ema12 < r.ema25 ? -1 : 0;
+        emaSum += sig; emaCount++;
+      }
+    });
+    const emaAvg = emaCount ? emaSum/emaCount : 0; // -1 a +1
+    const emaW = Math.round(50 + emaAvg*50);
+    const emaCol = emaAvg > 0.3 ? '#00c9a7' : emaAvg < -0.3 ? '#ff4d6a' : '#f5c518';
+    const emaLabel = emaAvg > 0.5 ? 'alcista' : emaAvg > 0.1 ? 'recuperación' : emaAvg < -0.5 ? 'bajista' : emaAvg < -0.1 ? 'debilitando' : 'lateral';
 
-    // Labels
-    svg += '<text x="'+(cx-r-8)+'" y="'+(cy+4)+'" font-size="8" fill="#ff4d6a" text-anchor="middle" font-weight="bold">C</text>';
-    svg += '<text x="'+(cx+r+8)+'" y="'+(cy+4)+'" font-size="8" fill="#00c9a7" text-anchor="middle" font-weight="bold">L</text>';
-    svg += '<text x="'+cx+'" y="'+(cy-r-6)+'" font-size="8" fill="#f5c518" text-anchor="middle">N</text>';
+    // RSI score: promedio RSI de TFs
+    let rsiSum = 0, rsiCount = 0;
+    rsiTfs.forEach(tf => {
+      const r = Object.values(analysisResults[asset]||{}).flatMap(p=>p?.tfs||[]).find(t=>t?.tf===tf);
+      if(r?.rsi != null) { rsiSum += r.rsi; rsiCount++; }
+    });
+    const rsiAvg = rsiCount ? rsiSum/rsiCount : 50;
+    const rsiW = Math.round(rsiAvg);
+    const rsiCol = rsiAvg > 70 ? '#ff4d6a' : rsiAvg > 55 ? '#f5c518' : rsiAvg < 30 ? '#4f8ef7' : rsiAvg < 45 ? '#f5c518' : '#00c9a7';
+    const rsiLabel = rsiAvg > 70 ? 'sobrecomprado · '+rsiAvg.toFixed(0) : rsiAvg > 55 ? 'caliente · '+rsiAvg.toFixed(0) : rsiAvg < 30 ? 'sobrevendido · '+rsiAvg.toFixed(0) : rsiAvg < 45 ? 'frío · '+rsiAvg.toFixed(0) : 'neutro · '+rsiAvg.toFixed(0);
 
-    // Score text
-    const scoreText = dir==='neutro'?'NEUTRO':(dir==='largo'?'LARGO ':'CORTO ')+(pct||0)+'%';
-    svg += '<text x="'+cx+'" y="'+(cy+18)+'" font-size="9" fill="'+needleCol+'" text-anchor="middle" font-weight="bold">'+scoreText+'</text>';
+    // VP score: posición en períodos
+    let vpSum = 0, vpCount = 0;
+    vpTfs.forEach(period => {
+      const vp = period==='d' ? dd.vpDaily : period==='w' ? dd.vpWeekly : dd.vpMonthly;
+      if(vp && price) {
+        let s = 0;
+        if(price > vp.vah) s = 2;
+        else if(price > vp.poc) s = 1;
+        else if(price > vp.val) s = -1;
+        else s = -2;
+        vpSum += s; vpCount++;
+      }
+    });
+    const vpAvg = vpCount ? vpSum/vpCount : 0; // -2 a +2
+    const vpW = Math.round(50 + vpAvg*25);
+    const vpCol = vpAvg > 1 ? '#00c9a7' : vpAvg > 0 ? '#f5c518' : vpAvg < -1 ? '#ff4d6a' : '#f5c518';
+    const vpLabel = vpAvg >= 1.5 ? 'sobre VAH' : vpAvg >= 0.5 ? 'entre POC-VAH' : vpAvg <= -1.5 ? 'bajo VAL' : vpAvg <= -0.5 ? 'entre VAL-POC' : 'cerca del POC';
 
-    svg += '</svg>';
-    return svg;
+    // Estructura: basada en cruce del TF señal del perfil
+    const rSignal = analysisResults[asset]?.[profileKey]?.tfs?.[0];
+    const estDir = rSignal ? (rSignal.ema12 > rSignal.ema25 ? 1 : -1) : 0;
+    const estW = estDir > 0 ? 75 : 25;
+    const estCol = estDir > 0 ? '#00c9a7' : '#ff4d6a';
+    const estLabel = estDir > 0 ? 'alcista' : 'bajista';
+
+    // Divergencia RSI — algoritmo adaptado de TradingView
+    let divMsg = null;
+    const rsiRef = Object.values(analysisResults[asset]||{}).flatMap(p=>p?.tfs||[]).find(t=>t?.tf===tfSignal);
+    if(rsiRef?.rsi != null) {
+      // Simplificado: sobrevendido + EMA recuperando = acumulación posible
+      if(rsiAvg < 40 && emaAvg > -0.3) divMsg = '⚡ Posible acumulación — RSI bajo con EMAs recuperando';
+      else if(rsiAvg > 65 && emaAvg < 0.3) divMsg = '⚠ Posible distribución — RSI alto con EMAs debilitando';
+      else if(rsiAvg < 35) divMsg = '🧊 Zona de sobrevendido — vigilar cruce alcista en TF inferior';
+      else if(rsiAvg > 70) divMsg = '🔥 Zona de sobrecomprado — posible descanso o corrección';
+    }
+
+    // Temperatura global: promedio ponderado
+    const tempScore = (emaAvg*0.3 + (rsiAvg-50)/50*0.25 + vpAvg/2*0.25 + estDir*0.2);
+    const tempW = Math.round(50 + tempScore*50);
+    const needleAngle = tempScore * 80; // -80 a +80 grados
+    const tempCol = tempScore > 0.3 ? '#00c9a7' : tempScore < -0.3 ? '#ff4d6a' : '#f5c518';
+    const tempLabel = tempScore > 0.5 ? 'CALIENTE' : tempScore > 0.15 ? 'TIBIO' : tempScore < -0.5 ? 'FRÍO' : tempScore < -0.15 ? 'ENFRIANDO' : 'LATERAL';
+    const tempSub = tempScore > 0.5 ? 'momentum alcista fuerte' : tempScore > 0.15 ? 'sesgo positivo moderado' : tempScore < -0.5 ? 'presión bajista fuerte' : tempScore < -0.15 ? 'sesgo negativo moderado' : 'señales mixtas — precaución';
+
+    return { emaW, emaCol, emaLabel, emaTfsLbl, rsiW, rsiAvg, rsiCol, rsiLabel, rsiTfsLbl, vpW, vpCol, vpLabel, vpTfsLbl, estW, estCol, estLabel, estTfLbl, needleAngle, tempCol, tempLabel, tempSub, divMsg };
+  }
+
+  function tempPanelHTML(t, profileKey) {
+    if(!t) return '';
+    const cx=90, cy=58, r=52;
+    const needleRad = (180 + 90 + t.needleAngle) * Math.PI/180;
+    const nx = cx + (r-4)*Math.cos(needleRad);
+    const ny = cy + (r-4)*Math.sin(needleRad);
+
+    const infoTooltip = `EMAs: promedio de señales (alcista/bajista) en ${t.emaTfsLbl}&#10;RSI: promedio RSI en ${t.rsiTfsLbl}&#10;VP: posición del precio respecto a VAH/POC/VAL&#10;Estructura: dirección EMA en ${t.estTfLbl}`;
+
+    let html = '';
+    html += '<div style="margin-top:0.4rem;">';
+
+    // Aguja + label
+    html += '<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">';
+    html += '<svg width="180" height="70" style="overflow:visible;flex-shrink:0;">';
+    html += '<defs><linearGradient id="tg'+profileKey+'" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#4f8ef7"/><stop offset="40%" stop-color="#f5c518"/><stop offset="100%" stop-color="#ff4d6a"/></linearGradient></defs>';
+    html += '<path d="M '+(cx-r)+' '+cy+' A '+r+' '+r+' 0 0 1 '+(cx+r)+' '+cy+'" fill="none" stroke="var(--bg2)" stroke-width="14" stroke-linecap="round"/>';
+    html += '<path d="M '+(cx-r)+' '+cy+' A '+r+' '+r+' 0 0 1 '+(cx+r)+' '+cy+'" fill="none" stroke="url(#tg'+profileKey+')" stroke-width="14" stroke-linecap="round" opacity="0.8"/>';
+    html += '<line x1="'+cx+'" y1="'+cy+'" x2="'+nx.toFixed(1)+'" y2="'+ny.toFixed(1)+'" stroke="'+t.tempCol+'" stroke-width="2.5" stroke-linecap="round"/>';
+    html += '<circle cx="'+cx+'" cy="'+cy+'" r="4" fill="'+t.tempCol+'"/>';
+    html += '<text x="'+(cx-r-2)+'" y="'+(cy+12)+'" font-size="8" fill="#4f8ef7" text-anchor="middle">frío</text>';
+    html += '<text x="'+(cx+r+2)+'" y="'+(cy+12)+'" font-size="8" fill="#ff4d6a" text-anchor="middle">cal.</text>';
+    html += '</svg>';
+    html += '<div style="flex:1;">';
+    html += '<div style="font-size:1rem;font-weight:700;color:'+t.tempCol+';">'+t.tempLabel+'</div>';
+    html += '<div style="font-size:0.62rem;color:var(--text3);">'+t.tempSub+'</div>';
+    html += '</div>';
+    // Botón info
+    html += '<div title="'+infoTooltip+'" style="cursor:help;width:18px;height:18px;border-radius:50%;border:1px solid var(--border2);display:flex;align-items:center;justify-content:center;font-size:0.65rem;color:var(--text3);flex-shrink:0;">ⓘ</div>';
+    html += '</div>';
+
+    // 4 barras
+    const bars = [
+      {label:'EMAs', tfsLbl:t.emaTfsLbl, w:t.emaW, col:t.emaCol, txt:t.emaLabel},
+      {label:'RSI MTF', tfsLbl:t.rsiTfsLbl, w:t.rsiW, col:t.rsiCol, txt:t.rsiLabel},
+      {label:'VP', tfsLbl:t.vpTfsLbl, w:t.vpW, col:t.vpCol, txt:t.vpLabel},
+      {label:'Estructura', tfsLbl:t.estTfLbl, w:t.estW, col:t.estCol, txt:t.estLabel},
+    ];
+    bars.forEach(b => {
+      html += '<div style="margin-bottom:6px;">';
+      html += '<div style="display:flex;justify-content:space-between;margin-bottom:2px;">';
+      html += '<span style="font-size:0.63rem;color:var(--text2);">'+b.label+' <span style="font-size:0.58rem;color:var(--text3);">'+b.tfsLbl+'</span></span>';
+      html += '<span style="font-size:0.63rem;font-weight:600;color:'+b.col+';">'+b.txt+'</span>';
+      html += '</div>';
+      html += '<div style="height:4px;background:var(--bg2);border-radius:2px;overflow:hidden;">';
+      html += '<div style="width:'+b.w+'%;height:100%;background:'+b.col+';border-radius:2px;"></div>';
+      html += '</div></div>';
+    });
+
+    // Mensaje divergencia
+    if(t.divMsg) {
+      html += '<div style="margin-top:6px;font-size:0.62rem;color:var(--text3);border-top:0.5px solid var(--border);padding-top:5px;">'+t.divMsg+'</div>';
+    }
+
+    html += '</div>';
+    return html;
   }
 
   // ── VP SVG — unified with D/W/M price lines ──
@@ -1235,34 +1334,9 @@ async function renderDetail(asset){
   html += '</div>';
   if(dd.openD) html += '<div style="font-size:0.68rem;color:var(--text3);">Open D: <span style="color:#4f8ef7;font-weight:600;">'+fp(dd.openD)+'</span></div>';
 
-  // Gauge
-  if(sesgo) {
-    html += '<div style="display:flex;justify-content:center;margin-top:0.3rem;">';
-    html += gaugeSVG(sesgo.dirPct||0, sesgo.dir);
-    html += '</div>';
-  }
-
-  // Score per TF
-  if(profData) {
-    html += '<div style="margin-top:0.9rem;border-top:1px solid var(--border);padding-top:0.6rem;">';
-    profData.tfs.forEach(t => {
-      const ts=pctToSesgo(t.pct);
-      const col=ts.dir==='largo'?'var(--green)':ts.dir==='corto'?'var(--red)':'var(--yellow)';
-      const barW=ts.dir==='neutro'?50:ts.dirPct;
-      const barCol=ts.dir==='largo'?'var(--green)':ts.dir==='corto'?'var(--red)':'var(--yellow)';
-      html += '<div style="margin-bottom:5px;">';
-      html += '<div style="display:flex;justify-content:space-between;font-size:0.68rem;margin-bottom:2px;">';
-      html += '<span style="color:var(--text2);font-weight:700;">'+t.label+'</span>';
-      html += '<span style="color:'+col+';font-weight:800;">'+ts.label+(ts.dir!=='neutro'?' '+ts.dirPct+'%':'')+'</span>';
-      html += '<span style="font-size:0.58rem;color:var(--text3);">E'+(t.sEma>=0?'+':'')+t.sEma+' R'+(t.sRsi>=0?'+':'')+t.sRsi+' V'+(t.sVp>=0?'+':'')+t.sVp+'</span>';
-      html += '</div>';
-      html += '<div style="height:3px;background:var(--bg2);border-radius:2px;overflow:hidden;">';
-      html += '<div style="height:100%;width:'+barW+'%;background:'+barCol+';border-radius:2px;opacity:0.7;"></div>';
-      html += '</div>';
-      html += '</div>';
-    });
-    html += '</div>';
-  }
+  // Nuevo panel de temperatura
+  const tempData = calcTempPanel(asset, currentProfile);
+  html += tempPanelHTML(tempData, currentProfile);
   html += '</div>'; // end hero
 
   // ── COLUMNA CENTRAL ──
