@@ -8772,7 +8772,13 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                 const totalWithdrawn = withdrawals.reduce((s, w) => s + parseFloat(w.amount || 0), 0);
                 return React.createElement('div', { style: { padding: '2rem', maxWidth: '900px', margin: '0 auto' } },
                     React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' } },
-                        React.createElement('h1', { style: styles.title }, '💸 Retiros USDT'),
+                        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '1rem' } },
+                            React.createElement('button', {
+                                onClick: () => setCurrentView('dashboard'),
+                                style: { background: 'none', border: 'none', color: '#7C9DD4', cursor: 'pointer', fontSize: '0.85rem', padding: '0.3rem 0.6rem', borderRadius: '6px' }
+                            }, '← Volver'),
+                            React.createElement('h1', { style: styles.title }, '💸 Retiros USDT')
+                        ),
                         React.createElement('button', {
                             onClick: loadWithdrawals,
                             disabled: withdrawalsLoading,
