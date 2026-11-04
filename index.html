@@ -1835,6 +1835,13 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
                         company_name: data.company_name || '',
                         total_capital: parseFloat(data.total_capital || 98500)
                     });
+                    // Compartir sesión con analisis.html / dashboard.html (mismo origen)
+                    try {
+                        localStorage.setItem('tm_session', JSON.stringify({
+                            user_id: userId, username: data.username, role: data.role,
+                            display_name: data.display_name || data.username, ts: Date.now()
+                        }));
+                    } catch(e) {}
                     const connected = await testSupabaseConnection();
                     if (connected) {
                         // Pasar userId directamente para evitar problema de timing con React state
@@ -1946,6 +1953,7 @@ window.renderProjChartFn = function(capital, r, totalOps, step) {
             };
 
             const handleLogout = () => {
+                try { localStorage.removeItem('tm_session'); } catch(e) {}
                 setUser(null);
                 setOperations([]);
                 setEmail('');
