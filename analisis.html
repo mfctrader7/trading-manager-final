@@ -482,6 +482,11 @@ header {
 // ============================================================
 const SB_URL = 'https://rdnxrmmgcsieuttwucty.supabase.co';
 const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJkbnhybW1nY3NpZXV0dHd1Y3R5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjkxODQxNTIsImV4cCI6MjA4NDc2MDE1Mn0.aAeygiTwO9TvFJcrpVYe5GYpOYStiGtTwPmWrk5D6n4';
+// Sesión compartida con index.html (mismo origen)
+let TM_SESSION = null;
+try { TM_SESSION = JSON.parse(localStorage.getItem('tm_session')); } catch(e) {}
+if (!TM_SESSION || !TM_SESSION.user_id) { window.location.href = '/'; }
+const SESSION_UID = TM_SESSION ? TM_SESSION.user_id : null;
 const sb = supabase.createClient(SB_URL, SB_KEY);
 const UID = '00000000-0000-0000-0000-000000000001';
 // Excepciones símbolo Binance
@@ -757,7 +762,7 @@ function clearTooltip() {
 // ============================================================
 // OPERACIONES ACTIVAS
 // ============================================================
-const OP_UID = '4cf10411-424a-4bb9-af62-3cd124f6e0be';
+const OP_UID = SESSION_UID;
 
 async function fetchOpData(asset) {
   opData = null;
@@ -2692,7 +2697,7 @@ async function saveNota(){
 // ============================================================
 async function loadAssets() {
   try {
-    const TRADING_UID = 'd4c4fa87-3488-483e-bd0f-11908186bc83';
+    const TRADING_UID = SESSION_UID;
     const {data} = await sb.from('assets')
       .select('symbol, name, coingecko_id')
       .eq('user_id', TRADING_UID)
