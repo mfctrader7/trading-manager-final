@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Backtest – Carrera de Caballos</title>
+<script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+:root{--bg:#1a1d29;--card:#232738;--card2:#2a2f45;--line:#363c57;--txt:#E8ECEF;--mut:#A8B2C1;--gold:#F4D896;--green:#4ADE80;--red:#F87171;--blue:#7C9DD4;--vio:#A78BFA}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--txt);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:14px}
+header{display:flex;justify-content:space-between;align-items:center;padding:14px 20px;border-bottom:1px solid var(--line);background:#161926;position:sticky;top:0;z-index:5;gap:10px;flex-wrap:wrap}
+header h1{margin:0;font-size:1.15rem;color:var(--gold)}
+header a,header button.lnk{color:var(--blue);border:1px solid rgba(124,157,212,.4);background:none;border-radius:8px;padding:6px 12px;text-decoration:none;font-size:.85rem;cursor:pointer}
+main{max-width:1280px;margin:0 auto;padding:16px}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px}
+.panel h2{margin:0 0 12px;font-size:1rem;color:var(--gold)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+label{display:block;font-size:.72rem;color:var(--mut);margin-bottom:4px;text-transform:uppercase;letter-spacing:.03em}
+input,select{width:100%;background:#161926;border:1px solid var(--line);color:var(--txt);border-radius:8px;padding:8px 10px;font-size:.9rem}
+input:focus,select:focus{outline:1px solid var(--gold)}
+.chk{display:flex;align-items:center;gap:8px;padding-top:20px}.chk input{width:auto}.chk label{margin:0;text-transform:none;font-size:.85rem;color:var(--txt)}
+.horses{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:12px}
+.btn{background:linear-gradient(135deg,#F4D896,#d9b45f);color:#1a1d29;border:none;border-radius:10px;padding:11px 22px;font-weight:700;font-size:.95rem;cursor:pointer}
+.btn:disabled{opacity:.5;cursor:wait}
+.status{color:var(--mut);font-size:.85rem;margin-top:10px;min-height:20px;white-space:pre-line}
+.warn{color:#FBBF24}.err{color:var(--red)}
+.race{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px}
+.card{background:var(--card2);border:2px solid transparent;border-radius:12px;padding:14px;cursor:pointer}
+.card.sel{border-color:var(--gold)}
+.card .nm{display:flex;justify-content:space-between;align-items:center;font-weight:700;font-size:1.05rem}
+.card .big{font-size:1.5rem;font-weight:800;margin:6px 0 2px}
+.card .row{display:flex;justify-content:space-between;color:var(--mut);font-size:.8rem;padding:2px 0}
+.card .row b{color:var(--txt)}
+.pos{color:var(--green)}.neg{color:var(--red)}
+.charts{display:grid;grid-template-columns:1fr;gap:16px}
+.chartbox{position:relative;height:340px}
+table{width:100%;border-collapse:collapse;font-size:.8rem}
+th{background:#161926;color:var(--mut);text-align:right;padding:7px 8px;position:sticky;top:0;font-weight:600}
+td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+th:first-child,td:first-child,th:nth-child(2),td:nth-child(2){text-align:left}
+tr.t{cursor:pointer}tr.t:hover{background:rgba(255,255,255,.04)}
+.scroll{overflow:auto;max-height:480px}
+.detail td{background:#1d2133;text-align:left;white-space:normal;color:var(--mut);font-size:.78rem}
+.tag{display:inline-block;padding:1px 7px;border-radius:6px;font-size:.7rem;font-weight:700}
+.tag.L{background:rgba(74,222,128,.15);color:var(--green)}.tag.S{background:rgba(248,113,113,.15);color:var(--red)}
+details summary{cursor:pointer;color:var(--gold);font-weight:600}
+details ul{color:var(--mut);line-height:1.6;padding-left:20px;margin:8px 0 0}
+.kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}
+.kv div{background:var(--card2);border-radius:10px;padding:10px}.kv small{display:block;color:var(--mut);font-size:.7rem;text-transform:uppercase}.kv b{font-size:1.05rem}
+.legend{color:var(--mut);font-size:.75rem;margin-top:6px}
+</style>
+</head>
+<body>
+<header>
+  <h1>🏇 Backtest – Carrera de Caballos</h1>
+  <div><span id="who" style="color:var(--mut);margin-right:12px"></span><a href="/dashboard.html">← Dashboard</a></div>
+</header>
+<main>
+
+<div class="panel">
+  <h2>Configuración</h2>
+  <div class="grid">
+    <div><label>Desde</label><input type="date" id="start" value="2026-01-01"></div>
+    <div><label>Hasta</label><input type="date" id="end"></div>
+    <div><label>Velas del usuario</label>
+      <select id="candleUser">
+        <option value="4cf10411-424a-4bb9-af62-3cd124f6e0be">test (desde 2023)</option>
+        <option value="49c761a9-1cd6-4429-8dc2-b2c40723ff35">borrador (365 días)</option>
+        <option value="c450bcb0-936b-43b3-889b-2e0dfe967542">pili (desde nov-2025)</option>
+        <option value="d4c4fa87-3488-483e-bd0f-11908186bc83">admin (hasta abr-2026)</option>
+      </select></div>
+    <div><label>Temporalidad entrada</label>
+      <select id="tf"><option value="1h">1h</option><option value="2h">2h</option><option value="4h">4h</option><option value="1d">1d</option></select></div>
+    <div><label>Sesión (1d)</label>
+      <select id="session"><option value="0">Open día (00 UTC)</option><option value="8">Open Europa (08 UTC)</option><option value="14">Open NY (14 UTC)</option></select></div>
+    <div><label>EMA rápida</label><input type="number" id="ema1" value="12" min="2"></div>
+    <div><label>EMA lenta</label><input type="number" id="ema2" value="25" min="3"></div>
+    <div class="chk"><input type="checkbox" id="dfilter" checked><label for="dfilter">Filtro diario (no ir contra el 1d)</label></div>
+  </div>
+  <div class="grid" style="margin-top:10px">
+    <div><label>Capital por caballo (USDT)</label><input type="number" id="capital" value="500" min="10"></div>
+    <div><label>Apalancamiento</label>
+      <select id="lev">
+        <option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option><option>6</option><option>7</option><option>8</option><option>9</option><option>10</option>
+      </select></div>
+    <div><label>Nº de balas (capital ÷ balas)</label><input type="number" id="nb" min="2" placeholder="ej. 10"></div>
+    <div><label>DCA cada (velas)</label><input type="number" id="dcaEvery" value="1" min="1"></div>
+    <div><label>Escudo de margen</label>
+      <select id="shield"><option value="none">Sin escudo (solo DCA)</option><option value="both">DCA + Margen</option><option value="margin_only">Más Margen</option></select></div>
+    <div><label>Comisión por orden (%)</label><input type="number" id="fee" value="0.05" step="0.01" min="0"></div>
+    <div><label>SL inicial % (vacío = sin SL)</label><input type="number" id="sl" step="0.1" min="0" placeholder="sin SL"></div>
+    <div class="chk"><input type="checkbox" id="closeOpp"><label for="closeOpp">Cerrar en cruce contrario</label></div>
+  </div>
+  <div class="grid" style="margin-top:10px">
+    <div><label>TP1 %</label><input type="number" id="tp1" step="0.1" min="0" placeholder="ej. 3"></div>
+    <div><label>TP1 cierra %</label><input type="number" id="tp1s" value="50"></div>
+    <div><label>TP2 %</label><input type="number" id="tp2" step="0.1" min="0" placeholder="ej. 6"></div>
+    <div><label>TP2 cierra %</label><input type="number" id="tp2s" value="25"></div>
+    <div><label>TP3 %</label><input type="number" id="tp3" step="0.1" min="0" placeholder="ej. 10"></div>
+    <div><label>TP3 cierra %</label><input type="number" id="tp3s" value="25"></div>
+    <div><label>Los TP son…</label><select id="tpMode"><option value="price">% de precio desde el PEPP</option><option value="roi">ROI % sobre margen</option></select></div>
+    <div class="chk"><input type="checkbox" id="be" checked><label for="be">SL en BE tras TP1 (y en TP1 tras TP2)</label></div>
+  </div>
+  <div class="horses">
+    <div><label>🐎 Caballo 1</label><input id="h1" value="BTC"></div>
+    <div><label>🐎 Caballo 2</label><input id="h2" value="ETH"></div>
+    <div><label>🐎 Caballo 3 (meme)</label><input id="h3" value="DOGE"></div>
+    <div><label>🐎 Caballo 4 (IA)</label><input id="h4" value="RENDER"></div>
+  </div>
+  <div style="margin-top:14px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+    <button class="btn" id="run">▶ Cargar velas y simular</button>
+    <div class="chk" style="padding:0"><input type="checkbox" id="cons" checked><label for="cons">Modo conservador (SL/liquidación antes que TP en la misma vela)</label></div>
+  </div>
+  <div class="status" id="status"></div>
+</div>
+
+<div class="panel">
+  <details>
+    <summary>📖 Reglas que aplica el simulador (para que sepas qué estás probando)</summary>
+    <ul>
+      <li><b>Entrada:</b> cruce EMA rápida/lenta al cierre de la vela de la temporalidad (igual que el bot). Se entra al precio de cierre de esa vela con 2 balas.</li>
+      <li><b>Filtro diario</b> (solo si la temporalidad es menor a 1d): no se abre largo si en el diario la EMA rápida está por debajo de la lenta, y viceversa. Se usa la última muestra diaria ya cerrada.</li>
+      <li><b>DCA:</b> en cada ciclo se compra 1 bala; con caída desde el PEPP de 5/10/15/20% se compran 2/3/4/5. Se detiene cuando queda menos de 1 bala de capital.</li>
+      <li><b>Bala</b> = capital del caballo al abrir la operación ÷ nº de balas. Al cerrar, el capital (con ganancia o pérdida) pasa a la siguiente operación: interés compuesto.</li>
+      <li><b>TP:</b> se recalculan desde el PEPP tras cada DCA. Cada TP cierra su parte sobre el total que aún queda (50/25/25 por defecto). El capital liberado y la ganancia vuelven al caballo y pueden usarse en nuevas balas.</li>
+      <li><b>Stops:</b> tras TP1 el SL va a BE (el PEPP, que sigue moviéndose si hay nuevas balas); tras TP2 el SL va al precio de TP1. Sin SL antes de TP1, salvo que pongas uno.</li>
+      <li><b>Liquidación:</b> precio PEPP × (1 ∓ 1/apalancamiento efectivo). Si se toca, se pierde todo el margen de esa operación. No incluye margen de mantenimiento (es una aproximación).</li>
+      <li><b>Una operación a la vez por caballo.</b> Las señales que llegan con una operación abierta se ignoran.</li>
+      <li><b>Dentro de una misma vela</b> no se sabe qué pasó primero. En modo conservador se asume lo peor: SL/liquidación antes que TP.</li>
+      <li><b>No incluye</b> funding, deslizamiento ni liquidez. Los resultados son optimistas respecto a la realidad.</li>
+    </ul>
+  </details>
+</div>
+
+<div class="panel" id="raceP" style="display:none">
+  <h2>🏁 La carrera</h2>
+  <div class="race" id="race"></div>
+  <div class="chartbox" style="margin-top:16px"><canvas id="eqChart"></canvas></div>
+  <div class="legend">Equity = capital libre + margen invertido + ganancia o pérdida no realizada.</div>
+</div>
+
+<div class="panel" id="horseP" style="display:none">
+  <h2 id="horseT"></h2>
+  <div class="kv" id="state"></div>
+  <div class="chartbox" style="margin-top:16px"><canvas id="pxChart"></canvas></div>
+  <div class="legend">▲ apertura · ● DCA · ◆ TP · ✖ salida (BE/SL/cruce) · ⚡ liquidación</div>
+  <h2 style="margin-top:18px">Operaciones</h2>
+  <div class="scroll"><table id="trades"></table></div>
+</div>
+</main>
+
+<script>
+// ===ENGINE_START===
+// Motor de backtest: réplica de la lógica del EMA Bot sobre velas horarias guardadas.
+// Cada "caballo" es una simulación independiente con su propio capital (interés compuesto).
+
+function calcEMAarr(prices, period) {
+  const out = new Array(prices.length).fill(null);
+  if (prices.length < period) return out;
+  const k = 2 / (period + 1);
+  let ema = 0;
+  for (let i = 0; i < period; i++) ema += prices[i];
+  ema /= period;
+  out[period - 1] = ema;
+  for (let i = period; i < prices.length; i++) {
+    ema = prices[i] * k + ema * (1 - k);
+    out[i] = ema;
+  }
+  return out;
+}
+
+// Cruces y estado (LONG si EMA1 > EMA2) sobre una serie de cierres. Misma regla que el bot.
+function crossInfo(closes, p1, p2) {
+  const e1 = calcEMAarr(closes, p1), e2 = calcEMAarr(closes, p2);
+  const start = Math.max(p1, p2) - 1;
+  const cross = new Array(closes.length).fill(null);
+  const state = new Array(closes.length).fill(null);
+  for (let i = start; i < closes.length; i++) {
+    state[i] = e1[i] > e2[i] ? 'LONG' : 'SHORT';
+    if (i > start) {
+      const a1 = e1[i - 1], a2 = e2[i - 1], b1 = e1[i], b2 = e2[i];
+      if (a1 <= a2 && b1 > b2) cross[i] = 'LONG';
+      else if (a1 >= a2 && b1 < b2) cross[i] = 'SHORT';
+    }
+  }
+  return { cross, state };
+}
+
+// Índices de las velas que forman la serie de la temporalidad (igual que el bot)
+function buildSeriesIdx(candles, tf, sessionHour) {
+  const idxs = [];
+  if (tf === '1d') {
+    candles.forEach((c, i) => { if (c.hour === sessionHour) idxs.push(i); });
+  } else {
+    const map = { '1h': 1, '2h': 2, '4h': 4, '8h': 8, '12h': 12 };
+    const ih = map[tf] || 1;
+    candles.forEach((c, i) => { if ((c.hour - sessionHour) % ih === 0 || c.hour === sessionHour) idxs.push(i); });
+  }
+  return idxs;
+}
+
+function prepareSignals(candles, cfg) {
+  const idxs = buildSeriesIdx(candles, cfg.tf, cfg.sessionHour);
+  const closes = idxs.map(i => candles[i].c);
+  const ci = crossInfo(closes, cfg.ema1, cfg.ema2);
+  const crossAt = new Map();
+  idxs.forEach((candleIdx, j) => { if (ci.cross[j]) crossAt.set(candleIdx, ci.cross[j]); });
+  const isCycle = new Uint8Array(candles.length);
+  idxs.forEach(i => { isCycle[i] = 1; });
+  // Estado diario (muestra a la hora de sesión) vigente en cada vela, solo con velas ya conocidas
+  const dIdx = [];
+  candles.forEach((c, i) => { if (c.hour === cfg.sessionHour) dIdx.push(i); });
+  const dCI = crossInfo(dIdx.map(i => candles[i].c), cfg.ema1, cfg.ema2);
+  const dailyState = new Array(candles.length).fill(null);
+  let p = -1;
+  for (let i = 0; i < candles.length; i++) {
+    while (p + 1 < dIdx.length && dIdx[p + 1] <= i) p++;
+    dailyState[i] = p >= 0 ? dCI.state[p] : null;
+  }
+  return { crossAt, isCycle, dailyState };
+}
+
+// cfg: { tf, sessionHour, ema1, ema2, dailyFilter, startMs, endMs, capital, leverage, nBullets,
+//        dcaEvery, tpPcts:[a,b,c], tpSizes:[a,b,c], tpMode:'price'|'roi', be:true, slPct:0,
+//        closeOpp:false, feePct, shield:'none'|'both'|'margin_only', conservative:true }
+function runHorse(candles, cfg, sig) {
+  let cash = cfg.capital;
+  let op = null;
+  const trades = [], markers = [], equity = [];
+  let fees = 0, peak = cfg.capital, maxDD = 0;
+  const tpPctEff = cfg.tpPcts.map(p => (p > 0 ? (cfg.tpMode === 'roi' ? p / cfg.leverage : p) : 0));
+  const tpW = cfg.tpSizes.map((w, i) => (tpPctEff[i] > 0 && w > 0 ? w : 0));
+  const dirName = d => (d === 1 ? 'LONG' : 'SHORT');
+  const feeOf = notional => { const f = notional * cfg.feePct / 100; fees += f; return f; };
+  const feeRate = cfg.leverage * cfg.feePct / 100;
+
+  function calcTPs() {
+    for (let i = 0; i < 3; i++) {
+      if (op.tpHit[i]) continue;
+      op.tpPrice[i] = tpW[i] > 0 ? op.pepp * (1 + op.dir * tpPctEff[i] / 100) : null;
+    }
+  }
+  function liqPrice() {
+    const effLev = Math.max(1, (op.qty * op.pepp) / op.marginUsed);
+    return op.pepp * (1 - op.dir / effLev);
+  }
+  const breachedAdverse = (lvl, c) => (op.dir === 1 ? c.l <= lvl : c.h >= lvl);
+  const reachedFav = (lvl, c) => (op.dir === 1 ? c.h >= lvl : c.l <= lvl);
+
+  function finalize(reason, c, price) {
+    const pnl = cash - op.cashStart;
+    const tr = {
+      id: trades.length + 1, dir: dirName(op.dir), openT: op.openT, closeT: c.t, reason,
+      entries: op.entries, tps: op.tps, pnl, maxMargin: op.maxMargin,
+      roi: op.maxMargin > 0 ? pnl / op.maxMargin * 100 : 0,
+      bullets: op.bullets, minPct: op.minPct, cashStart: op.cashStart, cashEnd: cash, exitPrice: price
+    };
+    trades.push(tr);
+    markers.push({ t: c.t, price, type: reason, dir: dirName(op.dir) });
+    op = null;
+  }
+  function closeAll(fill, reason, c, isLiq) {
+    if (isLiq) {
+      cash += 0; // el margen restante se pierde
+    } else {
+      const pnl = op.qty * (fill - op.pepp) * op.dir;
+      const f = feeOf(op.qty * fill);
+      cash += op.marginUsed + pnl - f;
+    }
+    op.qty = 0; op.marginUsed = 0;
+    finalize(reason, c, fill);
+  }
+  function hitTP(i, c) {
+    const tp = op.tpPrice[i];
+    const fill = op.dir === 1 ? Math.max(tp, c.o) : Math.min(tp, c.o);
+    let sumW = 0;
+    for (let j = 0; j < 3; j++) if (!op.tpHit[j] && op.tpPrice[j] != null) sumW += tpW[j];
+    const f = Math.min(1, tpW[i] / sumW);
+    const qtyClose = op.qty * f, marginFreed = op.marginUsed * f;
+    const pnl = qtyClose * (fill - op.pepp) * op.dir;
+    const fee = feeOf(qtyClose * fill);
+    cash += marginFreed + pnl - fee;
+    op.qty -= qtyClose; op.marginUsed -= marginFreed;
+    op.tpHit[i] = true; op.tpFill[i] = fill;
+    op.tps.push({ i: i + 1, t: c.t, price: fill, frac: f, pnl: pnl - fee });
+    markers.push({ t: c.t, price: fill, type: 'TP' + (i + 1), dir: dirName(op.dir) });
+    const anyLeft = [0, 1, 2].some(j => !op.tpHit[j] && op.tpPrice[j] != null);
+    if (!anyLeft || op.qty <= 1e-12) { op.qty = 0; op.marginUsed = 0; finalize('TPs', c, fill); return; }
+    if (i === 0 && cfg.be) { op.sl = op.pepp; op.slKind = 'BE'; }
+    if (i === 1) { op.sl = op.tpFill[0] != null ? op.tpFill[0] : op.pepp; op.slKind = 'SL_TP1'; }
+  }
+  function slFill(c) { return op.dir === 1 ? Math.min(op.sl, c.o) : Math.max(op.sl, c.o); }
+
+  function processCandle(c) {
+    const liqSL = () => {
+      const liq = liqPrice();
+      if (breachedAdverse(liq, c)) { closeAll(liq, 'LIQ', c, true); return true; }
+      if (op.sl != null && breachedAdverse(op.sl, c)) { closeAll(slFill(c), op.slKind, c, false); return true; }
+      return false;
+    };
+    const tps = () => {
+      for (let i = 0; i < 3; i++) {
+        if (op.tpHit[i] || op.tpPrice[i] == null) continue;
+        if (!reachedFav(op.tpPrice[i], c)) break;
+        hitTP(i, c);
+        if (!op) return true;
+        if (cfg.conservative && op.sl != null && breachedAdverse(op.sl, c)) { closeAll(slFill(c), op.slKind, c, false); return true; }
+      }
+      return false;
+    };
+    // seguimiento de la peor excursión
+    const adv = op.dir === 1 ? (c.l - op.pepp) / op.pepp * 100 : (op.pepp - c.h) / op.pepp * 100;
+    if (adv < op.minPct) op.minPct = adv;
+    if (cfg.conservative) { if (liqSL()) return; tps(); }
+    else { if (tps()) return; liqSL(); }
+  }
+
+  function openOp(c, signal) {
+    const item = cash / cfg.nBullets;
+    const margin = Math.min(2 * item, cash / (1 + feeRate));
+    if (!(margin > 0)) return;
+    const dir = signal === 'LONG' ? 1 : -1;
+    const notional = margin * cfg.leverage;
+    const f = feeOf(notional);
+    const cashStart = cash;
+    cash -= margin + f;
+    op = {
+      dir, openT: c.t, item, cashStart, qty: notional / c.c, pepp: c.c, marginUsed: margin, maxMargin: margin,
+      entries: [{ t: c.t, price: c.c, items: margin / item, margin, shield: 0, pepp: c.c, dd: 0 }],
+      tps: [], tpHit: [false, false, false], tpFill: [null, null, null], tpPrice: [null, null, null],
+      sl: cfg.slPct > 0 ? c.c * (1 - dir * cfg.slPct / 100) : null, slKind: 'SL',
+      cyclesSince: 0, bullets: margin / item, minPct: 0
+    };
+    calcTPs();
+    markers.push({ t: c.t, price: c.c, type: 'OPEN', dir: dirName(dir) });
+  }
+
+  function doDCA(c) {
+    const dd = op.dir === 1 ? (op.pepp - c.c) / op.pepp * 100 : (c.c - op.pepp) / op.pepp * 100;
+    const lvl = dd >= 20 ? 5 : dd >= 15 ? 4 : dd >= 10 ? 3 : dd >= 5 ? 2 : 1;
+    let items = lvl, shieldAdd = 0;
+    if (cfg.shield === 'both') shieldAdd = lvl * op.item;
+    else if (cfg.shield === 'margin_only') {
+      if (dd >= 20) { items = 1; shieldAdd = op.item * 4; }
+      else if (dd >= 15) { items = 1; shieldAdd = op.item * 3; }
+      else if (dd >= 10) { items = 1; shieldAdd = op.item * 2; }
+      else if (dd >= 5) items = 2; else items = 1;
+    }
+    if (cash < op.item) return; // sin balas: igual que el bot
+    const maxM = cash / (1 + feeRate);
+    const dcaMargin = Math.min(items * op.item, maxM);
+    const sh = shieldAdd > 0 ? Math.min(shieldAdd, Math.max(0, cash - dcaMargin * (1 + feeRate))) : 0;
+    const notional = dcaMargin * cfg.leverage;
+    const q = notional / c.c;
+    const f = feeOf(notional);
+    op.pepp = (op.pepp * op.qty + c.c * q) / (op.qty + q);
+    op.qty += q;
+    op.marginUsed += dcaMargin + sh;
+    if (op.marginUsed > op.maxMargin) op.maxMargin = op.marginUsed;
+    cash -= dcaMargin + sh + f;
+    op.bullets += dcaMargin / op.item;
+    op.entries.push({ t: c.t, price: c.c, items: dcaMargin / op.item, margin: dcaMargin, shield: sh, pepp: op.pepp, dd });
+    markers.push({ t: c.t, price: c.c, type: 'DCA', dir: dirName(op.dir) });
+    calcTPs();
+    if (op.tpHit[0] && !op.tpHit[1] && cfg.be) op.sl = op.pepp; // el BE sigue al PEPP
+  }
+
+  const allowed = (s, k) => {
+    if (!cfg.dailyFilter || cfg.tf === '1d') return true;
+    return sig.dailyState[k] === s;
+  };
+
+  // rango de simulación
+  let startIdx = 0;
+  while (startIdx < candles.length && candles[startIdx].t < cfg.startMs) startIdx++;
+  let endIdx = candles.length - 1;
+  while (endIdx >= 0 && candles[endIdx].t > cfg.endMs) endIdx--;
+
+  for (let k = startIdx; k <= endIdx; k++) {
+    const c = candles[k];
+    if (op) processCandle(c);
+    if (sig.isCycle[k]) {
+      const s = sig.crossAt.get(k);
+      if (op) {
+        if (cfg.closeOpp && s && s !== dirName(op.dir)) closeAll(c.c, 'CRUCE', c, false);
+        else {
+          op.cyclesSince++;
+          if (op.cyclesSince >= cfg.dcaEvery) { op.cyclesSince = 0; doDCA(c); }
+        }
+      }
+      if (!op && s && allowed(s, k)) openOp(c, s);
+    }
+    const eq = cash + (op ? op.marginUsed + op.qty * (c.c - op.pepp) * op.dir : 0);
+    equity.push({ t: c.t, eq });
+    if (eq > peak) peak = eq;
+    const dd = peak > 0 ? (peak - eq) / peak * 100 : 0;
+    if (dd > maxDD) maxDD = dd;
+  }
+
+  const lastC = candles[endIdx];
+  const finalEq = equity.length ? equity[equity.length - 1].eq : cfg.capital;
+  const wins = trades.filter(t => t.pnl > 0).length;
+  let openOpState = null;
+  if (op && lastC) {
+    openOpState = {
+      dir: dirName(op.dir), openT: op.openT, pepp: op.pepp, qty: op.qty, marginUsed: op.marginUsed,
+      bullets: op.bullets, entries: op.entries, tps: op.tps, tpPrice: op.tpPrice.slice(), sl: op.sl,
+      liq: liqPrice(), price: lastC.c, unrealized: op.qty * (lastC.c - op.pepp) * op.dir,
+      cashFree: cash
+    };
+  }
+  return {
+    trades, markers, equity, openOp: openOpState, cashFree: cash,
+    metrics: {
+      finalEq, roi: (finalEq / cfg.capital - 1) * 100, trades: trades.length, wins,
+      winRate: trades.length ? wins / trades.length * 100 : 0, maxDD, fees,
+      liqs: trades.filter(t => t.reason === 'LIQ').length,
+      maxBullets: trades.reduce((m, t) => Math.max(m, t.bullets), openOpState ? openOpState.bullets : 0),
+      best: trades.reduce((m, t) => Math.max(m, t.pnl), 0),
+      worst: trades.reduce((m, t) => Math.min(m, t.pnl), 0)
+    }
+  };
+}
+// ===ENGINE_END===
+if (typeof module !== 'undefined') module.exports = { calcEMAarr, crossInfo, prepareSignals, runHorse };
+
+</script>
+<script>
+// ===== Sesión compartida =====
+let SESSION = null;
+try { SESSION = JSON.parse(localStorage.getItem('tm_session')); } catch (e) {}
+if (!SESSION || !SESSION.user_id) { window.location.href = '/'; }
+const SB_URL = 'https://rdnxrmmgcsieuttwucty.supabase.co';
+const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJkbnhybW1nY3NpZXV0dHd1Y3R5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjkxODQxNTIsImV4cCI6MjA4NDc2MDE1Mn0.aAeygiTwO9TvFJcrpVYe5GYpOYStiGtTwPmWrk5D6n4';
+const sb = supabase.createClient(SB_URL, SB_KEY);
+const $ = id => document.getElementById(id);
+if (SESSION) $('who').textContent = SESSION.display_name || SESSION.username || '';
+$('end').value = new Date().toISOString().slice(0, 10);
+
+const COLORS = ['#F4D896', '#7C9DD4', '#4ADE80', '#A78BFA'];
+const fmt = (n, d = 2) => (n == null || !isFinite(n)) ? '—' : n.toLocaleString('es-ES', { minimumFractionDigits: d, maximumFractionDigits: d });
+const money = n => (n >= 0 ? '+' : '−') + fmt(Math.abs(n)) ;
+const dt = t => new Date(t).toISOString().slice(0, 16).replace('T', ' ');
+const cls = n => n >= 0 ? 'pos' : 'neg';
+const priceFmt = p => p == null ? '—' : (p >= 100 ? fmt(p, 2) : p >= 1 ? fmt(p, 4) : fmt(p, 6));
+let RESULTS = [], SELECTED = 0, eqChart = null, pxChart = null, CANDLES = {};
+
+async function loadCandles(userId, symbol, fromDate, toDate, onPage) {
+  const PAGE = 1000; let from = 0; const rows = [];
+  while (true) {
+    const { data, error } = await sb.from('price_history_hourly')
+      .select('date,hour,open,high,low,close')
+      .eq('user_id', userId).eq('symbol', symbol)
+      .gte('date', fromDate).lte('date', toDate)
+      .order('date', { ascending: true }).order('hour', { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) throw new Error(symbol + ': ' + error.message);
+    rows.push(...data);
+    if (onPage) onPage(rows.length);
+    if (data.length < PAGE) break;
+    from += PAGE;
+  }
+  const now = Date.now();
+  const out = [];
+  for (const r of rows) {
+    const t = Date.UTC(+r.date.slice(0, 4), +r.date.slice(5, 7) - 1, +r.date.slice(8, 10), r.hour);
+    if (t + 3600000 > now) continue; // vela aún abierta
+    out.push({ t, date: r.date, hour: r.hour, o: +r.open, h: +r.high, l: +r.low, c: +r.close });
+  }
+  return out;
+}
+function countGaps(cs) {
+  let g = 0;
+  for (let i = 1; i < cs.length; i++) { const d = Math.round((cs[i].t - cs[i - 1].t) / 3600000) - 1; if (d > 0) g += d; }
+  return g;
+}
+
+function readCfg() {
+  const num = id => { const v = $(id).value; return v === '' ? NaN : parseFloat(v); };
+  const startMs = Date.parse($('start').value + 'T00:00:00Z');
+  const endMs = Date.parse($('end').value + 'T23:59:59Z');
+  const cfg = {
+    tf: $('tf').value, sessionHour: parseInt($('session').value), ema1: num('ema1'), ema2: num('ema2'),
+    dailyFilter: $('dfilter').checked, startMs, endMs, capital: num('capital'), leverage: num('lev'),
+    nBullets: num('nb'), dcaEvery: Math.max(1, num('dcaEvery') || 1),
+    tpPcts: [num('tp1'), num('tp2'), num('tp3')].map(v => isNaN(v) ? 0 : v),
+    tpSizes: [num('tp1s'), num('tp2s'), num('tp3s')].map(v => isNaN(v) ? 0 : v),
+    tpMode: $('tpMode').value, be: $('be').checked, slPct: isNaN(num('sl')) ? 0 : num('sl'),
+    closeOpp: $('closeOpp').checked, feePct: isNaN(num('fee')) ? 0 : num('fee'),
+    shield: $('shield').value, conservative: $('cons').checked
+  };
+  const errs = [];
+  if (!(startMs < endMs)) errs.push('La fecha de inicio debe ser anterior a la final.');
+  if (!(cfg.capital > 0)) errs.push('Falta el capital.');
+  if (!(cfg.nBullets >= 2)) errs.push('Indica el nº de balas (mínimo 2).');
+  if (!(cfg.tpPcts[0] > 0)) errs.push('Indica al menos el TP1.');
+  if (!(cfg.ema1 > 1 && cfg.ema2 > cfg.ema1)) errs.push('La EMA lenta debe ser mayor que la rápida.');
+  return { cfg, errs };
+}
+
+async function run() {
+  const { cfg, errs } = readCfg();
+  const st = $('status'); st.className = 'status';
+  if (errs.length) { st.className = 'status err'; st.textContent = errs.join('\n'); return; }
+  const symbols = [1, 2, 3, 4].map(i => $('h' + i).value.trim().toUpperCase()).filter(Boolean);
+  const userId = $('candleUser').value;
+  const fromDate = new Date(cfg.startMs - 90 * 86400000).toISOString().slice(0, 10);
+  const toDate = $('end').value;
+  $('run').disabled = true; RESULTS = [];
+  const notes = [];
+  try {
+    for (let i = 0; i < symbols.length; i++) {
+      const sym = symbols[i];
+      st.textContent = `Cargando velas de ${sym} (${i + 1}/${symbols.length})…`;
+      const cs = await loadCandles(userId, sym, fromDate, toDate, n => { st.textContent = `Cargando velas de ${sym} (${i + 1}/${symbols.length})… ${n.toLocaleString('es-ES')}`; });
+      if (cs.length < 200) { notes.push(`⚠ ${sym}: solo ${cs.length} velas para ese usuario; se omite.`); continue; }
+      const gaps = countGaps(cs);
+      const first = cs[0].t;
+      if (first > cfg.startMs - 7 * 86400000) notes.push(`⚠ ${sym}: las velas empiezan el ${dt(first).slice(0, 10)}; la simulación arranca cuando hay datos.`);
+      if (gaps > 0) notes.push(`⚠ ${sym}: faltan ${gaps} velas horarias en el rango cargado.`);
+      CANDLES[sym] = cs;
+      const sig = prepareSignals(cs, cfg);
+      const res = runHorse(cs, cfg, sig);
+      res.symbol = sym; res.color = COLORS[i % 4];
+      RESULTS.push(res);
+    }
+    if (!RESULTS.length) throw new Error('No hay velas para simular. Revisa el usuario de velas y los símbolos.');
+    RESULTS.sort((a, b) => b.metrics.finalEq - a.metrics.finalEq);
+    SELECTED = 0;
+    st.className = 'status' + (notes.length ? ' warn' : '');
+    st.textContent = `Listo. ${RESULTS.length} caballo(s) simulados.` + (notes.length ? '\n' + notes.join('\n') : '');
+    renderRace(); renderHorse();
+  } catch (e) {
+    st.className = 'status err'; st.textContent = 'Error: ' + e.message;
+  } finally { $('run').disabled = false; }
+}
+
+function renderRace() {
+  $('raceP').style.display = 'block';
+  const medals = ['🥇', '🥈', '🥉', '🏇'];
+  $('race').innerHTML = RESULTS.map((r, i) => {
+    const m = r.metrics, cap = parseFloat($('capital').value);
+    return `<div class="card ${i === SELECTED ? 'sel' : ''}" data-i="${i}">
+      <div class="nm"><span>${medals[i] || '🏇'} ${r.symbol}</span><span style="color:${r.color}">●</span></div>
+      <div class="big ${cls(m.finalEq - cap)}">${fmt(m.finalEq)} USDT</div>
+      <div class="row"><span>Rentabilidad</span><b class="${cls(m.roi)}">${m.roi >= 0 ? '+' : ''}${fmt(m.roi)}%</b></div>
+      <div class="row"><span>Operaciones</span><b>${m.trades} (${fmt(m.winRate, 0)}% ganadas)</b></div>
+      <div class="row"><span>Caída máxima</span><b class="neg">−${fmt(m.maxDD)}%</b></div>
+      <div class="row"><span>Máx. balas en una op.</span><b>${fmt(m.maxBullets, 1)}</b></div>
+      <div class="row"><span>Liquidaciones</span><b class="${m.liqs ? 'neg' : ''}">${m.liqs}</b></div>
+      <div class="row"><span>Comisiones</span><b>${fmt(m.fees)}</b></div>
+    </div>`;
+  }).join('');
+  document.querySelectorAll('#race .card').forEach(el => el.onclick = () => { SELECTED = +el.dataset.i; renderRace(); renderHorse(); });
+  // equity chart
+  if (eqChart) eqChart.destroy();
+  const step = Math.max(1, Math.floor(RESULTS[0].equity.length / 1500));
+  eqChart = new Chart($('eqChart'), {
+    type: 'line',
+    data: { datasets: RESULTS.map(r => ({ label: r.symbol, borderColor: r.color, backgroundColor: r.color, borderWidth: 1.6, pointRadius: 0, tension: 0,
+      data: r.equity.filter((_, i) => i % step === 0).map(p => ({ x: p.t, y: p.eq })) })) },
+    options: { parsing: false, animation: false, responsive: true, maintainAspectRatio: false, interaction: { mode: 'nearest', intersect: false },
+      scales: { x: { type: 'linear', ticks: { color: '#A8B2C1', maxTicksLimit: 10, callback: v => new Date(v).toISOString().slice(0, 10) }, grid: { color: '#2a2f45' } },
+        y: { ticks: { color: '#A8B2C1' }, grid: { color: '#2a2f45' } } },
+      plugins: { legend: { labels: { color: '#E8ECEF' } }, tooltip: { callbacks: { title: i => dt(i[0].parsed.x), label: c => `${c.dataset.label}: ${fmt(c.parsed.y)} USDT` } } } }
+  });
+}
+
+function renderHorse() {
+  const r = RESULTS[SELECTED]; if (!r) return;
+  $('horseP').style.display = 'block';
+  $('horseT').textContent = `🐎 ${r.symbol} — detalle`;
+  const o = r.openOp;
+  const capNow = r.metrics.finalEq;
+  let s = `<div><small>Capital total (equity)</small><b>${fmt(capNow)} USDT</b></div>
+    <div><small>Capital libre</small><b>${fmt(r.cashFree)} USDT</b></div>`;
+  if (o) {
+    s += `<div><small>Operación abierta</small><b><span class="tag ${o.dir === 'LONG' ? 'L' : 'S'}">${o.dir}</span> desde ${dt(o.openT)}</b></div>
+      <div><small>Capital invertido (margen)</small><b>${fmt(o.marginUsed)} USDT</b></div>
+      <div><small>Balas metidas</small><b>${fmt(o.bullets, 1)}</b></div>
+      <div><small>PEPP</small><b>${priceFmt(o.pepp)}</b></div>
+      <div><small>Precio actual</small><b>${priceFmt(o.price)}</b></div>
+      <div><small>Liquidación</small><b class="neg">${priceFmt(o.liq)}</b></div>
+      <div><small>TP pendientes</small><b>${o.tpPrice.map((p, i) => (p != null && !o.tps.some(t => t.i === i + 1)) ? 'TP' + (i + 1) + ' ' + priceFmt(p) : null).filter(Boolean).join(' · ') || '—'}</b></div>
+      <div><small>Resultado no realizado</small><b class="${cls(o.unrealized)}">${money(o.unrealized)} USDT</b></div>`;
+  } else {
+    s += `<div><small>Operación abierta</small><b>Ninguna al final del periodo</b></div>`;
+  }
+  $('state').innerHTML = s;
+  renderPrice(r);
+  renderTrades(r);
+}
+
+function renderPrice(r) {
+  const cs = CANDLES[r.symbol]; if (pxChart) pxChart.destroy();
+  const t0 = r.equity.length ? r.equity[0].t : 0, t1 = r.equity.length ? r.equity[r.equity.length - 1].t : 0;
+  const pts = cs.filter(c => c.t >= t0 && c.t <= t1);
+  const step = Math.max(1, Math.floor(pts.length / 2500));
+  const line = pts.filter((_, i) => i % step === 0).map(c => ({ x: c.t, y: c.c }));
+  const mk = (types, color, style, size, rot) => ({ type: 'scatter', label: types.join('/'), pointStyle: style, pointRadius: size, rotation: rot || 0, backgroundColor: color, borderColor: color,
+    data: r.markers.filter(m => types.includes(m.type)).map(m => ({ x: m.t, y: m.price, mk: m })), showLine: false });
+  const opensL = { ...mk(['OPEN'], '#4ADE80', 'triangle', 7), data: r.markers.filter(m => m.type === 'OPEN' && m.dir === 'LONG').map(m => ({ x: m.t, y: m.price, mk: m })), label: 'Apertura LONG' };
+  const opensS = { ...mk(['OPEN'], '#F87171', 'triangle', 7, 180), data: r.markers.filter(m => m.type === 'OPEN' && m.dir === 'SHORT').map(m => ({ x: m.t, y: m.price, mk: m })), label: 'Apertura SHORT' };
+  pxChart = new Chart($('pxChart'), {
+    type: 'line',
+    data: { datasets: [
+      { label: 'Precio', data: line, borderColor: '#7C9DD4', borderWidth: 1.2, pointRadius: 0, tension: 0, order: 5 },
+      opensL, opensS,
+      { ...mk(['DCA'], '#A78BFA', 'circle', 3.5), label: 'DCA' },
+      { ...mk(['TP1', 'TP2', 'TP3'], '#F4D896', 'rectRot', 6), label: 'TP' },
+      { ...mk(['BE', 'SL', 'SL_TP1', 'CRUCE', 'TPs'], '#FBBF24', 'crossRot', 7), label: 'Salida' },
+      { ...mk(['LIQ'], '#F87171', 'star', 9), label: 'Liquidación' }
+    ] },
+    options: { parsing: false, animation: false, responsive: true, maintainAspectRatio: false,
+      scales: { x: { type: 'linear', ticks: { color: '#A8B2C1', maxTicksLimit: 10, callback: v => new Date(v).toISOString().slice(0, 10) }, grid: { color: '#2a2f45' } },
+        y: { ticks: { color: '#A8B2C1' }, grid: { color: '#2a2f45' } } },
+      plugins: { legend: { labels: { color: '#E8ECEF' } }, decimation: { enabled: false },
+        tooltip: { callbacks: { title: i => dt(i[0].parsed.x), label: c => c.raw.mk ? `${c.raw.mk.type} ${c.raw.mk.dir} @ ${priceFmt(c.raw.y)}` : `Precio ${priceFmt(c.parsed.y)}` } } } }
+  });
+}
+
+const REASONS = { TPs: 'TP1+2+3', BE: 'Stop en BE', SL: 'Stop Loss', SL_TP1: 'Stop en TP1', LIQ: '⚡ Liquidación', CRUCE: 'Cruce contrario' };
+function renderTrades(r) {
+  const rows = r.trades.map(t => {
+    const dur = (t.closeT - t.openT) / 3600000;
+    const durTxt = dur >= 48 ? fmt(dur / 24, 1) + ' d' : fmt(dur, 0) + ' h';
+    return `<tr class="t" data-id="${t.id}"><td>${t.id}</td><td><span class="tag ${t.dir === 'LONG' ? 'L' : 'S'}">${t.dir}</span></td>
+      <td>${dt(t.openT)}</td><td>${dt(t.closeT)}</td><td>${durTxt}</td><td>${fmt(t.bullets, 1)}</td><td>${fmt(t.maxMargin)}</td>
+      <td class="${cls(t.pnl)}">${money(t.pnl)}</td><td class="${cls(t.roi)}">${fmt(t.roi, 1)}%</td>
+      <td class="neg">${fmt(t.minPct, 1)}%</td><td>${REASONS[t.reason] || t.reason}</td><td>${fmt(t.cashEnd)}</td></tr>
+      <tr class="detail" id="d${t.id}" style="display:none"><td colspan="12">
+        <b>Entradas:</b> ${t.entries.map((e, i) => `#${i + 1} ${dt(e.t).slice(5)} @ ${priceFmt(e.price)} (${fmt(e.items, 1)} bala${e.items > 1 ? 's' : ''}, ${fmt(e.margin)} USDT${e.shield ? ' + escudo ' + fmt(e.shield) : ''}, PEPP ${priceFmt(e.pepp)})`).join(' · ')}
+        <br><b>Salidas parciales:</b> ${t.tps.length ? t.tps.map(p => `TP${p.i} ${dt(p.t).slice(5)} @ ${priceFmt(p.price)} (${fmt(p.frac * 100, 0)}% de lo que quedaba, ${money(p.pnl)} USDT)`).join(' · ') : 'ninguna'}
+        <br><b>Cierre final:</b> ${REASONS[t.reason] || t.reason} @ ${priceFmt(t.exitPrice)}</td></tr>`;
+  }).join('');
+  $('trades').innerHTML = `<thead><tr><th>#</th><th>Dir</th><th>Apertura</th><th>Cierre</th><th>Duración</th><th>Balas</th><th>Margen máx.</th><th>PnL</th><th>ROI/margen</th><th>Peor caída</th><th>Salida</th><th>Capital tras cerrar</th></tr></thead><tbody>${rows || '<tr><td colspan="12" style="text-align:center;color:#A8B2C1">Sin operaciones cerradas en el periodo.</td></tr>'}</tbody>`;
+  document.querySelectorAll('#trades tr.t').forEach(tr => tr.onclick = () => { const d = $('d' + tr.dataset.id); d.style.display = d.style.display === 'none' ? '' : 'none'; });
+}
+$('run').onclick = run;
+</script>
+</body>
+</html>
