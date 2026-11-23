@@ -6,6 +6,7 @@
 <title>Backtest – Carrera de Caballos</title>
 <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 <style>
 :root{--bg:#1a1d29;--card:#232738;--card2:#2a2f45;--line:#363c57;--txt:#E8ECEF;--mut:#A8B2C1;--gold:#F4D896;--green:#4ADE80;--red:#F87171;--blue:#7C9DD4;--vio:#A78BFA}
 *{box-sizing:border-box}
@@ -15,6 +16,13 @@ header h1{margin:0;font-size:1.15rem;color:var(--gold)}
 header a,header button.lnk{color:var(--blue);border:1px solid rgba(124,157,212,.4);background:none;border-radius:8px;padding:6px 12px;text-decoration:none;font-size:.85rem;cursor:pointer}
 main{max-width:1280px;margin:0 auto;padding:16px}
 .tabs{display:flex;gap:8px;margin-bottom:14px}.tab{background:var(--card);border:1px solid var(--line);color:var(--mut);border-radius:10px;padding:9px 18px;font-weight:600;cursor:pointer;font-size:.92rem}.tab.on{background:var(--card2);color:var(--gold);border-color:var(--gold)}
+.cxbox{position:relative;height:430px;margin:6px 0}.cxbox .cv{position:absolute;inset:0}
+.cxbox .ov{position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:5}
+.cxbox .ov div{position:absolute}
+.cxbox .band{opacity:.16}.cxbox .lbl{background:#fff;color:#111;font-weight:700;font-size:.72rem;padding:2px 7px;border-radius:5px;transform:translate(-50%,-50%);white-space:nowrap}
+.cxbox .lbl2{background:#2a2f45;color:#E8ECEF;font-size:.7rem;padding:2px 7px;border-radius:5px;transform:translate(-50%,-50%);white-space:nowrap;border:1px solid var(--line)}
+.cxbox .leg{position:absolute;left:8px;top:6px;z-index:3;font-size:.72rem;color:var(--mut);pointer-events:none}
+tr.cxr{cursor:pointer}tr.cxr:hover td{background:#2a2f45}tr.cxr.sel td{background:#2a2f45}
 .panel{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px}
 .panel h2{margin:0 0 12px;font-size:1rem;color:var(--gold)}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
@@ -185,6 +193,7 @@ details ul{color:var(--mut);line-height:1.6;padding-left:20px;margin:8px 0 0}
     <div><label>EMA lenta</label><input type="number" id="cxE2" value="25" min="3"></div>
     <div><label>Desde</label><input type="date" id="cxStart" value="2021-01-01"></div>
     <div><label>Hasta</label><input type="date" id="cxEnd"></div>
+    <div><label>EMA larga en el gráfico (opcional)</label><input type="number" id="cxE3" placeholder="ej. 200" min="3"></div>
     <div><label>Mostrar</label><select id="cxDir"><option value="">Alcistas y bajistas</option><option value="LONG">Solo alcistas</option><option value="SHORT">Solo bajistas</option></select></div>
   </div>
   <div style="margin-top:14px;display:flex;gap:12px;flex-wrap:wrap">
@@ -254,7 +263,7 @@ function buildSeriesIdx(candles, tf, sessionHour) {
 
 function prepareSignals(candles, cfg) {
   const idxs = buildSeriesIdx(candles, cfg.tf, cfg.sessionHour);
-  const closes = idxs.map(i => candles[i].c);
+  const closes = idxs.map(i => candles[i].o);
   const ci = crossInfo(closes, cfg.ema1, cfg.ema2);
   const crossAt = new Map();
   idxs.forEach((candleIdx, j) => { if (ci.cross[j]) crossAt.set(candleIdx, ci.cross[j]); });
@@ -263,7 +272,7 @@ function prepareSignals(candles, cfg) {
   // Estado diario (muestra a la hora de sesión) vigente en cada vela, solo con velas ya conocidas
   const dIdx = [];
   candles.forEach((c, i) => { if (c.hour === cfg.sessionHour) dIdx.push(i); });
-  const dCI = crossInfo(dIdx.map(i => candles[i].c), cfg.ema1, cfg.ema2);
+  const dCI = crossInfo(dIdx.map(i => candles[i].o), cfg.ema1, cfg.ema2);
   const dailyState = new Array(candles.length).fill(null);
   let p = -1;
   for (let i = 0; i < candles.length; i++) {
@@ -277,7 +286,7 @@ function prepareSignals(candles, cfg) {
   const xtf = cfg.closeTf || cfg.tf;
   if (xtf !== cfg.tf) {
     const xi = buildSeriesIdx(candles, xtf, cfg.sessionHour);
-    const xc = crossInfo(xi.map(i => candles[i].c), cfg.ema1, cfg.ema2);
+    const xc = crossInfo(xi.map(i => candles[i].o), cfg.ema1, cfg.ema2);
     exitCrossAt = new Map();
     xi.forEach((ci2, j) => { if (xc.cross[j]) exitCrossAt.set(ci2, xc.cross[j]); });
   }
@@ -460,21 +469,24 @@ function runHorse(candles, cfg, sig) {
 
   for (let k = startIdx; k <= endIdx; k++) {
     const c = candles[k];
-    if (op) processCandle(c);
+    // Las decisiones de ciclo se toman a la APERTURA de la vela (= cierre de la vela anterior, igual que una vela de TradingView
+    // que acaba de cerrar); después se aplica el rango (máx./mín.) de esa misma vela a la posición resultante.
+    const ca = { ...c, c: c.o };
     if (op && cfg.closeOpp) {
       const xs = sig.exitCrossAt.get(k);
-      if (xs && xs !== dirName(op.dir)) closeAll(c.c, 'CRUCE', c, false);
+      if (xs && xs !== dirName(op.dir)) closeAll(ca.c, 'CRUCE', ca, false);
     }
     if (sig.isCycle[k] || sig.isDca[k]) {
       const s = sig.crossAt.get(k);
       if (op) {
         if (sig.isDca[k]) {
           op.cyclesSince++;
-          if (op.cyclesSince >= cfg.dcaEvery) { op.cyclesSince = 0; doDCA(c); }
+          if (op.cyclesSince >= cfg.dcaEvery) { op.cyclesSince = 0; doDCA(ca); }
         }
       }
-      if (!op && sig.isCycle[k] && s && allowed(s, k)) openOp(c, s);
+      if (!op && sig.isCycle[k] && s && allowed(s, k)) openOp(ca, s);
     }
+    if (op) processCandle(c);
     const eq = cash + (op ? op.marginUsed + op.qty * (c.c - op.pepp) * op.dir : 0);
     equity.push({ t: c.t, eq });
     if (eq > peak) peak = eq;
@@ -516,7 +528,7 @@ function analyzeCrosses(candles, cfg) {
   const TFH = { '1h': 1, '2h': 2, '4h': 4, '8h': 8, '12h': 12, '1d': 24 }[cfg.tf] || 1;
   const tfMs = TFH * 3600000;
   const idxs = buildSeriesIdx(candles, cfg.tf, cfg.sessionHour);
-  const ci = crossInfo(idxs.map(i => candles[i].c), cfg.ema1, cfg.ema2);
+  const ci = crossInfo(idxs.map(i => candles[i].o), cfg.ema1, cfg.ema2);
   const crosses = [];
   idxs.forEach((k, j) => { if (ci.cross[j]) crosses.push({ k, dir: ci.cross[j] }); });
   let lastIdx = candles.length - 1;
@@ -530,9 +542,10 @@ function analyzeCrosses(candles, cfg) {
     const ongoing = n + 1 >= crosses.length;
     let end = ongoing ? lastIdx : crosses[n + 1].k;
     if (end > lastIdx) end = lastIdx;
-    const entry = candles[k].c;
+    const entry = candles[k].o;
     let ext = entry, extIdx = k, mae = 0;
-    for (let i = k + 1; i <= end; i++) {
+    const lastScan = ongoing ? end : end - 1;   // la vela del cruce contrario ya pertenece al siguiente tramo
+    for (let i = k; i <= lastScan; i++) {
       const c = candles[i];
       if (d === 1) {
         if (c.l < entry) mae = Math.min(mae, (c.l - entry) / entry * 100);   // retroceso en contra desde la entrada
@@ -544,7 +557,7 @@ function analyzeCrosses(candles, cfg) {
     }
     // peor retroceso solo antes de alcanzar el extremo
     let maeBefore = 0;
-    for (let i = k + 1; i <= extIdx; i++) {
+    for (let i = k; i <= extIdx; i++) {
       const c = candles[i];
       const adv = d === 1 ? (c.l - entry) / entry * 100 : -(c.h - entry) / entry * 100;
       if (adv < maeBefore) maeBefore = adv;
@@ -555,7 +568,7 @@ function analyzeCrosses(candles, cfg) {
       movePct: d * (ext - entry) / entry * 100,
       maePct: maeBefore,
       barsTotal: Math.round((candles[end].t - t) / tfMs),
-      endPct: d * (candles[end].c - entry) / entry * 100,
+      endPct: d * ((ongoing ? candles[end].c : candles[end].o) - entry) / entry * 100,
       endT: candles[end].t, ongoing
     });
   }
@@ -568,7 +581,21 @@ function analyzeCrosses(candles, cfg) {
   return { rows, summary: { all: stat(rows), LONG: stat(rows.filter(r => r.dir === 'LONG')), SHORT: stat(rows.filter(r => r.dir === 'SHORT')) } };
 }
 
-if (typeof module !== 'undefined') module.exports = { calcEMAarr, crossInfo, prepareSignals, runHorse, analyzeCrosses };
+// Velas del gráfico en la temporalidad elegida: cada vela agrega las horarias entre dos puntos de muestreo consecutivos.
+// Solo velas completas. close = cierre de la última vela horaria del tramo (= apertura del siguiente punto de muestreo).
+function buildTfBars(candles, tf, sessionHour) {
+  const idxs = buildSeriesIdx(candles, tf, sessionHour);
+  const bars = [];
+  for (let b = 0; b + 1 < idxs.length; b++) {
+    const a = idxs[b], z = idxs[b + 1] - 1;
+    let h = -Infinity, l = Infinity;
+    for (let i = a; i <= z; i++) { if (candles[i].h > h) h = candles[i].h; if (candles[i].l < l) l = candles[i].l; }
+    bars.push({ t: candles[a].t, o: candles[a].o, h, l, c: candles[z].c, endT: candles[idxs[b + 1]].t });
+  }
+  return bars;
+}
+
+if (typeof module !== 'undefined') module.exports = { calcEMAarr, crossInfo, prepareSignals, runHorse, analyzeCrosses, buildTfBars };
 
 </script>
 <script>
@@ -902,7 +929,7 @@ async function runCX() {
     const notes = [];
     if (cs[0].t > startMs) notes.push(`⚠ Las velas disponibles empiezan el ${dd(cs[0].t)}; no hay datos del ${dd(startMs)} al ${dd(cs[0].t)}.`);
     const gaps = countGaps(cs); if (gaps > 0) notes.push(`⚠ Faltan ${gaps} velas horarias en el rango.`);
-    CX = { sym, cfg, res, notes, first: cs[0].t, last: cs[cs.length - 1].t, userTxt: $('cxUser').selectedOptions[0].textContent };
+    CX = { sym, cfg, res, notes, bars: buildTfBars(cs, tf, cfg.sessionHour), e3: parseInt($('cxE3').value) || 0, first: cs[0].t, last: cs[cs.length - 1].t, userTxt: $('cxUser').selectedOptions[0].textContent };
     st.className = 'status' + (notes.length ? ' warn' : '');
     st.textContent = `Listo. ${res.rows.length} cruces entre ${dd(Math.max(startMs, cs[0].t))} y ${dd(Math.min(endMs, cs[cs.length - 1].t))}.` + (notes.length ? '\n' + notes.join('\n') : '');
     renderCX(); $('cxPrint').style.display = '';
@@ -919,16 +946,17 @@ function cxSummaryHtml(CXd) {
 }
 function cxRowsHtml(CXd, dirF) {
   const rows = CXd.res.rows.filter(r => !dirF || r.dir === dirF);
-  return rows.map((r, i) => `<tr><td>${i + 1}</td><td>${dt(r.t)}</td><td><span class="tag ${r.dir === 'LONG' ? 'L' : 'S'}">${r.dir === 'LONG' ? '▲ ALCISTA' : '▼ BAJISTA'}</span></td>
+  return rows.map((r, i) => `<tr class="cxr" data-i="${CXd.res.rows.indexOf(r)}"><td>${i + 1}</td><td>${dt(r.t)}</td><td><span class="tag ${r.dir === 'LONG' ? 'L' : 'S'}">${r.dir === 'LONG' ? '▲ ALCISTA' : '▼ BAJISTA'}</span></td>
     <td>${priceFmt(r.entry)}</td><td>${priceFmt(r.extreme)}</td><td>${dt(r.extremeT)}</td><td>${r.barsToExtreme}</td><td class="pos">${pct(r.movePct)}</td>
     <td class="neg">${pct(r.maePct)}</td><td>${r.barsTotal}</td><td class="${cls(r.endPct)}">${pct(r.endPct)}</td><td>${r.ongoing ? 'En curso' : dd(r.endT)}</td></tr>`).join('');
 }
-const CX_HEAD = u => `<thead><tr><th>#</th><th>Fecha del cruce</th><th>Tipo</th><th>Precio cruce</th><th>Precio extremo</th><th>Fecha extremo</th><th>Velas ${u} al extremo</th><th>% movimiento</th><th>Peor retroceso</th><th>Velas hasta cruce contrario</th><th>% al cruce contrario</th><th>Cruce contrario</th></tr></thead>`;
+const CX_HEAD = u => `<thead><tr><th>#</th><th>Fecha del cruce (cierre de vela)</th><th>Tipo</th><th>Precio cruce</th><th>Precio extremo</th><th>Fecha extremo</th><th>Velas ${u} al extremo</th><th>% movimiento</th><th>Peor retroceso</th><th>Velas hasta cruce contrario</th><th>% al cruce contrario</th><th>Cruce contrario</th></tr></thead>`;
 function renderCX() {
   if (!CX) return;
   $('cxResP').style.display = 'block';
   $('cxTitle').textContent = `📊 ${CX.sym} — cruces EMA ${CX.cfg.ema1}/${CX.cfg.ema2} en ${CX.cfg.tf}`;
   $('cxSummary').innerHTML = cxSummaryHtml(CX);
+  closeCxChart();
   $('cxTable').innerHTML = CX_HEAD(CX.cfg.tf) + '<tbody>' + (cxRowsHtml(CX, $('cxDir').value) || '<tr><td colspan="12" style="text-align:center;color:var(--mut)">Sin cruces en el rango.</td></tr>') + '</tbody>';
 }
 function printCX() {
@@ -950,6 +978,71 @@ function printCX() {
     <script>window.onload=()=>setTimeout(()=>window.print(),400)<\/script></body></html>`);
   w.document.close();
 }
+
+// ---------- Gráfico desplegable de un cruce ----------
+let CXCH = null;
+function closeCxChart() {
+  if (CXCH) { try { CXCH.chart.remove(); } catch (e) {} CXCH.tr.remove(); CXCH = null; }
+  document.querySelectorAll('#cxTable tr.cxr.sel').forEach(x => x.classList.remove('sel'));
+}
+function toggleCxChart(tr) {
+  const i = parseInt(tr.dataset.i);
+  if (CXCH && CXCH.tr.previousElementSibling === tr) { closeCxChart(); return; }
+  closeCxChart();
+  tr.classList.add('sel');
+  const row = CX.res.rows[i];
+  const ctr = document.createElement('tr');
+  ctr.innerHTML = '<td colspan="12"><div class="cxbox"><div class="leg"></div><div class="cv"></div><div class="ov"></div></div></td>';
+  tr.after(ctr);
+  const box = ctr.querySelector('.cxbox'), cv = ctr.querySelector('.cv'), ov = ctr.querySelector('.ov');
+  const bars = CX.bars, sec = ms => Math.floor(ms / 1000);
+  const chart = LightweightCharts.createChart(cv, {
+    width: cv.clientWidth, height: 430,
+    layout: { background: { color: '#12141f' }, textColor: '#A8B2C1' },
+    grid: { vertLines: { color: '#1f2336' }, horzLines: { color: '#1f2336' } },
+    rightPriceScale: { borderColor: '#363c57' }, timeScale: { borderColor: '#363c57', timeVisible: CX.cfg.tf !== '1d', rightOffset: 4 },
+    localization: { locale: 'es-ES', dateFormat: 'dd/MM/yyyy' }, crosshair: { mode: 0 }
+  });
+  const cs = chart.addCandlestickSeries({ upColor: '#26a69a', downColor: '#ef5350', borderVisible: false, wickUpColor: '#26a69a', wickDownColor: '#ef5350' });
+  cs.setData(bars.map(b => ({ time: sec(b.t), open: b.o, high: b.h, low: b.l, close: b.c })));
+  const closes = bars.map(b => b.c);
+  const addEma = (n, color, w) => {
+    const arr = calcEMAarr(closes, n), ser = chart.addLineSeries({ color, lineWidth: w, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
+    ser.setData(arr.map((v, j) => v == null ? null : { time: sec(bars[j].t), value: v }).filter(Boolean)); return ser;
+  };
+  addEma(CX.cfg.ema1, '#ffffff', 2); addEma(CX.cfg.ema2, '#4ADE80', 2); if (CX.e3 > 2) addEma(CX.e3, '#ef5350', 1);
+  box.querySelector('.leg').innerHTML = `<span style="color:#fff">━ EMA ${CX.cfg.ema1}</span> &nbsp;<span style="color:#4ADE80">━ EMA ${CX.cfg.ema2}</span>` + (CX.e3 > 2 ? ` &nbsp;<span style="color:#ef5350">━ EMA ${CX.e3}</span>` : '');
+  // posiciones de la vela del cruce (la que cierra justo en row.t) y de la vela del extremo
+  const barOfTime = t => { let lo = 0, hi = bars.length - 1, r = hi; while (lo <= hi) { const m = (lo + hi) >> 1; if (bars[m].t <= t) { r = m; lo = m + 1; } else hi = m - 1; } return r; };
+  const jc = Math.max(0, bars.findIndex(b => b.endT === row.t)), je = barOfTime(row.extremeT);
+  const up = row.dir === 'LONG', col = up ? '#4ADE80' : '#F87171';
+  const mk = [{ time: sec(bars[jc].t), position: up ? 'belowBar' : 'aboveBar', color: up ? '#22d3ee' : '#F87171', shape: up ? 'arrowUp' : 'arrowDown', text: up ? 'Cruce alcista' : 'Cruce bajista' }];
+  if (je !== jc) mk.push({ time: sec(bars[je].t), position: up ? 'aboveBar' : 'belowBar', color: col, shape: up ? 'arrowDown' : 'arrowUp', text: 'Extremo' });
+  cs.setMarkers(mk);
+  const from = Math.max(0, jc - 35), toI = Math.min(bars.length - 1, Math.max(je, row.ongoing ? bars.length - 1 : barOfTime(row.endT)) + 12);
+  chart.timeScale().setVisibleRange({ from: sec(bars[from].t), to: sec(bars[toI].t) });
+  const ts = chart.timeScale();
+  const xOf = j => ts.timeToCoordinate(sec(bars[j].t)), yOf = p => cs.priceToCoordinate(p);
+  const layout = () => {
+    ov.innerHTML = '';
+    const x1 = xOf(jc), x2 = xOf(je), y1 = yOf(row.entry), y2 = yOf(row.extreme);
+    const nx = jc + 1 < bars.length ? xOf(jc + 1) : null, bw = (nx != null && x1 != null) ? Math.max(4, nx - x1) : 8;
+    const H = box.clientHeight, put = (cls, css, html = '') => { const d = document.createElement('div'); d.className = cls; d.style.cssText = css; d.innerHTML = html; ov.appendChild(d); return d; };
+    if (x1 != null) put('band', `left:${x1 - bw / 2}px;width:${bw}px;top:0;height:${H}px;background:${col}`);
+    if (x1 == null || x2 == null || y1 == null || y2 == null) return;
+    put('', `left:${Math.min(x1, x2)}px;width:${Math.abs(x2 - x1)}px;top:${y1}px;border-top:1px dashed ${col}`);
+    put('', `left:${x2}px;top:${Math.min(y1, y2)}px;height:${Math.abs(y2 - y1)}px;border-left:2px solid ${col}`);
+    put('', `left:${x2 - 6}px;top:${y2 - (y2 < y1 ? 2 : 12)}px;color:${col};font-size:12px;line-height:12px`, y2 < y1 ? '▲' : '▼');
+    put('lbl', `left:${x2}px;top:${(y1 + y2) / 2}px`, `${(row.movePct >= 0 ? '+' : '') + fmt(row.movePct, 2)}%`);
+    put('lbl2', `left:${(x1 + x2) / 2}px;top:${y1 + (y2 < y1 ? 16 : -16)}px`, `${row.barsToExtreme} barras, ${row.barsToExtreme}${CX.cfg.tf === '1d' ? 'd' : ' × ' + CX.cfg.tf}`);
+    if (row.maePct < 0) { const yM = yOf(row.entry * (1 + (up ? 1 : -1) * row.maePct / 100)); if (yM != null) put('lbl2', `left:${x1 + 6}px;top:${yM}px;color:#F87171;transform:translate(0,-50%)`, `retroceso ${fmt(row.maePct, 2)}%`); }
+  };
+  ts.subscribeVisibleLogicalRangeChange(layout); chart.subscribeCrosshairMove(() => {});
+  setTimeout(layout, 50); setTimeout(layout, 300);
+  CXCH = { chart, tr: ctr };
+  window.addEventListener('resize', () => { if (CXCH && CXCH.chart === chart) { chart.applyOptions({ width: cv.clientWidth }); layout(); } });
+}
+document.addEventListener('click', ev => { const tr = ev.target.closest && ev.target.closest('#cxTable tr.cxr'); if (tr) toggleCxChart(tr); });
 $('cxRun').onclick = runCX; $('cxPrint').onclick = printCX; $('cxDir').onchange = renderCX;
 
 $('run').onclick = run;
