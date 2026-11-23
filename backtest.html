@@ -106,6 +106,7 @@ details ul{color:var(--mut);line-height:1.6;padding-left:20px;margin:8px 0 0}
     <div><label>Comisión por orden (%)</label><input type="number" id="fee" value="0.05" step="0.01" min="0"></div>
     <div><label>SL inicial % (vacío = sin SL)</label><input type="number" id="sl" step="0.1" min="0" placeholder="sin SL"></div>
     <div class="chk"><input type="checkbox" id="closeOpp"><label for="closeOpp">Cerrar en cruce contrario</label></div>
+    <div><label>Temporalidad del cruce contrario</label><select id="closeTf"><option value="">Igual que la señal</option><option value="1d">1d</option><option value="12h">12h</option><option value="8h">8h</option><option value="4h">4h</option><option value="2h">2h</option><option value="1h">1h</option></select></div>
   </div>
   <div class="grid" style="margin-top:10px">
     <div><label>TP1 %</label><input type="number" id="tp1" step="0.1" min="0" placeholder="ej. 3"></div>
@@ -139,6 +140,7 @@ details ul{color:var(--mut);line-height:1.6;padding-left:20px;margin:8px 0 0}
       <li><b>DCA:</b> en cada ciclo se compra 1 bala; con caída desde el PEPP de 5/10/15/20% se compran 2/3/4/5. Se detiene cuando queda menos de 1 bala de capital.</li>
       <li><b>Intervalos</b>: uno es el de la señal (con qué velas se calcula el cruce de EMA y se abre la operación) y otro el de cada bala (cada cuánto se añade un DCA mientras la operación está abierta). Pueden ser distintos, por ejemplo señal 1d y una bala cada 4h.</li>
       <li><b>TP por ratio</b>: con «Ratio R», 1R es el SL inicial %. Con SL 2%, TP1=1, TP2=2, TP3=3 salen a 2%, 4% y 6% de precio desde el PEPP.</li>
+      <li><b>Cruce contrario</b>: si está marcado, cierra todo lo que quede de la operación cuando aparece un cruce de EMA contrario en la temporalidad elegida (por defecto, la de la señal). Los TP ya cobrados se conservan y el resultado final es la suma de todo.</li>
       <li><b>Bala</b> = valor fijo en USDT que tú eliges. La 1ª entrada vale 2 balas; después cada DCA vale 1–5 balas según la caída. Con capital 10.000 y bala 1.000 hay 10 balas: 1ª entrada (2) + 8 más. Con «Reinvertir ganancias», la bala se escala con el capital actual del caballo (interés compuesto); sin ello, siempre vale lo mismo.</li>
       <li><b>TP:</b> se recalculan desde el PEPP tras cada DCA. Cada TP cierra su parte sobre el total que aún queda (50/25/25 por defecto). El capital liberado y la ganancia vuelven al caballo y pueden usarse en nuevas balas.</li>
       <li><b>Stops:</b> tras TP1 el SL va a BE (el PEPP, que sigue moviéndose si hay nuevas balas); tras TP2 el SL va al precio de TP1. Sin SL antes de TP1, salvo que pongas uno.</li>
@@ -238,11 +240,20 @@ function prepareSignals(candles, cfg) {
   }
   const isDca = new Uint8Array(candles.length);
   buildSeriesIdx(candles, cfg.dcaTf || cfg.tf, cfg.sessionHour).forEach(i => { isDca[i] = 1; });
-  return { crossAt, isCycle, isDca, dailyState };
+  // Cruces para la salida por cruce contrario (temporalidad propia; por defecto la de la señal)
+  let exitCrossAt = crossAt;
+  const xtf = cfg.closeTf || cfg.tf;
+  if (xtf !== cfg.tf) {
+    const xi = buildSeriesIdx(candles, xtf, cfg.sessionHour);
+    const xc = crossInfo(xi.map(i => candles[i].c), cfg.ema1, cfg.ema2);
+    exitCrossAt = new Map();
+    xi.forEach((ci2, j) => { if (xc.cross[j]) exitCrossAt.set(ci2, xc.cross[j]); });
+  }
+  return { crossAt, exitCrossAt, isCycle, isDca, dailyState };
 }
 
 // cfg: { tf, sessionHour, ema1, ema2, dailyFilter, startMs, endMs, capital, leverage, bulletValue, compound,
-//        dcaTf (intervalo de cada bala), bulletValue, compound, dcaEvery, tpPcts:[a,b,c], tpSizes:[a,b,c], tpMode:'price'|'roi'|'ratio', be:true, slPct:0,
+//        dcaTf (intervalo de cada bala), closeTf (temporalidad del cruce contrario), bulletValue, compound, dcaEvery, tpPcts:[a,b,c], tpSizes:[a,b,c], tpMode:'price'|'roi'|'ratio', be:true, slPct:0,
 //        closeOpp:false, feePct, shield:'none'|'both'|'margin_only', conservative:true }
 function runHorse(candles, cfg, sig) {
   let cash = cfg.capital;
@@ -418,11 +429,14 @@ function runHorse(candles, cfg, sig) {
   for (let k = startIdx; k <= endIdx; k++) {
     const c = candles[k];
     if (op) processCandle(c);
+    if (op && cfg.closeOpp) {
+      const xs = sig.exitCrossAt.get(k);
+      if (xs && xs !== dirName(op.dir)) closeAll(c.c, 'CRUCE', c, false);
+    }
     if (sig.isCycle[k] || sig.isDca[k]) {
       const s = sig.crossAt.get(k);
       if (op) {
-        if (sig.isCycle[k] && cfg.closeOpp && s && s !== dirName(op.dir)) closeAll(c.c, 'CRUCE', c, false);
-        else if (sig.isDca[k]) {
+        if (sig.isDca[k]) {
           op.cyclesSince++;
           if (op.cyclesSince >= cfg.dcaEvery) { op.cyclesSince = 0; doDCA(c); }
         }
@@ -521,7 +535,7 @@ function readCfg() {
   const startMs = Date.parse($('start').value + 'T00:00:00Z');
   const endMs = Date.parse($('end').value + 'T23:59:59Z');
   const cfg = {
-    tf: $('tf').value, dcaTf: $('dcaTf').value, sessionHour: parseInt($('session').value), ema1: num('ema1'), ema2: num('ema2'),
+    tf: $('tf').value, dcaTf: $('dcaTf').value, closeTf: $('closeTf').value || $('tf').value, sessionHour: parseInt($('session').value), ema1: num('ema1'), ema2: num('ema2'),
     dailyFilter: $('dfilter').checked, startMs, endMs, capital: num('capital'), leverage: num('lev'),
     bulletValue: num('bullet'), compound: $('compound').checked, dcaEvery: Math.max(1, num('dcaEvery') || 1),
     tpPcts: [num('tp1'), num('tp2'), num('tp3')].map(v => isNaN(v) ? 0 : v),
@@ -737,7 +751,7 @@ function printReport() {
   const cfgTxt = [
     `Periodo: ${dd(c.startMs)} → ${dd(c.endMs)}`, `Intervalo: ${c.tf} · sesión ${c.sessionHour}:00 UTC · EMA ${c.ema1}/${c.ema2} · filtro diario: ${c.dailyFilter ? 'sí' : 'no'}`,
     `Capital: ${fmt(c.capital)} USDT · apalancamiento x${c.leverage} · bala ${fmt(c.bulletValue)} USDT (${c.compound ? 'con reinversión' : 'fija'}) · señal ${c.tf} · una bala cada ${c.dcaTf}`,
-    `TP: ${c.tpPcts.join('% / ')}% (cierres ${c.tpSizes.join('/')}%, modo ${c.tpMode === 'ratio' ? 'ratio R, 1R = SL ' + c.slPct + '%' : c.tpMode}) · BE: ${c.be ? 'sí' : 'no'} · SL: ${c.slPct || 'no'} · cierre por cruce contrario: ${c.closeOpp ? 'sí' : 'no'}`,
+    `TP: ${c.tpPcts.join('% / ')}% (cierres ${c.tpSizes.join('/')}%, modo ${c.tpMode === 'ratio' ? 'ratio R, 1R = SL ' + c.slPct + '%' : c.tpMode}) · BE: ${c.be ? 'sí' : 'no'} · SL: ${c.slPct || 'no'} · cierre por cruce contrario: ${c.closeOpp ? 'sí (' + c.closeTf + ')' : 'no'}`,
     `Escudo: ${c.shield} · comisión ${c.feePct}% · modo conservador: ${c.conservative ? 'sí' : 'no'}`].join('<br>');
   const body = trades.map(t => `<h3>${t.open ? 'Operación abierta' : 'Operación #' + t.id} — ${t.dir} · ${dt(t.openT)}${t.open ? '' : ' → ' + dt(t.closeT) + ' · ' + (REASONS[t.reason] || t.reason)}</h3>${movesTable(t)}`).join('');
   const w = window.open('', '_blank');
