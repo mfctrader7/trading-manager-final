@@ -742,7 +742,7 @@ function printReport() {
     .kv{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:10px 0}.kv div{border:1px solid #ccc;border-radius:6px;padding:5px 8px}.kv small{display:block;color:#666;font-size:10px}
     table{border-collapse:collapse;width:100%;font-size:10.5px}th,td{border-bottom:1px solid #ddd;padding:3px 5px;text-align:right;white-space:nowrap}th{background:#eee}
     th:nth-child(-n+2),td:nth-child(-n+2){text-align:left}tr{page-break-inside:avoid}.sum{display:flex;gap:14px;flex-wrap:wrap;margin:2px 0 4px;color:#444}
-    .pos{color:#0a8f3c}.neg{color:#c62828}.warn{color:#b26a00}.act{font-weight:700}img{max-width:100%}.scroll{overflow:visible}
+    .pos{color:#0a8f3c}.neg{color:#c62828}.warn{color:#b26a00}.act{font-weight:700}img{max-width:100%}.scroll{overflow:visible!important;max-height:none!important;height:auto!important}
     @media print{@page{size:A4 landscape;margin:10mm}}</style></head><body>
     <h1>🐎 ${r.symbol} — informe de backtest</h1><div style="color:#555">${cfgTxt}</div>
     <div class="kv"><div><small>Capital final (equity)</small><b>${fmt(m.finalEq)} USDT</b></div><div><small>Rentabilidad</small><b>${fmt(m.roi)}%</b></div>
