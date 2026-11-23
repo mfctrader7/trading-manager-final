@@ -98,6 +98,7 @@ details ul{color:var(--mut);line-height:1.6;padding-left:20px;margin:8px 0 0}
     <div><label>Valor de la bala (USDT)</label><input type="number" id="bullet" min="1" placeholder="ej. 50"></div>
     <div><label>Reinvertir ganancias</label><label style="font-weight:400"><input type="checkbox" id="compound" checked> la bala crece/baja con el capital</label></div>
     <div style="grid-column:1/-1"><div id="bulletHint" style="color:var(--mut);font-size:.8rem"></div></div>
+    <div style="grid-column:1/-1"><div id="tfHint" style="color:var(--mut);font-size:.8rem"></div></div>
     <div><label>DCA cada (velas)</label><input type="number" id="dcaEvery" value="1" min="1"></div>
     <div><label>Escudo de margen</label>
       <select id="shield"><option value="none">Sin escudo (solo DCA)</option><option value="both">DCA + Margen</option><option value="margin_only">Más Margen</option></select></div>
@@ -116,10 +117,10 @@ details ul{color:var(--mut);line-height:1.6;padding-left:20px;margin:8px 0 0}
     <div class="chk"><input type="checkbox" id="be" checked><label for="be">SL en BE tras TP1 (y en TP1 tras TP2)</label></div>
   </div>
   <div class="horses">
-    <div><label>🐎 Caballo 1</label><input id="h1" value="BTC"></div>
-    <div><label>🐎 Caballo 2</label><input id="h2" value="ETH"></div>
-    <div><label>🐎 Caballo 3 (meme)</label><input id="h3" value="DOGE"></div>
-    <div><label>🐎 Caballo 4 (IA)</label><input id="h4" value="RENDER"></div>
+    <div><label><input type="checkbox" id="on1" checked> 🐎 Caballo 1</label><input id="h1" value="BTC"></div>
+    <div><label><input type="checkbox" id="on2" checked> 🐎 Caballo 2</label><input id="h2" value="ETH"></div>
+    <div><label><input type="checkbox" id="on3" checked> 🐎 Caballo 3 (meme)</label><input id="h3" value="DOGE"></div>
+    <div><label><input type="checkbox" id="on4" checked> 🐎 Caballo 4 (IA)</label><input id="h4" value="RENDER"></div>
   </div>
   <div style="margin-top:14px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
     <button class="btn" id="run">▶ Cargar velas y simular</button>
@@ -156,6 +157,7 @@ details ul{color:var(--mut);line-height:1.6;padding-left:20px;margin:8px 0 0}
 <div class="panel" id="horseP" style="display:none">
   <h2 id="horseT"></h2>
   <div class="kv" id="state"></div>
+  <div style="margin:8px 0"><button class="btn" id="printBtn">🖨 Imprimir informe de este caballo</button></div>
   <div class="chartbox" style="margin-top:16px"><canvas id="pxChart"></canvas></div>
   <div class="legend">▲ apertura · ● DCA · ◆ TP · ✖ salida (BE/SL/cruce) · ⚡ liquidación</div>
   <h2 style="margin-top:18px">Operaciones</h2>
@@ -435,7 +437,7 @@ function runHorse(candles, cfg, sig) {
   if (op && lastC) {
     openOpState = {
       dir: dirName(op.dir), openT: op.openT, pepp: op.pepp, qty: op.qty, marginUsed: op.marginUsed,
-      bullets: op.bullets, entries: op.entries, tps: op.tps, tpPrice: op.tpPrice.slice(), sl: op.sl,
+      bullets: op.bullets, entries: op.entries, moves: op.moves, tps: op.tps, tpPrice: op.tpPrice.slice(), sl: op.sl,
       liq: liqPrice(), price: lastC.c, unrealized: op.qty * (lastC.c - op.pepp) * op.dir,
       cashFree: cash
     };
@@ -474,7 +476,7 @@ const money = n => (n >= 0 ? '+' : '−') + fmt(Math.abs(n)) ;
 const dt = t => new Date(t).toISOString().slice(0, 16).replace('T', ' ');
 const cls = n => n >= 0 ? 'pos' : 'neg';
 const priceFmt = p => p == null ? '—' : (p >= 100 ? fmt(p, 2) : p >= 1 ? fmt(p, 4) : fmt(p, 6));
-let RESULTS = [], SELECTED = 0, eqChart = null, pxChart = null, CANDLES = {};
+let LAST_CFG = null, RESULTS = [], SELECTED = 0, eqChart = null, pxChart = null, CANDLES = {};
 
 async function loadCandles(userId, symbol, fromDate, toDate, onPage) {
   const PAGE = 1000; let from = 0; const rows = [];
@@ -534,7 +536,9 @@ async function run() {
   const { cfg, errs } = readCfg();
   const st = $('status'); st.className = 'status';
   if (errs.length) { st.className = 'status err'; st.textContent = errs.join('\n'); return; }
-  const symbols = [1, 2, 3, 4].map(i => $('h' + i).value.trim().toUpperCase()).filter(Boolean);
+  const symbols = [1, 2, 3, 4].filter(i => $('on' + i).checked).map(i => $('h' + i).value.trim().toUpperCase()).filter(Boolean);
+  if (!symbols.length) { st.className = 'status err'; st.textContent = 'Marca al menos un caballo.'; return; }
+  LAST_CFG = cfg;
   const userId = $('candleUser').value;
   const fromDate = new Date(cfg.startMs - 90 * 86400000).toISOString().slice(0, 10);
   const toDate = $('end').value;
@@ -653,6 +657,7 @@ function renderPrice(r) {
 
 const ACT = { OPEN: 'Apertura', DCA: 'DCA', TP1: 'TP1', TP2: 'TP2', TP3: 'TP3', BE: 'Stop BE', SL: 'Stop Loss', SL_TP1: 'Stop en TP1', LIQ: 'Liquidación', CRUCE: 'Cruce contrario', TPs: 'TP final' };
 function movesTable(t) {
+  const open = !!t.open;
   const rows = t.moves.map(m => {
     const k = m.type.startsWith('TP') ? 'TP' : m.type;
     const pl = m.pctLiq;
@@ -668,9 +673,9 @@ function movesTable(t) {
       <td class="${cls(m.unreal)}">${m.pos ? money(m.unreal) : '—'}</td><td>${fmt(m.cash)}</td></tr>`;
   }).join('');
   const dur = (t.closeT - t.openT) / 3600000;
-  return `<div class="sum"><span>Peor caída: <b class="neg">${fmt(t.minPct, 1)}%</b></span><span>Balas totales: <b>${fmt(t.bullets, 1)}</b></span>
+  return `<div class="sum">${open ? '<span><b style="color:#FBBF24">OPERACIÓN ABIERTA (en curso)</b></span>' : ''}<span>Peor caída: <b class="neg">${fmt(t.minPct, 1)}%</b></span><span>Balas totales: <b>${fmt(t.bullets, 1)}</b></span>
     <span>Entradas: <b>${t.entries.length}</b></span><span>Duración: <b>${dur >= 48 ? fmt(dur / 24, 1) + ' d' : fmt(dur, 0) + ' h'}</b></span>
-    <span>Resultado: <b class="${cls(t.pnl)}">${money(t.pnl)} USDT</b></span></div>
+    <span>${open ? 'No realizado' : 'Resultado'}: <b class="${cls(t.pnl)}">${money(t.pnl)} USDT</b></span></div>
     <div class="scroll" style="max-height:340px"><table class="mv"><thead><tr><th>Fecha y hora</th><th>Acción</th><th>Balas</th><th>Margen DCA</th><th>🛡️ Escudo</th><th>Precio</th><th>PEPP</th><th>Drawdown</th><th>% a liq.</th><th>Posición</th><th>PnL realizado</th><th>No realizado</th><th>Capital libre</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 function updHint() {
@@ -682,9 +687,26 @@ function updHint() {
     `Capital ${fmt(cap, 0)} ÷ bala ${fmt(b, 0)} = ${n} balas → hasta ${n - 1} entradas (la 1ª vale ×2 = ${fmt(2 * b, 0)} USDT).`;
 }
 ['capital', 'bullet'].forEach(id => $(id).addEventListener('input', updHint));
+function updTfHint() {
+  const tf = $('tf').value, h0 = parseInt($('session').value);
+  const step = { '1d': 24, '12h': 12, '8h': 8, '4h': 4, '2h': 2, '1h': 1 }[tf];
+  const hrs = []; for (let h = h0 % step; h < 24; h += step) hrs.push(h);
+  $('tfHint').textContent = `Intervalo ${tf} · ${hrs.length} entradas/día · Horas UTC: ${hrs.join(', ')}`;
+}
+['tf', 'session'].forEach(id => $(id).addEventListener('change', updTfHint));
+updTfHint(); updHint();
 const REASONS = { TPs: 'TP1+2+3', BE: 'Stop en BE', SL: 'Stop Loss', SL_TP1: 'Stop en TP1', LIQ: '⚡ Liquidación', CRUCE: 'Cruce contrario' };
+function openAsTrade(r) {
+  const o = r.openOp; if (!o) return null;
+  const cs = CANDLES[r.symbol]; const last = cs[cs.length - 1].t;
+  return { open: true, id: 'ABIERTA', dir: o.dir, openT: o.openT, closeT: last, moves: o.moves, entries: o.entries,
+    bullets: o.bullets, pnl: o.unrealized, minPct: Math.min(0, ...o.moves.map(m => m.ddPct)) };
+}
 function renderTrades(r) {
-  const rows = r.trades.map(t => {
+  const ot = openAsTrade(r);
+  const openRow = ot ? `<tr class="detail" id="dopen"><td colspan="12"><b style="color:#FBBF24">Operación abierta ${ot.dir} desde ${dt(ot.openT)}</b> — ${ot.entries.length} entradas hasta ahora</td></tr>
+    <tr class="detail" id="dopen2"><td colspan="12">${movesTable(ot)}</td></tr>` : '';
+  const rows = openRow + r.trades.map(t => {
     const dur = (t.closeT - t.openT) / 3600000;
     const durTxt = dur >= 48 ? fmt(dur / 24, 1) + ' d' : fmt(dur, 0) + ' h';
     return `<tr class="t" data-id="${t.id}"><td>${t.id}</td><td><span class="tag ${t.dir === 'LONG' ? 'L' : 'S'}">${t.dir}</span></td>
@@ -696,6 +718,39 @@ function renderTrades(r) {
   $('trades').innerHTML = `<thead><tr><th>#</th><th>Dir</th><th>Apertura</th><th>Cierre</th><th>Duración</th><th>Balas</th><th>Margen máx.</th><th>PnL</th><th>ROI/margen</th><th>Peor caída</th><th>Salida</th><th>Capital tras cerrar</th></tr></thead><tbody>${rows || '<tr><td colspan="12" style="text-align:center;color:#A8B2C1">Sin operaciones cerradas en el periodo.</td></tr>'}</tbody>`;
   document.querySelectorAll('#trades tr.t').forEach(tr => tr.onclick = () => { const d = $('d' + tr.dataset.id); d.style.display = d.style.display === 'none' ? '' : 'none'; });
 }
+function printReport() {
+  const r = RESULTS[SELECTED]; if (!r) return;
+  const c = LAST_CFG || {}, m = r.metrics, o = r.openOp;
+  const ot = openAsTrade(r);
+  const src = $('pxChart'), tmp = document.createElement('canvas'); tmp.width = src.width; tmp.height = src.height;
+  const tc = tmp.getContext('2d'); tc.fillStyle = '#1d2133'; tc.fillRect(0, 0, tmp.width, tmp.height); tc.drawImage(src, 0, 0);
+  const img = tmp.toDataURL('image/png');
+  const trades = (ot ? [ot] : []).concat(r.trades.slice().reverse());
+  const cfgTxt = [
+    `Periodo: ${dt(c.startMs).slice(0, 10)} → ${dt(c.endMs).slice(0, 10)}`, `Intervalo: ${c.tf} · sesión ${c.sessionHour}:00 UTC · EMA ${c.ema1}/${c.ema2} · filtro diario: ${c.dailyFilter ? 'sí' : 'no'}`,
+    `Capital: ${fmt(c.capital)} USDT · apalancamiento x${c.leverage} · bala ${fmt(c.bulletValue)} USDT (${c.compound ? 'con reinversión' : 'fija'}) · DCA cada ${c.dcaEvery} vela(s)`,
+    `TP: ${c.tpPcts.join('% / ')}% (cierres ${c.tpSizes.join('/')}%, modo ${c.tpMode}) · BE: ${c.be ? 'sí' : 'no'} · SL: ${c.slPct || 'no'} · cierre por cruce contrario: ${c.closeOpp ? 'sí' : 'no'}`,
+    `Escudo: ${c.shield} · comisión ${c.feePct}% · modo conservador: ${c.conservative ? 'sí' : 'no'}`].join('<br>');
+  const body = trades.map(t => `<h3>${t.open ? 'Operación abierta' : 'Operación #' + t.id} — ${t.dir} · ${dt(t.openT)}${t.open ? '' : ' → ' + dt(t.closeT) + ' · ' + (REASONS[t.reason] || t.reason)}</h3>${movesTable(t)}`).join('');
+  const w = window.open('', '_blank');
+  if (!w) { alert('El navegador bloqueó la ventana. Permite ventanas emergentes para imprimir.'); return; }
+  w.document.write(`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Informe ${r.symbol}</title><style>
+    body{font-family:system-ui,Arial,sans-serif;color:#111;margin:18px;font-size:12px}h1{font-size:20px;margin:0 0 4px}h3{font-size:13px;margin:18px 0 4px;page-break-after:avoid}
+    .kv{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:10px 0}.kv div{border:1px solid #ccc;border-radius:6px;padding:5px 8px}.kv small{display:block;color:#666;font-size:10px}
+    table{border-collapse:collapse;width:100%;font-size:10.5px}th,td{border-bottom:1px solid #ddd;padding:3px 5px;text-align:right;white-space:nowrap}th{background:#eee}
+    th:nth-child(-n+2),td:nth-child(-n+2){text-align:left}tr{page-break-inside:avoid}.sum{display:flex;gap:14px;flex-wrap:wrap;margin:2px 0 4px;color:#444}
+    .pos{color:#0a8f3c}.neg{color:#c62828}.warn{color:#b26a00}.act{font-weight:700}img{max-width:100%}.scroll{overflow:visible}
+    @media print{@page{size:A4 landscape;margin:10mm}}</style></head><body>
+    <h1>🐎 ${r.symbol} — informe de backtest</h1><div style="color:#555">${cfgTxt}</div>
+    <div class="kv"><div><small>Capital final (equity)</small><b>${fmt(m.finalEq)} USDT</b></div><div><small>Rentabilidad</small><b>${fmt(m.roi)}%</b></div>
+    <div><small>Operaciones cerradas</small><b>${m.trades} (${fmt(m.winRate, 0)}% ganadas)</b></div><div><small>Caída máxima</small><b>−${fmt(m.maxDD)}%</b></div>
+    <div><small>Máx. balas en una op.</small><b>${fmt(m.maxBullets, 1)}</b></div><div><small>Comisiones</small><b>${fmt(m.fees)}</b></div>
+    <div><small>Liquidaciones</small><b>${m.liqs}</b></div><div><small>Operación abierta</small><b>${o ? o.dir + ' · no realizado ' + money(o.unrealized) : 'Ninguna'}</b></div></div>
+    <img src="${img}">${body || '<p>Sin operaciones.</p>'}
+    <script>window.onload=()=>setTimeout(()=>window.print(),400)<\/script></body></html>`);
+  w.document.close();
+}
+$('printBtn').onclick = printReport;
 $('run').onclick = run;
 </script>
 </body>
