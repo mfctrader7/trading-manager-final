@@ -652,6 +652,8 @@ $('end').value = new Date().toISOString().slice(0, 10);
 const COLORS = ['#F4D896', '#7C9DD4', '#4ADE80', '#A78BFA'];
 const fmt = (n, d = 2) => (n == null || !isFinite(n)) ? '—' : n.toLocaleString('es-ES', { minimumFractionDigits: d, maximumFractionDigits: d });
 const money = n => (n >= 0 ? '+' : '−') + fmt(Math.abs(n)) ;
+const fileDate = ms => dd(ms).replace(/\//g, '-');
+const fileTitle = (base, a, b) => `${base} ${fileDate(a)} a ${fileDate(b)}`;
 const pad2 = n => String(n).padStart(2, '0');
 const dd = t => { const d = new Date(t); return `${pad2(d.getUTCDate())}/${pad2(d.getUTCMonth() + 1)}/${d.getUTCFullYear()}`; };
 const dt = t => { const d = new Date(t); return `${dd(t)} ${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}`; };
@@ -915,7 +917,7 @@ function printReport() {
   const body = trades.map(t => `<h3>${t.open ? 'Operación abierta' : 'Operación #' + t.id} — ${t.dir} · ${dt(t.openT)}${t.open ? '' : ' → ' + dt(t.closeT) + ' · ' + (REASONS[t.reason] || t.reason)}</h3>${movesTable(t)}`).join('');
   const w = window.open('', '_blank');
   if (!w) { alert('El navegador bloqueó la ventana. Permite ventanas emergentes para imprimir.'); return; }
-  w.document.write(`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Informe ${r.symbol}</title><style>
+  w.document.write(`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${fileTitle('Backtest ' + r.symbol + ' señal ' + c.tf + (c.closeOpp ? ' cruce-contrario ' + c.closeTf : '') + ' x' + c.leverage, c.startMs, c.endMs)}</title><style>
     body{font-family:system-ui,Arial,sans-serif;color:#111;margin:18px;font-size:12px}h1{font-size:20px;margin:0 0 4px}h3{font-size:13px;margin:18px 0 4px;page-break-after:avoid}
     .kv{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:10px 0}.kv div{border:1px solid #ccc;border-radius:6px;padding:5px 8px}.kv small{display:block;color:#666;font-size:10px}
     table{border-collapse:collapse;width:100%;font-size:10.5px}th,td{border-bottom:1px solid #ddd;padding:3px 5px;text-align:right;white-space:nowrap}th{background:#eee}
@@ -1024,7 +1026,7 @@ function printCX() {
   const w = window.open('', '_blank');
   if (!w) { alert('El navegador bloqueó la ventana. Permite ventanas emergentes para imprimir.'); return; }
   const c = CX.cfg;
-  w.document.write(`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Cruces ${CX.sym}</title><style>
+  w.document.write(`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${fileTitle('Cruces ' + CX.sym + ' ' + c.tf + ' EMA' + c.ema1 + '-' + c.ema2, c.startMs, c.endMs)}</title><style>
     body{font-family:system-ui,Arial,sans-serif;color:#111;margin:18px;font-size:12px}h1{font-size:20px;margin:0 0 4px}h3{font-size:13px;margin:16px 0 4px}
     table{border-collapse:collapse;width:100%;font-size:10px}th,td{border-bottom:1px solid #ddd;padding:3px 5px;text-align:right;white-space:nowrap}th{background:#eee;white-space:normal}
     th:nth-child(-n+1),td:nth-child(-n+1){text-align:left}tr{page-break-inside:avoid}thead{display:table-header-group}
