@@ -114,7 +114,7 @@ details ul{color:var(--mut);line-height:1.6;padding-left:20px;margin:8px 0 0}
     <div><label>TP2 cierra %</label><input type="number" id="tp2s" value="25"></div>
     <div><label>TP3 %</label><input type="number" id="tp3" step="0.1" min="0" placeholder="ej. 10"></div>
     <div><label>TP3 cierra %</label><input type="number" id="tp3s" value="25"></div>
-    <div><label>Los TP son…</label><select id="tpMode"><option value="price">% de precio desde el PEPP</option><option value="roi">ROI % sobre margen</option></select></div>
+    <div><label>Los TP son…</label><select id="tpMode"><option value="price">% de precio desde el PEPP</option><option value="roi">ROI % sobre margen</option><option value="ratio">Ratio R (múltiplo del SL %)</option></select></div>
     <div class="chk"><input type="checkbox" id="be" checked><label for="be">SL en BE tras TP1 (y en TP1 tras TP2)</label></div>
   </div>
   <div class="horses">
@@ -138,6 +138,7 @@ details ul{color:var(--mut);line-height:1.6;padding-left:20px;margin:8px 0 0}
       <li><b>Filtro diario</b> (solo si la temporalidad es menor a 1d): no se abre largo si en el diario la EMA rápida está por debajo de la lenta, y viceversa. Se usa la última muestra diaria ya cerrada.</li>
       <li><b>DCA:</b> en cada ciclo se compra 1 bala; con caída desde el PEPP de 5/10/15/20% se compran 2/3/4/5. Se detiene cuando queda menos de 1 bala de capital.</li>
       <li><b>Intervalos</b>: uno es el de la señal (con qué velas se calcula el cruce de EMA y se abre la operación) y otro el de cada bala (cada cuánto se añade un DCA mientras la operación está abierta). Pueden ser distintos, por ejemplo señal 1d y una bala cada 4h.</li>
+      <li><b>TP por ratio</b>: con «Ratio R», 1R es el SL inicial %. Con SL 2%, TP1=1, TP2=2, TP3=3 salen a 2%, 4% y 6% de precio desde el PEPP.</li>
       <li><b>Bala</b> = valor fijo en USDT que tú eliges. La 1ª entrada vale 2 balas; después cada DCA vale 1–5 balas según la caída. Con capital 10.000 y bala 1.000 hay 10 balas: 1ª entrada (2) + 8 más. Con «Reinvertir ganancias», la bala se escala con el capital actual del caballo (interés compuesto); sin ello, siempre vale lo mismo.</li>
       <li><b>TP:</b> se recalculan desde el PEPP tras cada DCA. Cada TP cierra su parte sobre el total que aún queda (50/25/25 por defecto). El capital liberado y la ganancia vuelven al caballo y pueden usarse en nuevas balas.</li>
       <li><b>Stops:</b> tras TP1 el SL va a BE (el PEPP, que sigue moviéndose si hay nuevas balas); tras TP2 el SL va al precio de TP1. Sin SL antes de TP1, salvo que pongas uno.</li>
@@ -241,14 +242,14 @@ function prepareSignals(candles, cfg) {
 }
 
 // cfg: { tf, sessionHour, ema1, ema2, dailyFilter, startMs, endMs, capital, leverage, bulletValue, compound,
-//        dcaTf (intervalo de cada bala), bulletValue, compound, dcaEvery, tpPcts:[a,b,c], tpSizes:[a,b,c], tpMode:'price'|'roi', be:true, slPct:0,
+//        dcaTf (intervalo de cada bala), bulletValue, compound, dcaEvery, tpPcts:[a,b,c], tpSizes:[a,b,c], tpMode:'price'|'roi'|'ratio', be:true, slPct:0,
 //        closeOpp:false, feePct, shield:'none'|'both'|'margin_only', conservative:true }
 function runHorse(candles, cfg, sig) {
   let cash = cfg.capital;
   let op = null;
   const trades = [], markers = [], equity = [];
   let fees = 0, peak = cfg.capital, maxDD = 0;
-  const tpPctEff = cfg.tpPcts.map(p => (p > 0 ? (cfg.tpMode === 'roi' ? p / cfg.leverage : p) : 0));
+  const tpPctEff = cfg.tpPcts.map(p => (p > 0 ? (cfg.tpMode === 'roi' ? p / cfg.leverage : cfg.tpMode === 'ratio' ? p * cfg.slPct : p) : 0));
   const tpW = cfg.tpSizes.map((w, i) => (tpPctEff[i] > 0 && w > 0 ? w : 0));
   const dirName = d => (d === 1 ? 'LONG' : 'SHORT');
   const feeOf = notional => { const f = notional * cfg.feePct / 100; fees += f; return f; };
@@ -272,7 +273,8 @@ function runHorse(candles, cfg, sig) {
     let liq = null, pctLiq = null;
     if (q > 0 && op.marginUsed > 0) { liq = liqPrice(); pctLiq = op.dir * (liq - price) / price * 100; }
     const ddPct = o.ddPct != null ? o.ddPct : op.dir * (price - op.pepp) / op.pepp * 100;
-    op.moves.push({ t: c.t, type, price, items: o.items || 0, margin: o.margin || 0, shield: o.shield || 0,
+    if (q > 0 && op.marginUsed > 0) op.lastLev = q * op.pepp / op.marginUsed;
+    op.moves.push({ t: c.t, type, price, used: op.marginUsed, lev: op.lastLev || cfg.leverage, items: o.items || 0, margin: o.margin || 0, shield: o.shield || 0,
       pepp: op.pepp, ddPct, liq, pctLiq, pos: q * price, realized: o.realized || 0, fee: o.fee || 0,
       unreal: q * (price - op.pepp) * op.dir, cash, frac: o.frac || null });
   }
@@ -477,7 +479,9 @@ $('end').value = new Date().toISOString().slice(0, 10);
 const COLORS = ['#F4D896', '#7C9DD4', '#4ADE80', '#A78BFA'];
 const fmt = (n, d = 2) => (n == null || !isFinite(n)) ? '—' : n.toLocaleString('es-ES', { minimumFractionDigits: d, maximumFractionDigits: d });
 const money = n => (n >= 0 ? '+' : '−') + fmt(Math.abs(n)) ;
-const dt = t => new Date(t).toISOString().slice(0, 16).replace('T', ' ');
+const pad2 = n => String(n).padStart(2, '0');
+const dd = t => { const d = new Date(t); return `${pad2(d.getUTCDate())}/${pad2(d.getUTCMonth() + 1)}/${d.getUTCFullYear()}`; };
+const dt = t => { const d = new Date(t); return `${dd(t)} ${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}`; };
 const cls = n => n >= 0 ? 'pos' : 'neg';
 const priceFmt = p => p == null ? '—' : (p >= 100 ? fmt(p, 2) : p >= 1 ? fmt(p, 4) : fmt(p, 6));
 let LAST_CFG = null, RESULTS = [], SELECTED = 0, eqChart = null, pxChart = null, CANDLES = {};
@@ -531,6 +535,7 @@ function readCfg() {
   if (!(cfg.capital > 0)) errs.push('Falta el capital.');
   if (!(cfg.bulletValue > 0)) errs.push('Indica el valor de la bala.');
   else if (2 * cfg.bulletValue > cfg.capital) errs.push('El capital debe alcanzar al menos para la 1ª entrada (2 balas = ' + fmt(2 * cfg.bulletValue) + ' USDT).');
+  if (cfg.tpMode === 'ratio' && !(cfg.slPct > 0)) errs.push('Con TP por ratio debes indicar el SL inicial % (es el riesgo 1R). Ej.: SL 2% y TP 1/2/3 → salidas a 2%, 4% y 6%.');
   if (!(cfg.tpPcts[0] > 0)) errs.push('Indica al menos el TP1.');
   if (!(cfg.ema1 > 1 && cfg.ema2 > cfg.ema1)) errs.push('La EMA lenta debe ser mayor que la rápida.');
   return { cfg, errs };
@@ -556,7 +561,7 @@ async function run() {
       if (cs.length < 200) { notes.push(`⚠ ${sym}: solo ${cs.length} velas para ese usuario; se omite.`); continue; }
       const gaps = countGaps(cs);
       const first = cs[0].t;
-      if (first > cfg.startMs - 7 * 86400000) notes.push(`⚠ ${sym}: las velas empiezan el ${dt(first).slice(0, 10)}; la simulación arranca cuando hay datos.`);
+      if (first > cfg.startMs - 7 * 86400000) notes.push(`⚠ ${sym}: las velas empiezan el ${dd(first)}; la simulación arranca cuando hay datos.`);
       if (gaps > 0) notes.push(`⚠ ${sym}: faltan ${gaps} velas horarias en el rango cargado.`);
       CANDLES[sym] = cs;
       const sig = prepareSignals(cs, cfg);
@@ -600,7 +605,7 @@ function renderRace() {
     data: { datasets: RESULTS.map(r => ({ label: r.symbol, borderColor: r.color, backgroundColor: r.color, borderWidth: 1.6, pointRadius: 0, tension: 0,
       data: r.equity.filter((_, i) => i % step === 0).map(p => ({ x: p.t, y: p.eq })) })) },
     options: { parsing: false, animation: false, responsive: true, maintainAspectRatio: false, interaction: { mode: 'nearest', intersect: false },
-      scales: { x: { type: 'linear', ticks: { color: '#A8B2C1', maxTicksLimit: 10, callback: v => new Date(v).toISOString().slice(0, 10) }, grid: { color: '#2a2f45' } },
+      scales: { x: { type: 'linear', ticks: { color: '#A8B2C1', maxTicksLimit: 10, callback: v => dd(v) }, grid: { color: '#2a2f45' } },
         y: { ticks: { color: '#A8B2C1' }, grid: { color: '#2a2f45' } } },
       plugins: { legend: { labels: { color: '#E8ECEF' } }, tooltip: { callbacks: { title: i => dt(i[0].parsed.x), label: c => `${c.dataset.label}: ${fmt(c.parsed.y)} USDT` } } } }
   });
@@ -652,7 +657,7 @@ function renderPrice(r) {
       { ...mk(['LIQ'], '#F87171', 'star', 9), label: 'Liquidación' }
     ] },
     options: { parsing: false, animation: false, responsive: true, maintainAspectRatio: false,
-      scales: { x: { type: 'linear', ticks: { color: '#A8B2C1', maxTicksLimit: 10, callback: v => new Date(v).toISOString().slice(0, 10) }, grid: { color: '#2a2f45' } },
+      scales: { x: { type: 'linear', ticks: { color: '#A8B2C1', maxTicksLimit: 10, callback: v => dd(v) }, grid: { color: '#2a2f45' } },
         y: { ticks: { color: '#A8B2C1' }, grid: { color: '#2a2f45' } } },
       plugins: { legend: { labels: { color: '#E8ECEF' } }, decimation: { enabled: false },
         tooltip: { callbacks: { title: i => dt(i[0].parsed.x), label: c => c.raw.mk ? `${c.raw.mk.type} ${c.raw.mk.dir} @ ${priceFmt(c.raw.y)}` : `Precio ${priceFmt(c.parsed.y)}` } } } }
@@ -670,17 +675,17 @@ function movesTable(t) {
     return `<tr><td>${dt(m.t)}</td><td><span class="act ${k}">${ACT[m.type] || m.type}</span></td>
       <td>${bullets}</td><td>${m.margin ? fmt(m.margin) : '—'}</td><td>${m.shield ? fmt(m.shield) : '—'}</td>
       <td>${priceFmt(m.price)}</td><td>${priceFmt(m.pepp)}</td>
-      <td class="${cls(m.ddPct)}">${m.ddPct >= 0 ? '+' : ''}${fmt(m.ddPct, 2)}%</td>
+      <td class="${cls(m.ddPct)}">${m.ddPct >= 0 ? '+' : ''}${fmt(m.ddPct, 2)}% / ${m.ddPct >= 0 ? '+' : ''}${fmt(m.ddPct * m.lev, 2)}%</td>
       <td class="${plc}">${pl == null ? '—' : fmt(pl, 1) + '%'}</td>
       <td>${m.pos ? fmt(m.pos) : '—'}</td>
       <td class="${m.realized ? cls(m.realized) : ''}">${m.realized ? money(m.realized) : '—'}</td>
-      <td class="${cls(m.unreal)}">${m.pos ? money(m.unreal) : '—'}</td><td>${fmt(m.cash)}</td></tr>`;
+      <td class="${cls(m.unreal)}">${m.pos ? money(m.unreal) : '—'}</td><td>${fmt(m.cash)} / ${m.used > 0 ? fmt(m.used) : '—'}</td></tr>`;
   }).join('');
   const dur = (t.closeT - t.openT) / 3600000;
   return `<div class="sum">${open ? '<span><b style="color:#FBBF24">OPERACIÓN ABIERTA (en curso)</b></span>' : ''}<span>Peor caída: <b class="neg">${fmt(t.minPct, 1)}%</b></span><span>Balas totales: <b>${fmt(t.bullets, 1)}</b></span>
     <span>Entradas: <b>${t.entries.length}</b></span><span>Duración: <b>${dur >= 48 ? fmt(dur / 24, 1) + ' d' : fmt(dur, 0) + ' h'}</b></span>
     <span>${open ? 'No realizado' : 'Resultado'}: <b class="${cls(t.pnl)}">${money(t.pnl)} USDT</b></span></div>
-    <div class="scroll" style="max-height:340px"><table class="mv"><thead><tr><th>Fecha y hora</th><th>Acción</th><th>Balas</th><th>Margen DCA</th><th>🛡️ Escudo</th><th>Precio</th><th>PEPP</th><th>Drawdown</th><th>% a liq.</th><th>Posición</th><th>PnL realizado</th><th>No realizado</th><th>Capital libre</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    <div class="scroll" style="max-height:340px"><table class="mv"><thead><tr><th>Fecha y hora</th><th>Acción</th><th>Balas</th><th>Margen DCA</th><th>🛡️ Escudo</th><th>Precio</th><th>PEPP</th><th>Drawdown (precio / x lev.)</th><th>% a liq.</th><th>Posición</th><th>PnL realizado</th><th>No realizado</th><th>Capital libre / usado</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 function updHint() {
   const cap = parseFloat($('capital').value), b = parseFloat($('bullet').value);
@@ -730,9 +735,9 @@ function printReport() {
   const img = tmp.toDataURL('image/png');
   const trades = (ot ? [ot] : []).concat(r.trades.slice().reverse());
   const cfgTxt = [
-    `Periodo: ${dt(c.startMs).slice(0, 10)} → ${dt(c.endMs).slice(0, 10)}`, `Intervalo: ${c.tf} · sesión ${c.sessionHour}:00 UTC · EMA ${c.ema1}/${c.ema2} · filtro diario: ${c.dailyFilter ? 'sí' : 'no'}`,
+    `Periodo: ${dd(c.startMs)} → ${dd(c.endMs)}`, `Intervalo: ${c.tf} · sesión ${c.sessionHour}:00 UTC · EMA ${c.ema1}/${c.ema2} · filtro diario: ${c.dailyFilter ? 'sí' : 'no'}`,
     `Capital: ${fmt(c.capital)} USDT · apalancamiento x${c.leverage} · bala ${fmt(c.bulletValue)} USDT (${c.compound ? 'con reinversión' : 'fija'}) · señal ${c.tf} · una bala cada ${c.dcaTf}`,
-    `TP: ${c.tpPcts.join('% / ')}% (cierres ${c.tpSizes.join('/')}%, modo ${c.tpMode}) · BE: ${c.be ? 'sí' : 'no'} · SL: ${c.slPct || 'no'} · cierre por cruce contrario: ${c.closeOpp ? 'sí' : 'no'}`,
+    `TP: ${c.tpPcts.join('% / ')}% (cierres ${c.tpSizes.join('/')}%, modo ${c.tpMode === 'ratio' ? 'ratio R, 1R = SL ' + c.slPct + '%' : c.tpMode}) · BE: ${c.be ? 'sí' : 'no'} · SL: ${c.slPct || 'no'} · cierre por cruce contrario: ${c.closeOpp ? 'sí' : 'no'}`,
     `Escudo: ${c.shield} · comisión ${c.feePct}% · modo conservador: ${c.conservative ? 'sí' : 'no'}`].join('<br>');
   const body = trades.map(t => `<h3>${t.open ? 'Operación abierta' : 'Operación #' + t.id} — ${t.dir} · ${dt(t.openT)}${t.open ? '' : ' → ' + dt(t.closeT) + ' · ' + (REASONS[t.reason] || t.reason)}</h3>${movesTable(t)}`).join('');
   const w = window.open('', '_blank');
