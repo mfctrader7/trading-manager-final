@@ -33,7 +33,8 @@ input:focus,select:focus{outline:1px solid var(--gold)}
 .card .big{font-size:1.5rem;font-weight:800;margin:6px 0 2px}
 .card .row{display:flex;justify-content:space-between;color:var(--mut);font-size:.8rem;padding:2px 0}
 .card .row b{color:var(--txt)}
-.pos{color:var(--green)}.neg{color:var(--red)}
+.pos{color:var(--green)}.warn{color:#FBBF24}
+.neg{color:var(--red)}
 .charts{display:grid;grid-template-columns:1fr;gap:16px}
 .chartbox{position:relative;height:340px}
 table{width:100%;border-collapse:collapse;font-size:.8rem}
@@ -43,6 +44,15 @@ th:first-child,td:first-child,th:nth-child(2),td:nth-child(2){text-align:left}
 tr.t{cursor:pointer}tr.t:hover{background:rgba(255,255,255,.04)}
 .scroll{overflow:auto;max-height:480px}
 .detail td{background:#1d2133;text-align:left;white-space:normal;color:var(--mut);font-size:.78rem}
+.detail .mv{width:100%;font-size:.76rem;border-collapse:collapse}
+.detail .mv th{position:static;background:#161926;text-align:right;color:var(--mut);padding:5px 7px}
+.detail .mv td{background:transparent;text-align:right;white-space:nowrap;color:var(--txt,#E8ECEF);padding:4px 7px;border-bottom:1px solid var(--line);font-size:.76rem}
+.detail .mv th:nth-child(-n+2),.detail .mv td:nth-child(-n+2){text-align:left}
+.detail .sum{display:flex;gap:18px;flex-wrap:wrap;margin:0 0 8px;color:var(--mut)}
+.detail .sum b{color:#E8ECEF}
+.act{display:inline-block;padding:1px 7px;border-radius:6px;font-size:.68rem;font-weight:700;background:#2a2f45;color:#E8ECEF}
+.act.OPEN{background:rgba(96,165,250,.18);color:#60A5FA}.act.DCA{background:rgba(251,191,36,.18);color:#FBBF24}
+.act.TP{background:rgba(74,222,128,.18);color:var(--green)}.act.LIQ,.act.SL{background:rgba(248,113,113,.2);color:var(--red)}
 .tag{display:inline-block;padding:1px 7px;border-radius:6px;font-size:.7rem;font-weight:700}
 .tag.L{background:rgba(74,222,128,.15);color:var(--green)}.tag.S{background:rgba(248,113,113,.15);color:var(--red)}
 details summary{cursor:pointer;color:var(--gold);font-weight:600}
@@ -72,7 +82,7 @@ details ul{color:var(--mut);line-height:1.6;padding-left:20px;margin:8px 0 0}
         <option value="d4c4fa87-3488-483e-bd0f-11908186bc83">admin (hasta abr-2026)</option>
       </select></div>
     <div><label>Temporalidad entrada</label>
-      <select id="tf"><option value="1h">1h</option><option value="2h">2h</option><option value="4h">4h</option><option value="1d">1d</option></select></div>
+      <select id="tf"><option value="1d">1d</option><option value="12h">12h</option><option value="8h">8h</option><option value="4h">4h</option><option value="2h">2h</option><option value="1h" selected>1h</option></select></div>
     <div><label>Sesión (1d)</label>
       <select id="session"><option value="0">Open día (00 UTC)</option><option value="8">Open Europa (08 UTC)</option><option value="14">Open NY (14 UTC)</option></select></div>
     <div><label>EMA rápida</label><input type="number" id="ema1" value="12" min="2"></div>
@@ -85,7 +95,9 @@ details ul{color:var(--mut);line-height:1.6;padding-left:20px;margin:8px 0 0}
       <select id="lev">
         <option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option><option>6</option><option>7</option><option>8</option><option>9</option><option>10</option>
       </select></div>
-    <div><label>Nº de balas (capital ÷ balas)</label><input type="number" id="nb" min="2" placeholder="ej. 10"></div>
+    <div><label>Valor de la bala (USDT)</label><input type="number" id="bullet" min="1" placeholder="ej. 50"></div>
+    <div><label>Reinvertir ganancias</label><label style="font-weight:400"><input type="checkbox" id="compound" checked> la bala crece/baja con el capital</label></div>
+    <div style="grid-column:1/-1"><div id="bulletHint" style="color:var(--mut);font-size:.8rem"></div></div>
     <div><label>DCA cada (velas)</label><input type="number" id="dcaEvery" value="1" min="1"></div>
     <div><label>Escudo de margen</label>
       <select id="shield"><option value="none">Sin escudo (solo DCA)</option><option value="both">DCA + Margen</option><option value="margin_only">Más Margen</option></select></div>
@@ -123,7 +135,7 @@ details ul{color:var(--mut);line-height:1.6;padding-left:20px;margin:8px 0 0}
       <li><b>Entrada:</b> cruce EMA rápida/lenta al cierre de la vela de la temporalidad (igual que el bot). Se entra al precio de cierre de esa vela con 2 balas.</li>
       <li><b>Filtro diario</b> (solo si la temporalidad es menor a 1d): no se abre largo si en el diario la EMA rápida está por debajo de la lenta, y viceversa. Se usa la última muestra diaria ya cerrada.</li>
       <li><b>DCA:</b> en cada ciclo se compra 1 bala; con caída desde el PEPP de 5/10/15/20% se compran 2/3/4/5. Se detiene cuando queda menos de 1 bala de capital.</li>
-      <li><b>Bala</b> = capital del caballo al abrir la operación ÷ nº de balas. Al cerrar, el capital (con ganancia o pérdida) pasa a la siguiente operación: interés compuesto.</li>
+      <li><b>Bala</b> = valor fijo en USDT que tú eliges. La 1ª entrada vale 2 balas; después cada DCA vale 1–5 balas según la caída. Con capital 10.000 y bala 1.000 hay 10 balas: 1ª entrada (2) + 8 más. Con «Reinvertir ganancias», la bala se escala con el capital actual del caballo (interés compuesto); sin ello, siempre vale lo mismo.</li>
       <li><b>TP:</b> se recalculan desde el PEPP tras cada DCA. Cada TP cierra su parte sobre el total que aún queda (50/25/25 por defecto). El capital liberado y la ganancia vuelven al caballo y pueden usarse en nuevas balas.</li>
       <li><b>Stops:</b> tras TP1 el SL va a BE (el PEPP, que sigue moviéndose si hay nuevas balas); tras TP2 el SL va al precio de TP1. Sin SL antes de TP1, salvo que pongas uno.</li>
       <li><b>Liquidación:</b> precio PEPP × (1 ∓ 1/apalancamiento efectivo). Si se toca, se pierde todo el margen de esa operación. No incluye margen de mantenimiento (es una aproximación).</li>
@@ -222,8 +234,8 @@ function prepareSignals(candles, cfg) {
   return { crossAt, isCycle, dailyState };
 }
 
-// cfg: { tf, sessionHour, ema1, ema2, dailyFilter, startMs, endMs, capital, leverage, nBullets,
-//        dcaEvery, tpPcts:[a,b,c], tpSizes:[a,b,c], tpMode:'price'|'roi', be:true, slPct:0,
+// cfg: { tf, sessionHour, ema1, ema2, dailyFilter, startMs, endMs, capital, leverage, bulletValue, compound,
+//        bulletValue, compound, dcaEvery, tpPcts:[a,b,c], tpSizes:[a,b,c], tpMode:'price'|'roi', be:true, slPct:0,
 //        closeOpp:false, feePct, shield:'none'|'both'|'margin_only', conservative:true }
 function runHorse(candles, cfg, sig) {
   let cash = cfg.capital;
@@ -249,11 +261,21 @@ function runHorse(candles, cfg, sig) {
   const breachedAdverse = (lvl, c) => (op.dir === 1 ? c.l <= lvl : c.h >= lvl);
   const reachedFav = (lvl, c) => (op.dir === 1 ? c.h >= lvl : c.l <= lvl);
 
+  function snap(c, type, price, o) {
+    const q = op.qty > 1e-12 ? op.qty : 0;
+    let liq = null, pctLiq = null;
+    if (q > 0 && op.marginUsed > 0) { liq = liqPrice(); pctLiq = op.dir * (liq - price) / price * 100; }
+    const ddPct = o.ddPct != null ? o.ddPct : op.dir * (price - op.pepp) / op.pepp * 100;
+    op.moves.push({ t: c.t, type, price, items: o.items || 0, margin: o.margin || 0, shield: o.shield || 0,
+      pepp: op.pepp, ddPct, liq, pctLiq, pos: q * price, realized: o.realized || 0, fee: o.fee || 0,
+      unreal: q * (price - op.pepp) * op.dir, cash, frac: o.frac || null });
+  }
+
   function finalize(reason, c, price) {
     const pnl = cash - op.cashStart;
     const tr = {
       id: trades.length + 1, dir: dirName(op.dir), openT: op.openT, closeT: c.t, reason,
-      entries: op.entries, tps: op.tps, pnl, maxMargin: op.maxMargin,
+      entries: op.entries, tps: op.tps, moves: op.moves, pnl, maxMargin: op.maxMargin,
       roi: op.maxMargin > 0 ? pnl / op.maxMargin * 100 : 0,
       bullets: op.bullets, minPct: op.minPct, cashStart: op.cashStart, cashEnd: cash, exitPrice: price
     };
@@ -262,14 +284,18 @@ function runHorse(candles, cfg, sig) {
     op = null;
   }
   function closeAll(fill, reason, c, isLiq) {
+    let realized, fee = 0;
+    const ddNow = op.dir * (fill - op.pepp) / op.pepp * 100;
     if (isLiq) {
-      cash += 0; // el margen restante se pierde
+      realized = -op.marginUsed; // el margen restante se pierde
     } else {
       const pnl = op.qty * (fill - op.pepp) * op.dir;
-      const f = feeOf(op.qty * fill);
-      cash += op.marginUsed + pnl - f;
+      fee = feeOf(op.qty * fill);
+      cash += op.marginUsed + pnl - fee;
+      realized = pnl - fee;
     }
     op.qty = 0; op.marginUsed = 0;
+    snap(c, reason, fill, { realized, fee, ddPct: ddNow });
     finalize(reason, c, fill);
   }
   function hitTP(i, c) {
@@ -286,6 +312,7 @@ function runHorse(candles, cfg, sig) {
     op.tpHit[i] = true; op.tpFill[i] = fill;
     op.tps.push({ i: i + 1, t: c.t, price: fill, frac: f, pnl: pnl - fee });
     markers.push({ t: c.t, price: fill, type: 'TP' + (i + 1), dir: dirName(op.dir) });
+    snap(c, 'TP' + (i + 1), fill, { realized: pnl - fee, fee, frac: f });
     const anyLeft = [0, 1, 2].some(j => !op.tpHit[j] && op.tpPrice[j] != null);
     if (!anyLeft || op.qty <= 1e-12) { op.qty = 0; op.marginUsed = 0; finalize('TPs', c, fill); return; }
     if (i === 0 && cfg.be) { op.sl = op.pepp; op.slKind = 'BE'; }
@@ -318,7 +345,7 @@ function runHorse(candles, cfg, sig) {
   }
 
   function openOp(c, signal) {
-    const item = cash / cfg.nBullets;
+    const item = cfg.compound ? cfg.bulletValue * (cash / cfg.capital) : cfg.bulletValue;
     const margin = Math.min(2 * item, cash / (1 + feeRate));
     if (!(margin > 0)) return;
     const dir = signal === 'LONG' ? 1 : -1;
@@ -331,9 +358,10 @@ function runHorse(candles, cfg, sig) {
       entries: [{ t: c.t, price: c.c, items: margin / item, margin, shield: 0, pepp: c.c, dd: 0 }],
       tps: [], tpHit: [false, false, false], tpFill: [null, null, null], tpPrice: [null, null, null],
       sl: cfg.slPct > 0 ? c.c * (1 - dir * cfg.slPct / 100) : null, slKind: 'SL',
-      cyclesSince: 0, bullets: margin / item, minPct: 0
+      cyclesSince: 0, bullets: margin / item, minPct: 0, moves: []
     };
     calcTPs();
+    snap(c, 'OPEN', c.c, { items: margin / item, margin, fee: f, ddPct: 0 });
     markers.push({ t: c.t, price: c.c, type: 'OPEN', dir: dirName(dir) });
   }
 
@@ -363,6 +391,7 @@ function runHorse(candles, cfg, sig) {
     op.bullets += dcaMargin / op.item;
     op.entries.push({ t: c.t, price: c.c, items: dcaMargin / op.item, margin: dcaMargin, shield: sh, pepp: op.pepp, dd });
     markers.push({ t: c.t, price: c.c, type: 'DCA', dir: dirName(op.dir) });
+    snap(c, 'DCA', c.c, { items: dcaMargin / op.item, margin: dcaMargin, shield: sh, fee: f, ddPct: -dd });
     calcTPs();
     if (op.tpHit[0] && !op.tpHit[1] && cfg.be) op.sl = op.pepp; // el BE sigue al PEPP
   }
@@ -484,7 +513,7 @@ function readCfg() {
   const cfg = {
     tf: $('tf').value, sessionHour: parseInt($('session').value), ema1: num('ema1'), ema2: num('ema2'),
     dailyFilter: $('dfilter').checked, startMs, endMs, capital: num('capital'), leverage: num('lev'),
-    nBullets: num('nb'), dcaEvery: Math.max(1, num('dcaEvery') || 1),
+    bulletValue: num('bullet'), compound: $('compound').checked, dcaEvery: Math.max(1, num('dcaEvery') || 1),
     tpPcts: [num('tp1'), num('tp2'), num('tp3')].map(v => isNaN(v) ? 0 : v),
     tpSizes: [num('tp1s'), num('tp2s'), num('tp3s')].map(v => isNaN(v) ? 0 : v),
     tpMode: $('tpMode').value, be: $('be').checked, slPct: isNaN(num('sl')) ? 0 : num('sl'),
@@ -494,7 +523,8 @@ function readCfg() {
   const errs = [];
   if (!(startMs < endMs)) errs.push('La fecha de inicio debe ser anterior a la final.');
   if (!(cfg.capital > 0)) errs.push('Falta el capital.');
-  if (!(cfg.nBullets >= 2)) errs.push('Indica el nº de balas (mínimo 2).');
+  if (!(cfg.bulletValue > 0)) errs.push('Indica el valor de la bala.');
+  else if (2 * cfg.bulletValue > cfg.capital) errs.push('El capital debe alcanzar al menos para la 1ª entrada (2 balas = ' + fmt(2 * cfg.bulletValue) + ' USDT).');
   if (!(cfg.tpPcts[0] > 0)) errs.push('Indica al menos el TP1.');
   if (!(cfg.ema1 > 1 && cfg.ema2 > cfg.ema1)) errs.push('La EMA lenta debe ser mayor que la rápida.');
   return { cfg, errs };
@@ -621,6 +651,37 @@ function renderPrice(r) {
   });
 }
 
+const ACT = { OPEN: 'Apertura', DCA: 'DCA', TP1: 'TP1', TP2: 'TP2', TP3: 'TP3', BE: 'Stop BE', SL: 'Stop Loss', SL_TP1: 'Stop en TP1', LIQ: 'Liquidación', CRUCE: 'Cruce contrario', TPs: 'TP final' };
+function movesTable(t) {
+  const rows = t.moves.map(m => {
+    const k = m.type.startsWith('TP') ? 'TP' : m.type;
+    const pl = m.pctLiq;
+    const plc = pl == null ? '' : (pl > -10 ? 'neg' : pl > -20 ? 'warn' : '');
+    const bullets = m.items ? '×' + fmt(m.items, m.items % 1 ? 1 : 0) : (m.frac ? fmt(m.frac * 100, 0) + '% sale' : '—');
+    return `<tr><td>${dt(m.t)}</td><td><span class="act ${k}">${ACT[m.type] || m.type}</span></td>
+      <td>${bullets}</td><td>${m.margin ? fmt(m.margin) : '—'}</td><td>${m.shield ? fmt(m.shield) : '—'}</td>
+      <td>${priceFmt(m.price)}</td><td>${priceFmt(m.pepp)}</td>
+      <td class="${cls(m.ddPct)}">${m.ddPct >= 0 ? '+' : ''}${fmt(m.ddPct, 2)}%</td>
+      <td class="${plc}">${pl == null ? '—' : fmt(pl, 1) + '%'}</td>
+      <td>${m.pos ? fmt(m.pos) : '—'}</td>
+      <td class="${m.realized ? cls(m.realized) : ''}">${m.realized ? money(m.realized) : '—'}</td>
+      <td class="${cls(m.unreal)}">${m.pos ? money(m.unreal) : '—'}</td><td>${fmt(m.cash)}</td></tr>`;
+  }).join('');
+  const dur = (t.closeT - t.openT) / 3600000;
+  return `<div class="sum"><span>Peor caída: <b class="neg">${fmt(t.minPct, 1)}%</b></span><span>Balas totales: <b>${fmt(t.bullets, 1)}</b></span>
+    <span>Entradas: <b>${t.entries.length}</b></span><span>Duración: <b>${dur >= 48 ? fmt(dur / 24, 1) + ' d' : fmt(dur, 0) + ' h'}</b></span>
+    <span>Resultado: <b class="${cls(t.pnl)}">${money(t.pnl)} USDT</b></span></div>
+    <div class="scroll" style="max-height:340px"><table class="mv"><thead><tr><th>Fecha y hora</th><th>Acción</th><th>Balas</th><th>Margen DCA</th><th>🛡️ Escudo</th><th>Precio</th><th>PEPP</th><th>Drawdown</th><th>% a liq.</th><th>Posición</th><th>PnL realizado</th><th>No realizado</th><th>Capital libre</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+function updHint() {
+  const cap = parseFloat($('capital').value), b = parseFloat($('bullet').value);
+  const h = $('bulletHint');
+  if (!(cap > 0) || !(b > 0)) { h.textContent = ''; return; }
+  const n = Math.floor(cap / b);
+  h.textContent = n < 2 ? '⚠️ El capital no alcanza para la 1ª entrada (2 balas).' :
+    `Capital ${fmt(cap, 0)} ÷ bala ${fmt(b, 0)} = ${n} balas → hasta ${n - 1} entradas (la 1ª vale ×2 = ${fmt(2 * b, 0)} USDT).`;
+}
+['capital', 'bullet'].forEach(id => $(id).addEventListener('input', updHint));
 const REASONS = { TPs: 'TP1+2+3', BE: 'Stop en BE', SL: 'Stop Loss', SL_TP1: 'Stop en TP1', LIQ: '⚡ Liquidación', CRUCE: 'Cruce contrario' };
 function renderTrades(r) {
   const rows = r.trades.map(t => {
@@ -630,10 +691,7 @@ function renderTrades(r) {
       <td>${dt(t.openT)}</td><td>${dt(t.closeT)}</td><td>${durTxt}</td><td>${fmt(t.bullets, 1)}</td><td>${fmt(t.maxMargin)}</td>
       <td class="${cls(t.pnl)}">${money(t.pnl)}</td><td class="${cls(t.roi)}">${fmt(t.roi, 1)}%</td>
       <td class="neg">${fmt(t.minPct, 1)}%</td><td>${REASONS[t.reason] || t.reason}</td><td>${fmt(t.cashEnd)}</td></tr>
-      <tr class="detail" id="d${t.id}" style="display:none"><td colspan="12">
-        <b>Entradas:</b> ${t.entries.map((e, i) => `#${i + 1} ${dt(e.t).slice(5)} @ ${priceFmt(e.price)} (${fmt(e.items, 1)} bala${e.items > 1 ? 's' : ''}, ${fmt(e.margin)} USDT${e.shield ? ' + escudo ' + fmt(e.shield) : ''}, PEPP ${priceFmt(e.pepp)})`).join(' · ')}
-        <br><b>Salidas parciales:</b> ${t.tps.length ? t.tps.map(p => `TP${p.i} ${dt(p.t).slice(5)} @ ${priceFmt(p.price)} (${fmt(p.frac * 100, 0)}% de lo que quedaba, ${money(p.pnl)} USDT)`).join(' · ') : 'ninguna'}
-        <br><b>Cierre final:</b> ${REASONS[t.reason] || t.reason} @ ${priceFmt(t.exitPrice)}</td></tr>`;
+      <tr class="detail" id="d${t.id}" style="display:none"><td colspan="12">${movesTable(t)}</td></tr>`;
   }).join('');
   $('trades').innerHTML = `<thead><tr><th>#</th><th>Dir</th><th>Apertura</th><th>Cierre</th><th>Duración</th><th>Balas</th><th>Margen máx.</th><th>PnL</th><th>ROI/margen</th><th>Peor caída</th><th>Salida</th><th>Capital tras cerrar</th></tr></thead><tbody>${rows || '<tr><td colspan="12" style="text-align:center;color:#A8B2C1">Sin operaciones cerradas en el periodo.</td></tr>'}</tbody>`;
   document.querySelectorAll('#trades tr.t').forEach(tr => tr.onclick = () => { const d = $('d' + tr.dataset.id); d.style.display = d.style.display === 'none' ? '' : 'none'; });
