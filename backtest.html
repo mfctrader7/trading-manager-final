@@ -81,7 +81,7 @@ details ul{color:var(--mut);line-height:1.6;padding-left:20px;margin:8px 0 0}
         <option value="c450bcb0-936b-43b3-889b-2e0dfe967542">pili (desde nov-2025)</option>
         <option value="d4c4fa87-3488-483e-bd0f-11908186bc83">admin (hasta abr-2026)</option>
       </select></div>
-    <div><label>Temporalidad entrada</label>
+    <div><label>Intervalo de la señal (cruce EMA → abre la operación)</label>
       <select id="tf"><option value="1d">1d</option><option value="12h">12h</option><option value="8h">8h</option><option value="4h">4h</option><option value="2h">2h</option><option value="1h" selected>1h</option></select></div>
     <div><label>Sesión (1d)</label>
       <select id="session"><option value="0">Open día (00 UTC)</option><option value="8">Open Europa (08 UTC)</option><option value="14">Open NY (14 UTC)</option></select></div>
@@ -99,7 +99,8 @@ details ul{color:var(--mut);line-height:1.6;padding-left:20px;margin:8px 0 0}
     <div><label>Reinvertir ganancias</label><label style="font-weight:400"><input type="checkbox" id="compound" checked> la bala crece/baja con el capital</label></div>
     <div style="grid-column:1/-1"><div id="bulletHint" style="color:var(--mut);font-size:.8rem"></div></div>
     <div style="grid-column:1/-1"><div id="tfHint" style="color:var(--mut);font-size:.8rem"></div></div>
-    <div><label>DCA cada (velas)</label><input type="number" id="dcaEvery" value="1" min="1"></div>
+    <div><label>Intervalo de cada bala (DCA)</label><select id="dcaTf"><option value="1d">1d</option><option value="12h">12h</option><option value="8h">8h</option><option value="4h">4h</option><option value="2h">2h</option><option value="1h" selected>1h</option></select></div>
+    <input type="hidden" id="dcaEvery" value="1">
     <div><label>Escudo de margen</label>
       <select id="shield"><option value="none">Sin escudo (solo DCA)</option><option value="both">DCA + Margen</option><option value="margin_only">Más Margen</option></select></div>
     <div><label>Comisión por orden (%)</label><input type="number" id="fee" value="0.05" step="0.01" min="0"></div>
@@ -136,6 +137,7 @@ details ul{color:var(--mut);line-height:1.6;padding-left:20px;margin:8px 0 0}
       <li><b>Entrada:</b> cruce EMA rápida/lenta al cierre de la vela de la temporalidad (igual que el bot). Se entra al precio de cierre de esa vela con 2 balas.</li>
       <li><b>Filtro diario</b> (solo si la temporalidad es menor a 1d): no se abre largo si en el diario la EMA rápida está por debajo de la lenta, y viceversa. Se usa la última muestra diaria ya cerrada.</li>
       <li><b>DCA:</b> en cada ciclo se compra 1 bala; con caída desde el PEPP de 5/10/15/20% se compran 2/3/4/5. Se detiene cuando queda menos de 1 bala de capital.</li>
+      <li><b>Intervalos</b>: uno es el de la señal (con qué velas se calcula el cruce de EMA y se abre la operación) y otro el de cada bala (cada cuánto se añade un DCA mientras la operación está abierta). Pueden ser distintos, por ejemplo señal 1d y una bala cada 4h.</li>
       <li><b>Bala</b> = valor fijo en USDT que tú eliges. La 1ª entrada vale 2 balas; después cada DCA vale 1–5 balas según la caída. Con capital 10.000 y bala 1.000 hay 10 balas: 1ª entrada (2) + 8 más. Con «Reinvertir ganancias», la bala se escala con el capital actual del caballo (interés compuesto); sin ello, siempre vale lo mismo.</li>
       <li><b>TP:</b> se recalculan desde el PEPP tras cada DCA. Cada TP cierra su parte sobre el total que aún queda (50/25/25 por defecto). El capital liberado y la ganancia vuelven al caballo y pueden usarse en nuevas balas.</li>
       <li><b>Stops:</b> tras TP1 el SL va a BE (el PEPP, que sigue moviéndose si hay nuevas balas); tras TP2 el SL va al precio de TP1. Sin SL antes de TP1, salvo que pongas uno.</li>
@@ -233,11 +235,13 @@ function prepareSignals(candles, cfg) {
     while (p + 1 < dIdx.length && dIdx[p + 1] <= i) p++;
     dailyState[i] = p >= 0 ? dCI.state[p] : null;
   }
-  return { crossAt, isCycle, dailyState };
+  const isDca = new Uint8Array(candles.length);
+  buildSeriesIdx(candles, cfg.dcaTf || cfg.tf, cfg.sessionHour).forEach(i => { isDca[i] = 1; });
+  return { crossAt, isCycle, isDca, dailyState };
 }
 
 // cfg: { tf, sessionHour, ema1, ema2, dailyFilter, startMs, endMs, capital, leverage, bulletValue, compound,
-//        bulletValue, compound, dcaEvery, tpPcts:[a,b,c], tpSizes:[a,b,c], tpMode:'price'|'roi', be:true, slPct:0,
+//        dcaTf (intervalo de cada bala), bulletValue, compound, dcaEvery, tpPcts:[a,b,c], tpSizes:[a,b,c], tpMode:'price'|'roi', be:true, slPct:0,
 //        closeOpp:false, feePct, shield:'none'|'both'|'margin_only', conservative:true }
 function runHorse(candles, cfg, sig) {
   let cash = cfg.capital;
@@ -412,16 +416,16 @@ function runHorse(candles, cfg, sig) {
   for (let k = startIdx; k <= endIdx; k++) {
     const c = candles[k];
     if (op) processCandle(c);
-    if (sig.isCycle[k]) {
+    if (sig.isCycle[k] || sig.isDca[k]) {
       const s = sig.crossAt.get(k);
       if (op) {
-        if (cfg.closeOpp && s && s !== dirName(op.dir)) closeAll(c.c, 'CRUCE', c, false);
-        else {
+        if (sig.isCycle[k] && cfg.closeOpp && s && s !== dirName(op.dir)) closeAll(c.c, 'CRUCE', c, false);
+        else if (sig.isDca[k]) {
           op.cyclesSince++;
           if (op.cyclesSince >= cfg.dcaEvery) { op.cyclesSince = 0; doDCA(c); }
         }
       }
-      if (!op && s && allowed(s, k)) openOp(c, s);
+      if (!op && sig.isCycle[k] && s && allowed(s, k)) openOp(c, s);
     }
     const eq = cash + (op ? op.marginUsed + op.qty * (c.c - op.pepp) * op.dir : 0);
     equity.push({ t: c.t, eq });
@@ -513,7 +517,7 @@ function readCfg() {
   const startMs = Date.parse($('start').value + 'T00:00:00Z');
   const endMs = Date.parse($('end').value + 'T23:59:59Z');
   const cfg = {
-    tf: $('tf').value, sessionHour: parseInt($('session').value), ema1: num('ema1'), ema2: num('ema2'),
+    tf: $('tf').value, dcaTf: $('dcaTf').value, sessionHour: parseInt($('session').value), ema1: num('ema1'), ema2: num('ema2'),
     dailyFilter: $('dfilter').checked, startMs, endMs, capital: num('capital'), leverage: num('lev'),
     bulletValue: num('bullet'), compound: $('compound').checked, dcaEvery: Math.max(1, num('dcaEvery') || 1),
     tpPcts: [num('tp1'), num('tp2'), num('tp3')].map(v => isNaN(v) ? 0 : v),
@@ -687,13 +691,12 @@ function updHint() {
     `Capital ${fmt(cap, 0)} ÷ bala ${fmt(b, 0)} = ${n} balas → hasta ${n - 1} entradas (la 1ª vale ×2 = ${fmt(2 * b, 0)} USDT).`;
 }
 ['capital', 'bullet'].forEach(id => $(id).addEventListener('input', updHint));
+function hrsOf(tf, h0) { const step = { '1d': 24, '12h': 12, '8h': 8, '4h': 4, '2h': 2, '1h': 1 }[tf]; const a = []; for (let h = h0 % step; h < 24; h += step) a.push(h); return a; }
 function updTfHint() {
-  const tf = $('tf').value, h0 = parseInt($('session').value);
-  const step = { '1d': 24, '12h': 12, '8h': 8, '4h': 4, '2h': 2, '1h': 1 }[tf];
-  const hrs = []; for (let h = h0 % step; h < 24; h += step) hrs.push(h);
-  $('tfHint').textContent = `Intervalo ${tf} · ${hrs.length} entradas/día · Horas UTC: ${hrs.join(', ')}`;
+  const h0 = parseInt($('session').value), a = hrsOf($('tf').value, h0), b = hrsOf($('dcaTf').value, h0);
+  $('tfHint').innerHTML = `Señal (${$('tf').value}): se evalúa el cruce a las ${a.join(', ')} UTC.<br>Balas (${$('dcaTf').value}): ${b.length} por día como máximo, a las ${b.join(', ')} UTC.`;
 }
-['tf', 'session'].forEach(id => $(id).addEventListener('change', updTfHint));
+['tf', 'dcaTf', 'session'].forEach(id => $(id).addEventListener('change', updTfHint));
 updTfHint(); updHint();
 const REASONS = { TPs: 'TP1+2+3', BE: 'Stop en BE', SL: 'Stop Loss', SL_TP1: 'Stop en TP1', LIQ: '⚡ Liquidación', CRUCE: 'Cruce contrario' };
 function openAsTrade(r) {
@@ -728,7 +731,7 @@ function printReport() {
   const trades = (ot ? [ot] : []).concat(r.trades.slice().reverse());
   const cfgTxt = [
     `Periodo: ${dt(c.startMs).slice(0, 10)} → ${dt(c.endMs).slice(0, 10)}`, `Intervalo: ${c.tf} · sesión ${c.sessionHour}:00 UTC · EMA ${c.ema1}/${c.ema2} · filtro diario: ${c.dailyFilter ? 'sí' : 'no'}`,
-    `Capital: ${fmt(c.capital)} USDT · apalancamiento x${c.leverage} · bala ${fmt(c.bulletValue)} USDT (${c.compound ? 'con reinversión' : 'fija'}) · DCA cada ${c.dcaEvery} vela(s)`,
+    `Capital: ${fmt(c.capital)} USDT · apalancamiento x${c.leverage} · bala ${fmt(c.bulletValue)} USDT (${c.compound ? 'con reinversión' : 'fija'}) · señal ${c.tf} · una bala cada ${c.dcaTf}`,
     `TP: ${c.tpPcts.join('% / ')}% (cierres ${c.tpSizes.join('/')}%, modo ${c.tpMode}) · BE: ${c.be ? 'sí' : 'no'} · SL: ${c.slPct || 'no'} · cierre por cruce contrario: ${c.closeOpp ? 'sí' : 'no'}`,
     `Escudo: ${c.shield} · comisión ${c.feePct}% · modo conservador: ${c.conservative ? 'sí' : 'no'}`].join('<br>');
   const body = trades.map(t => `<h3>${t.open ? 'Operación abierta' : 'Operación #' + t.id} — ${t.dir} · ${dt(t.openT)}${t.open ? '' : ' → ' + dt(t.closeT) + ' · ' + (REASONS[t.reason] || t.reason)}</h3>${movesTable(t)}`).join('');
