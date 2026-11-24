@@ -23,6 +23,26 @@ main{max-width:1280px;margin:0 auto;padding:16px}
 .cxbox .lbl2{background:#2a2f45;color:#E8ECEF;font-size:.7rem;padding:2px 7px;border-radius:5px;transform:translate(-50%,-50%);white-space:nowrap;border:1px solid var(--line)}
 .cxbox .leg{position:absolute;left:8px;top:6px;z-index:3;font-size:.72rem;color:var(--mut);pointer-events:none}
 tr.cxr{cursor:pointer}tr.cxr:hover td{background:#2a2f45}tr.cxr.sel td{background:#2a2f45}
+
+.subtabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;align-items:center}
+.subtabs button{background:var(--card);border:1px solid var(--line);color:var(--mut);border-radius:8px;padding:6px 12px;font-weight:600;cursor:pointer;font-size:.82rem}
+.subtabs button.on{background:var(--card2);color:var(--gold);border-color:var(--gold)}
+.cl-grid{display:grid;grid-template-columns:minmax(320px,430px) 1fr;gap:16px;align-items:start}
+@media(max-width:900px){.cl-grid{grid-template-columns:1fr}}
+.cl-sec{font-size:.72rem;color:var(--gold);text-transform:uppercase;letter-spacing:.05em;margin:14px 0 6px;border-top:1px solid var(--line);padding-top:10px}
+.cl-sec:first-child{border-top:none;margin-top:0;padding-top:0}
+.cl-row{display:grid;grid-template-columns:22px 1fr 1fr 24px;gap:6px;align-items:center;margin-bottom:6px}
+.cl-row.tp{grid-template-columns:42px 1fr 80px}
+.cl-row .n{color:var(--mut);font-size:.8rem}.cl-row .x{background:none;border:none;color:var(--red);cursor:pointer;font-size:1rem}
+.cl-dir{display:flex;gap:6px}.cl-dir button{flex:1;padding:8px;border-radius:8px;border:1px solid var(--line);background:#161926;color:var(--mut);font-weight:700;cursor:pointer}
+.cl-dir button.on.L{background:rgba(74,222,128,.18);color:var(--green);border-color:var(--green)}.cl-dir button.on.S{background:rgba(248,113,113,.18);color:var(--red);border-color:var(--red)}
+.cl-small{font-size:.76rem;color:var(--mut)}
+.cl-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px}
+.cl-card{background:#161926;border:1px solid var(--line);border-radius:10px;padding:10px 12px}.cl-card small{display:block;color:var(--mut);font-size:.68rem;text-transform:uppercase}.cl-card b{font-size:1.05rem}
+.cl-warn{background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.5);color:#FBBF24;border-radius:8px;padding:6px 10px;margin-bottom:6px;font-size:.8rem}
+table.cl{width:100%;border-collapse:collapse;font-size:.85rem}table.cl td,table.cl th{padding:7px 9px;border-bottom:1px solid var(--line);text-align:left}table.cl th{color:var(--mut);font-size:.7rem;text-transform:uppercase}
+table.cl td.r,table.cl th.r{text-align:right}
+.pos{color:var(--green)}.neg{color:var(--red)}
 .panel{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px}
 .panel h2{margin:0 0 12px;font-size:1rem;color:var(--gold)}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
@@ -77,7 +97,7 @@ details ul{color:var(--mut);line-height:1.6;padding-left:20px;margin:8px 0 0}
   <div><span id="who" style="color:var(--mut);margin-right:12px"></span><a href="/dashboard.html">← Dashboard</a></div>
 </header>
 <main>
-<div class="tabs"><button class="tab on" id="tabBtnBT">🏇 Backtest</button><button class="tab" id="tabBtnCX">📊 Análisis de cruces</button></div>
+<div class="tabs"><button class="tab on" id="tabBtnBT">🏇 Backtest</button><button class="tab" id="tabBtnCX">📊 Análisis de cruces</button><button class="tab" id="tabBtnCL">🧮 Calculadora</button></div>
 <div id="tabBT">
 
 <div class="panel">
@@ -205,6 +225,49 @@ details ul{color:var(--mut);line-height:1.6;padding-left:20px;margin:8px 0 0}
   <div class="scroll" style="max-height:none"><table id="cxSummary"></table></div>
   <h2 style="margin-top:18px">Cruces</h2>
   <div class="scroll" style="max-height:620px"><table id="cxTable"></table></div>
+</div>
+</div>
+
+<div id="tabCL" style="display:none">
+<div class="subtabs" id="clSubs"></div>
+<div class="cl-grid">
+ <div class="panel">
+  <div class="cl-sec">Activo y dirección</div>
+  <div class="grid" style="grid-template-columns:1fr 1fr">
+    <div><label>Activo (símbolo)</label><input id="clSym" placeholder="BTC" autocomplete="off"></div>
+    <div><label>Apalancamiento</label><input id="clLev" inputmode="decimal" placeholder="10"></div>
+  </div>
+  <div class="cl-dir" style="margin-top:8px"><button id="clLong" class="L">▲ Long</button><button id="clShort" class="S">▼ Short</button></div>
+  <div class="cl-sec">Precio actual</div>
+  <div style="display:grid;grid-template-columns:1fr auto;gap:8px"><input id="clPrice" inputmode="decimal" placeholder="Precio actual"><button class="btn" id="clFetch" style="padding:8px 14px" title="Trae el precio de Binance (spot)">↻</button></div>
+  <div class="chk" style="padding-top:6px"><input type="checkbox" id="clAuto"><label for="clAuto">Actualizar cada 15 s</label></div>
+  <div class="cl-small" id="clPriceMsg"></div>
+  <div class="cl-sec">Entradas (precio y margen en USDT)</div>
+  <div id="clEntries"></div>
+  <button class="tab" id="clAddDca" style="padding:6px 12px;font-size:.8rem">+ Añadir DCA</button>
+  <div class="cl-sec">PEPP</div>
+  <div class="grid" style="grid-template-columns:1fr 1fr">
+    <div><label>Cómo se calcula</label><select id="clPeppMode"><option value="exact">Exacto de exchange (por cantidad)</option><option value="cap">Ponderado por capital (como tu indicador)</option></select></div>
+    <div><label>PEPP manual (opcional)</label><input id="clPeppMan" inputmode="decimal" placeholder="Precio del exchange"></div>
+  </div>
+  <div class="cl-sec">Take profits (precio y % de la posición a cerrar)</div>
+  <div id="clTps"></div>
+  <div class="cl-sec">Riesgo</div>
+  <div class="grid" style="grid-template-columns:1fr 1fr">
+    <div><label>Stop loss (precio)</label><input id="clSl" inputmode="decimal" placeholder="—"></div>
+    <div><label>Margen adicional USDT</label><input id="clExtra" inputmode="decimal" placeholder="0"></div>
+    <div><label>Capital de la cuenta (opcional)</label><input id="clAcc" inputmode="decimal" placeholder="para ver % de riesgo"></div>
+    <div><label>Objetivo Rescue DCA (% pérdida)</label><input id="clRescue" inputmode="decimal" placeholder="5"></div>
+  </div>
+ </div>
+ <div>
+  <div class="panel"><h2 id="clTitle">Resultado</h2><div id="clWarns"></div><div class="cl-cards" id="clCards"></div>
+   <table class="cl" id="clTable"></table>
+   <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap"><button class="tab" id="clCopy">📋 Copiar resumen</button><button class="tab" id="clReset">Vaciar esta posición</button></div>
+   <div class="cl-small" id="clCopyMsg" style="margin-top:6px"></div>
+  </div>
+  <div class="panel"><h2>Detalle de entradas</h2><div class="scroll" style="max-height:none"><table class="cl" id="clEntTable"></table></div></div>
+ </div>
 </div>
 </div>
 </main>
@@ -634,7 +697,59 @@ function summarizeCrossRows(rows) {
   return { all: stat(rows), LONG: stat(rows.filter(r => r.dir === 'LONG')), SHORT: stat(rows.filter(r => r.dir === 'SHORT')) };
 }
 
-if (typeof module !== 'undefined') module.exports = { calcEMAarr, crossInfo, prepareSignals, runHorse, analyzeCrosses, buildTfBars, analyzeCrossesNative };
+// ---- Calculadora de posición (réplica del Position Manager DCA, con PEPP exacto de exchange) ----
+// P: { dir:'Long'|'Short', lev, entries:[{price, margin}], peppMode:'exact'|'cap', peppManual, tps:[{price,pct}], sl, extra, account, rescuePct }
+// price: precio actual (opcional). Devuelve null si no hay ninguna entrada válida.
+function calcPosition(P, price) {
+  const d = P.dir === 'Short' ? -1 : 1, L = Math.max(1, +P.lev || 1);
+  const es = (P.entries || []).filter(x => x.price > 0 && x.margin > 0);
+  if (!es.length) return null;
+  const margin = es.reduce((s, x) => s + x.margin, 0), notional = margin * L;
+  const qtyExact = es.reduce((s, x) => s + x.margin * L / x.price, 0);
+  const peppExact = notional / qtyExact, peppCap = es.reduce((s, x) => s + x.price * x.margin, 0) / margin;
+  let pepp = P.peppMode === 'cap' ? peppCap : peppExact, manual = false;
+  if (P.peppManual > 0) { pepp = P.peppManual; manual = true; }
+  const qty = notional / pepp, extra = Math.max(0, +P.extra || 0);
+  const pct = (a, b) => (b - a) / a * 100;
+  const pnlAt = p => qty * (p - pepp) * d;
+  const liqDist = (margin + extra) / notional;
+  let liq = pepp * (1 - d * liqDist); if (!(liq > 0)) liq = null;
+  const out = { d, L, margin, notional, qty, pepp, peppExact, peppCap, manual, extra, liq,
+    liqFromPepp: liq ? pct(pepp, liq) : null, liqFromPrice: liq && price > 0 ? pct(price, liq) : null,
+    entries: es.map(x => ({ ...x, notional: x.margin * L, qty: x.margin * L / x.price, fromPrice: price > 0 ? pct(price, x.price) : null })),
+    price: price > 0 ? price : null };
+  if (price > 0) { out.pnl = pnlAt(price); out.roe = out.pnl / margin * 100; out.movePct = d * pct(pepp, price); }
+  out.tps = (P.tps || []).map(t => {
+    if (!(t.price > 0)) return null;
+    const frac = Math.max(0, (+t.pct || 0)) / 100, pnl = pnlAt(t.price) * frac;
+    return { price: t.price, pct: +t.pct || 0, pnl, movePct: d * pct(pepp, t.price), roe: d * pct(pepp, t.price) * L, fromPrice: price > 0 ? pct(price, t.price) : null,
+      rr: P.sl > 0 ? Math.abs(t.price - pepp) / Math.abs(pepp - P.sl) : null, wrongSide: d * (t.price - pepp) <= 0 };
+  });
+  const tpsOk = out.tps.filter(Boolean);
+  out.tpTotal = tpsOk.length ? tpsOk.reduce((s, t) => s + t.pnl, 0) : null;
+  out.tpPctSum = tpsOk.reduce((s, t) => s + t.pct, 0);
+  if (P.sl > 0) {
+    out.sl = { price: P.sl, pnl: pnlAt(P.sl), movePct: d * pct(pepp, P.sl), fromPrice: price > 0 ? pct(price, P.sl) : null,
+      pctAccount: P.account > 0 ? pnlAt(P.sl) / P.account * 100 : null, wrongSide: d * (P.sl - pepp) >= 0,
+      beyondLiq: liq != null && d * (P.sl - liq) <= 0 };
+    out.rrWeighted = out.tpTotal != null && out.sl.pnl < 0 ? out.tpTotal / Math.abs(out.sl.pnl) : null;
+  }
+  out.stopDanger = Math.max(0, margin * (L - 1) - extra);
+  // Rescue: margen a añadir al precio actual para que la pérdida a ese precio baje a rescuePct %
+  const tgtPct = +P.rescuePct || 0;
+  if (price > 0 && tgtPct > 0 && out.movePct < -tgtPct) {
+    const tpepp = d === 1 ? price / (1 - tgtPct / 100) : price / (1 + tgtPct / 100);
+    const R = qty * (tpepp - pepp) / (L * (1 - tpepp / price));
+    if (isFinite(R) && R > 0) {
+      const nN = notional + R * L, nQ = qty + R * L / price, np = nN / nQ;
+      const nl = np * (1 - d * (margin + R + extra) / nN);
+      out.rescue = { margin: R, newPepp: np, newLiq: nl > 0 ? nl : null, pctTarget: tgtPct };
+    }
+  }
+  return out;
+}
+
+if (typeof module !== 'undefined') module.exports = { calcEMAarr, crossInfo, prepareSignals, runHorse, analyzeCrosses, buildTfBars, analyzeCrossesNative, calcPosition };
 
 </script>
 <script>
@@ -937,10 +1052,10 @@ $('printBtn').onclick = printReport;
 
 // ---------- Pestañas ----------
 function showTab(x) {
-  $('tabBT').style.display = x === 'BT' ? '' : 'none'; $('tabCX').style.display = x === 'CX' ? '' : 'none';
-  $('tabBtnBT').classList.toggle('on', x === 'BT'); $('tabBtnCX').classList.toggle('on', x === 'CX');
+  ['BT', 'CX', 'CL'].forEach(k => { $('tab' + k).style.display = x === k ? '' : 'none'; $('tabBtn' + k).classList.toggle('on', x === k); });
+  if (typeof clOnShow === 'function') clOnShow(x === 'CL');
 }
-$('tabBtnBT').onclick = () => showTab('BT'); $('tabBtnCX').onclick = () => showTab('CX');
+$('tabBtnBT').onclick = () => showTab('BT'); $('tabBtnCX').onclick = () => showTab('CX'); $('tabBtnCL').onclick = () => showTab('CL');
 
 // ---------- Análisis de cruces ----------
 let CX = null;
@@ -1040,6 +1155,122 @@ function printCX() {
     <script>window.onload=()=>setTimeout(()=>window.print(),400)<\/script></body></html>`);
   w.document.close();
 }
+
+
+// ---------- Calculadora de posición ----------
+const CL_KEY = 'tm_calc_v1_' + (() => { try { return JSON.parse(localStorage.getItem('tm_session') || '{}').user_id || 'x'; } catch (e) { return 'x'; } })();
+const clNum = v => { const n = parseFloat(String(v == null ? '' : v).replace(',', '.')); return isFinite(n) ? n : NaN; };
+const clNew = () => ({ sym: '', dir: 'Long', lev: '10', price: '', acc: '', peppMode: 'exact', peppMan: '', sl: '', extra: '', rescue: '5',
+  entries: [{ price: '', margin: '' }], tps: [{ price: '', pct: '30' }, { price: '', pct: '40' }, { price: '', pct: '30' }] });
+let CL = { pos: [clNew()], active: 0 }, clTimer = null;
+try { const sv = JSON.parse(localStorage.getItem(CL_KEY) || 'null'); if (sv && Array.isArray(sv.pos) && sv.pos.length) CL = { pos: sv.pos.map(p => ({ ...clNew(), ...p })), active: Math.min(sv.active || 0, sv.pos.length - 1) }; } catch (e) {}
+const clSave = () => { try { localStorage.setItem(CL_KEY, JSON.stringify(CL)); } catch (e) {} };
+const clP = () => CL.pos[CL.active];
+const fx = (n, d = 2) => fmt(n, d);
+const sgn = (n, d = 2) => (n >= 0 ? '+' : '−') + fmt(Math.abs(n), d);
+
+function clRenderSubs() {
+  const box = $('clSubs'); box.innerHTML = '';
+  CL.pos.forEach((p, i) => { const b = document.createElement('button'); b.className = i === CL.active ? 'on' : ''; b.textContent = `${i + 1} · ${p.sym || '—'} ${p.dir === 'Short' ? '▼' : '▲'}`; b.onclick = () => { clReadForm(); CL.active = i; clWriteForm(); clCalc(); }; box.appendChild(b); });
+  if (CL.pos.length < 10) { const a = document.createElement('button'); a.textContent = '+ Posición'; a.onclick = () => { clReadForm(); CL.pos.push(clNew()); CL.active = CL.pos.length - 1; clWriteForm(); clCalc(); }; box.appendChild(a); }
+  if (CL.pos.length > 1) { const d = document.createElement('button'); d.textContent = '× Quitar esta'; d.style.color = 'var(--red)'; d.onclick = () => { if (!confirm('¿Quitar esta posición?')) return; CL.pos.splice(CL.active, 1); CL.active = Math.max(0, CL.active - 1); clWriteForm(); clCalc(); }; box.appendChild(d); }
+}
+function clEntryRow(e, i) {
+  const r = document.createElement('div'); r.className = 'cl-row';
+  r.innerHTML = `<span class="n">${i === 0 ? '1' : 'D' + (i + 1)}</span><input class="ep" inputmode="decimal" placeholder="Precio" value="${e.price}"><input class="em" inputmode="decimal" placeholder="Margen USDT" value="${e.margin}">${i > 0 ? '<button class="x" title="Quitar">×</button>' : '<span></span>'}`;
+  r.querySelectorAll('input').forEach(inp => inp.addEventListener('input', clInput));
+  const x = r.querySelector('.x'); if (x) x.onclick = () => { clReadForm(); clP().entries.splice(i, 1); clWriteForm(); clCalc(); };
+  return r;
+}
+function clWriteForm() {
+  const p = clP();
+  $('clSym').value = p.sym; $('clLev').value = p.lev; $('clPrice').value = p.price; $('clAcc').value = p.acc; $('clPeppMode').value = p.peppMode; $('clPeppMan').value = p.peppMan;
+  $('clSl').value = p.sl; $('clExtra').value = p.extra; $('clRescue').value = p.rescue;
+  $('clLong').classList.toggle('on', p.dir !== 'Short'); $('clShort').classList.toggle('on', p.dir === 'Short');
+  const eb = $('clEntries'); eb.innerHTML = ''; p.entries.forEach((e, i) => eb.appendChild(clEntryRow(e, i)));
+  const tb = $('clTps'); tb.innerHTML = '';
+  p.tps.forEach((t, i) => { const r = document.createElement('div'); r.className = 'cl-row tp'; r.innerHTML = `<span class="n">TP${i + 1}</span><input class="tpp" inputmode="decimal" placeholder="Precio" value="${t.price}"><input class="tpc" inputmode="decimal" placeholder="% cierre" value="${t.pct}">`; r.querySelectorAll('input').forEach(inp => inp.addEventListener('input', clInput)); tb.appendChild(r); });
+  clRenderSubs();
+}
+function clReadForm() {
+  const p = clP();
+  p.sym = $('clSym').value.trim().toUpperCase(); p.lev = $('clLev').value; p.price = $('clPrice').value; p.acc = $('clAcc').value; p.peppMode = $('clPeppMode').value; p.peppMan = $('clPeppMan').value;
+  p.sl = $('clSl').value; p.extra = $('clExtra').value; p.rescue = $('clRescue').value;
+  p.entries = [...$('clEntries').children].map(r => ({ price: r.querySelector('.ep').value, margin: r.querySelector('.em').value }));
+  p.tps = [...$('clTps').children].map(r => ({ price: r.querySelector('.tpp').value, pct: r.querySelector('.tpc').value }));
+}
+function clInput() { clReadForm(); clSave(); clCalc(); }
+function clModel() {
+  const p = clP(), price = clNum(p.price);
+  const P = { dir: p.dir, lev: clNum(p.lev) || 1, entries: p.entries.map(e => ({ price: clNum(e.price), margin: clNum(e.margin) })), peppMode: p.peppMode, peppManual: clNum(p.peppMan) || 0,
+    tps: p.tps.map(t => ({ price: clNum(t.price), pct: isFinite(clNum(t.pct)) ? clNum(t.pct) : 0 })), sl: clNum(p.sl) || 0, extra: clNum(p.extra) || 0, account: clNum(p.acc) || 0, rescuePct: clNum(p.rescue) || 0 };
+  return { P, price: price > 0 ? price : null, r: calcPosition(P, price > 0 ? price : 0) };
+}
+function clCalc() {
+  const p = clP(), { P, price, r } = clModel();
+  $('clTitle').textContent = `Resultado — ${p.sym || 'sin activo'} ${p.dir === 'Short' ? '▼ Short' : '▲ Long'} x${P.lev}`;
+  clRenderSubs();
+  const w = [], cards = $('clCards'), tb = $('clTable'), et = $('clEntTable');
+  if (!r) { $('clWarns').innerHTML = ''; cards.innerHTML = ''; tb.innerHTML = '<tr><td style="color:var(--mut)">Introduce al menos una entrada con precio y margen para ver el cálculo.</td></tr>'; et.innerHTML = ''; return; }
+  if (r.tps.some(t => t && t.wrongSide)) w.push('Algún TP está del lado equivocado respecto al PEPP (en un ' + (r.d === 1 ? 'Long debe estar por encima' : 'Short debe estar por debajo') + ').');
+  const tpOk = r.tps.filter(Boolean);
+  if (tpOk.length && Math.abs(r.tpPctSum - 100) > 0.01) w.push(`Los % de cierre de los TP suman ${fx(r.tpPctSum, 0)}% (no 100%).`);
+  if (r.sl && r.sl.wrongSide) w.push('El stop loss está del lado equivocado respecto al PEPP.');
+  if (r.sl && r.sl.beyondLiq) w.push('⚠ El stop loss está por detrás de la liquidación: te liquidarían antes de llegar al stop.');
+  if (r.liq == null) w.push('Con este margen la posición no tiene precio de liquidación (queda totalmente colateralizada).');
+  $('clWarns').innerHTML = w.map(x => `<div class="cl-warn">${x}</div>`).join('');
+  const card = (t, v, sub, c) => `<div class="cl-card"><small>${t}</small><b class="${c || ''}">${v}</b>${sub ? `<div class="cl-small">${sub}</div>` : ''}</div>`;
+  cards.innerHTML = card('Margen total', fx(r.margin) + ' USDT', r.extra ? `+ ${fx(r.extra)} margen adicional` : '') +
+    card('Tamaño de posición', fx(r.notional) + ' USDT', `${fx(r.qty, 4)} ${p.sym || 'unid.'}`) +
+    card('PEPP', priceFmt(r.pepp), r.manual ? 'manual' : (p.peppMode === 'cap' ? 'ponderado por capital' : 'exacto de exchange') + (Math.abs(r.pepp - (p.peppMode === 'cap' ? r.peppExact : r.peppCap)) > r.pepp * 1e-4 && !r.manual ? ` · el otro método: ${priceFmt(p.peppMode === 'cap' ? r.peppExact : r.peppCap)}` : '')) +
+    card('Liquidación', r.liq ? priceFmt(r.liq) : '—', r.liq ? `${sgn(r.liqFromPepp)}% desde PEPP${r.liqFromPrice != null ? ` · ${sgn(r.liqFromPrice)}% desde el precio actual` : ''}` : '', 'neg') +
+    (r.pnl != null ? card('PnL flotante', money(r.pnl) + ' USDT', `${sgn(r.movePct)}% precio · ROE ${sgn(r.roe)}%`, cls(r.pnl)) : '') +
+    (r.sl ? card('Pérdida en el SL', money(r.sl.pnl) + ' USDT', r.sl.pctAccount != null ? `${sgn(r.sl.pctAccount)}% de la cuenta` : `${sgn(r.sl.movePct)}% de precio`, cls(r.sl.pnl)) : '') +
+    (r.rrWeighted != null ? card('R/R ponderado', fx(r.rrWeighted) + ' : 1', 'ganancia total de TPs ÷ pérdida en SL', r.rrWeighted >= 2 ? 'pos' : '') : '');
+  const row = (a, b, c, bc) => `<tr><td>${a}</td><td class="r ${bc || ''}">${b}</td><td class="r cl-small">${c || ''}</td></tr>`;
+  let h = '<thead><tr><th>Métrica</th><th class="r">Valor</th><th class="r">Detalle</th></tr></thead><tbody>';
+  if (r.pnl != null) h += row('Precio actual', priceFmt(r.price), `${sgn(r.movePct)}% desde PEPP`) + row('PnL flotante', money(r.pnl) + ' USDT', `ROE ${sgn(r.roe)}% sobre el margen`, cls(r.pnl));
+  r.tps.forEach((t, i) => { if (t) h += row(`TP${i + 1} (${fx(t.pct, 0)}%)`, priceFmt(t.price), `${money(t.pnl)} USDT · ${sgn(t.movePct)}% precio · ROE ${sgn(t.roe, 1)}%` + (t.fromPrice != null ? ` · ${sgn(t.fromPrice)}% desde el precio actual` : '') + (t.rr != null ? ` · R/R ${fx(t.rr)}` : ''), cls(t.pnl)); });
+  if (r.tpTotal != null) h += row('<b>Total TPs</b>', money(r.tpTotal) + ' USDT', tpOk.length && Math.abs(r.tpPctSum - 100) > 0.01 ? `solo cubre el ${fx(r.tpPctSum, 0)}% de la posición` : 'si se cumplen todos', cls(r.tpTotal));
+  if (r.sl) h += row('Stop loss', priceFmt(r.sl.price), `${money(r.sl.pnl)} USDT · ${sgn(r.sl.movePct)}% precio` + (r.sl.fromPrice != null ? ` · ${sgn(r.sl.fromPrice)}% desde el precio actual` : '') + (r.sl.pctAccount != null ? ` · ${sgn(r.sl.pctAccount)}% de la cuenta` : ''), cls(r.sl.pnl));
+  h += row('Liquidación', r.liq ? priceFmt(r.liq) : '—', r.liq ? `${sgn(r.liqFromPepp)}% desde PEPP${r.liqFromPrice != null ? ` · ${sgn(r.liqFromPrice)}% desde el precio actual` : ''}` : 'sin liquidación', 'neg');
+  h += row('Stop Danger', fx(r.stopDanger) + ' USDT', 'margen a añadir para quedar sin apalancamiento efectivo');
+  if (price) h += row('Rescue DCA', r.rescue ? fx(r.rescue.margin) + ' USDT' : 'No hace falta', r.rescue ? `para bajar la pérdida a −${fx(r.rescue.pctTarget, 0)}% · nuevo PEPP ${priceFmt(r.rescue.newPepp)}${r.rescue.newLiq ? ' · nueva liq. ' + priceFmt(r.rescue.newLiq) : ''}` : (P.rescuePct > 0 ? `la pérdida actual no supera −${fx(P.rescuePct, 0)}%` : 'pon un objetivo %'), r.rescue ? 'cl-small' : '');
+  tb.innerHTML = h + '</tbody>';
+  et.innerHTML = '<thead><tr><th>#</th><th class="r">Precio</th><th class="r">Margen</th><th class="r">Posición</th><th class="r">Cantidad</th><th class="r">Vs. precio actual</th></tr></thead><tbody>' +
+    r.entries.map((e, i) => `<tr><td>${i === 0 ? 'Entrada' : 'DCA ' + (i + 1)}</td><td class="r">${priceFmt(e.price)}</td><td class="r">${fx(e.margin)}</td><td class="r">${fx(e.notional)}</td><td class="r">${fx(e.qty, 4)}</td><td class="r ${e.fromPrice == null ? '' : ''}">${e.fromPrice == null ? '—' : sgn(e.fromPrice) + '%'}</td></tr>`).join('') +
+    `<tr><td><b>Total</b></td><td class="r"><b>${priceFmt(r.pepp)}</b></td><td class="r"><b>${fx(r.margin)}</b></td><td class="r"><b>${fx(r.notional)}</b></td><td class="r"><b>${fx(r.qty, 4)}</b></td><td></td></tr></tbody>`;
+}
+function clSummary() {
+  const p = clP(), { P, r } = clModel(); if (!r) return '';
+  const L = [`${p.sym || '—'} ${p.dir} x${P.lev}`, `Margen ${fx(r.margin)} USDT · Posición ${fx(r.notional)} USDT`, `PEPP ${priceFmt(r.pepp)}` + (r.liq ? ` · Liq ${priceFmt(r.liq)} (${sgn(r.liqFromPepp)}%)` : '')];
+  r.tps.forEach((t, i) => { if (t) L.push(`TP${i + 1} ${priceFmt(t.price)} (${fx(t.pct, 0)}%): ${money(t.pnl)} USDT`); });
+  if (r.tpTotal != null) L.push(`Total TPs ${money(r.tpTotal)} USDT`);
+  if (r.sl) L.push(`SL ${priceFmt(r.sl.price)}: ${money(r.sl.pnl)} USDT` + (r.sl.pctAccount != null ? ` (${sgn(r.sl.pctAccount)}% cuenta)` : ''));
+  if (r.rrWeighted != null) L.push(`R/R ponderado ${fx(r.rrWeighted)}:1`);
+  if (r.pnl != null) L.push(`Precio ${priceFmt(r.price)} · PnL ${money(r.pnl)} USDT (ROE ${sgn(r.roe)}%)`);
+  return L.join('\n');
+}
+async function clFetch() {
+  clReadForm(); const sym = clP().sym, msg = $('clPriceMsg');
+  if (!sym) { msg.textContent = 'Escribe primero el activo.'; return; }
+  try {
+    const ctl = new AbortController(), to = setTimeout(() => ctl.abort(), 6000);
+    const res = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${encodeURIComponent(sym)}USDT`, { signal: ctl.signal }); clearTimeout(to);
+    const j = await res.json(); if (!j.price) throw new Error('sin precio');
+    $('clPrice').value = String(parseFloat(j.price)); msg.textContent = `Precio de Binance (spot ${sym}USDT) a las ${new Date().toLocaleTimeString('es-ES')}.`; clInput();
+  } catch (e) { msg.textContent = 'No pude traer el precio de Binance; escríbelo a mano.'; }
+}
+function clOnShow(on) { if (!on) { clearInterval(clTimer); clTimer = null; return; } if ($('clAuto').checked && !clTimer) clTimer = setInterval(clFetch, 15000); }
+$('clSym').addEventListener('input', clInput); ['clLev', 'clPrice', 'clAcc', 'clPeppMan', 'clSl', 'clExtra', 'clRescue'].forEach(id => $(id).addEventListener('input', clInput)); $('clPeppMode').addEventListener('change', clInput);
+$('clLong').onclick = () => { clReadForm(); clP().dir = 'Long'; clSave(); clWriteForm(); clCalc(); };
+$('clShort').onclick = () => { clReadForm(); clP().dir = 'Short'; clSave(); clWriteForm(); clCalc(); };
+$('clAddDca').onclick = () => { clReadForm(); if (clP().entries.length < 12) clP().entries.push({ price: '', margin: '' }); clSave(); clWriteForm(); clCalc(); const l = $('clEntries').lastElementChild; if (l) l.querySelector('.ep').focus(); };
+$('clFetch').onclick = clFetch;
+$('clAuto').addEventListener('change', () => { clearInterval(clTimer); clTimer = null; if ($('clAuto').checked) { clFetch(); clTimer = setInterval(clFetch, 15000); } });
+$('clReset').onclick = () => { if (!confirm('¿Vaciar los datos de esta posición?')) return; CL.pos[CL.active] = clNew(); clSave(); clWriteForm(); clCalc(); };
+$('clCopy').onclick = async () => { const t = clSummary(); if (!t) { $('clCopyMsg').textContent = 'No hay nada que copiar todavía.'; return; } try { await navigator.clipboard.writeText(t); $('clCopyMsg').textContent = 'Resumen copiado.'; } catch (e) { $('clCopyMsg').textContent = 'No pude copiar automáticamente; selecciona el texto de la tabla.'; } };
+clWriteForm(); clCalc();
 
 // ---------- Gráfico desplegable de un cruce ----------
 let CXCH = null;
