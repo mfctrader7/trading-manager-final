@@ -980,7 +980,7 @@ async function runCX() {
   if (errs.length) { st.className = 'status err'; st.textContent = errs.join('\n'); return; }
   $('cxRun').disabled = true;
   try {
-    const ms = TF_MS[tf], warm = Math.max(150, e2 * 5);
+    const e3in = parseInt($('cxE3').value) || 0, ms = TF_MS[tf], warm = Math.max(150, e2 * 5, e3in * 2);
     const bars = await loadNative(sym, tf, startMs - warm * ms, endMs, n => { st.textContent = `Cargando velas ${tf} de ${sym}… ${n.toLocaleString('es-ES')}`; });
     if (bars.length < e2 + 5) throw new Error(`Solo hay ${bars.length} velas de ${tf} para ${sym} en la tabla. Revisa el símbolo o carga ese intervalo en «Historial de Precios».`);
     const cfg = { tf, tfMs: ms, ema1: e1, ema2: e2, startMs, endMs };
