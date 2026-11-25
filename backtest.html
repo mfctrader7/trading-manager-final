@@ -121,7 +121,7 @@ details ul{color:var(--mut);line-height:1.6;padding-left:20px;margin:8px 0 0}
 <body>
 <header>
   <h1>🏇 Backtest – Carrera de Caballos</h1>
-  <div><span id="ver" style="color:var(--gold);font-size:.72rem;margin-right:12px;border:1px solid var(--line);border-radius:6px;padding:2px 7px">v. 25/11 19:50 · VPRF: baja 1m de BingX</span><span id="who" style="color:var(--mut);margin-right:12px"></span><a href="/dashboard.html">← Dashboard</a></div>
+  <div><span id="ver" style="color:var(--gold);font-size:.72rem;margin-right:12px;border:1px solid var(--line);border-radius:6px;padding:2px 7px">v. 25/11 20:30 · + Binance (velas_ref, vprf_diario)</span><span id="who" style="color:var(--mut);margin-right:12px"></span><a href="/dashboard.html">← Dashboard</a></div>
 </header>
 <main>
 <div class="tabs"><button class="tab on" id="tabBtnBT">🏇 Backtest</button><button class="tab" id="tabBtnCX">📊 Análisis de cruces</button><button class="tab" id="tabBtnCL">🧮 Calculadora</button><button class="tab" id="tabBtnPD">📝 Pendientes</button><button class="tab" id="tabBtnSP">🎯 Setup 5m</button></div>
@@ -320,6 +320,7 @@ details ul{color:var(--mut);line-height:1.6;padding-left:20px;margin:8px 0 0}
   <div class="legend" style="margin:0 0 10px">Mismas reglas que el indicador en modo «sin retraso»: el pivote es el extremo del tramo desde el último cruce contrario de la EMA; la vela que cierra al otro lado de la EMA marca la ruptura; entrada límite en la EMA de esa vela; SL tras el pivote más el buffer; TP1 a R veces el riesgo (cierra el % indicado) y BE para el resto. Si una vela toca SL y TP, cuenta el SL. Una entrada que no se ejecuta en N velas se anota aparte. El contexto de 30m y 4h usa solo velas <b>ya cerradas</b> (sin mirar al futuro).</div>
   <div class="grid">
     <div><label>Activo (símbolo)</label><input id="spSym" value="BTC"></div>
+    <div><label>Fuente de datos</label><select id="spDs"><option value="bingx">BingX (tabla compartida)</option><option value="binance">Binance futuros (velas_ref + vprf_diario)</option></select></div>
     <div><label>Velas de origen</label><select id="spSrc"><option value="auto">Automático (5m, si no 1m)</option><option value="5m">5m</option><option value="1m">1m → 5m</option></select></div>
     <div><label>Desde</label><input type="date" id="spStart"></div>
     <div><label>Hasta</label><input type="date" id="spEnd"></div>
@@ -345,7 +346,7 @@ details ul{color:var(--mut);line-height:1.6;padding-left:20px;margin:8px 0 0}
   <div class="status" id="spStatus"></div>
   <details style="margin-top:14px"><summary style="cursor:pointer;color:var(--gold);font-weight:600">📐 Comprobar el VPRF de un día (para compararlo con TradingView)</summary>
     <div class="legend" style="margin:8px 0">Calcula POC, VAH y VAL del día UTC que elijas con las velas de la tabla compartida. Compáralos con las etiquetas de tu indicador «VPRF Diario» en ese día (el valor final del día).</div>
-    <div class="grid"><div><label>Día (UTC)</label><input type="date" id="vcDay"></div><div><label>Velas</label><select id="vcSrc"><option value="1m">1m (como tu indicador)</option><option value="5m">5m</option></select></div></div>
+    <div class="grid"><div><label>Día (UTC)</label><input type="date" id="vcDay"></div><div><label>Velas</label><select id="vcSrc"><option value="1m">1m BingX (tabla compartida)</option><option value="bn1m">1m Binance futuros (directo)</option><option value="5m">5m BingX</option></select></div></div>
     <div style="margin-top:12px"><button class="btn" id="vcRun">▶ Calcular</button></div>
     <div class="status" id="vcStatus"></div><div class="scroll" style="max-height:none"><table id="vcTable" class="cl"></table></div>
   </details>
@@ -358,6 +359,16 @@ details ul{color:var(--mut);line-height:1.6;padding-left:20px;margin:8px 0 0}
     </div>
     <div style="margin-top:12px"><button class="btn" id="flRun">⬇ Detectar huecos y rellenar</button></div>
     <div class="status" id="flStatus"></div>
+  </details>
+  <details style="margin-top:14px"><summary style="cursor:pointer;color:var(--gold);font-weight:600">🧱 Datos de referencia: Binance futuros (velas 5m y VPRF diario)</summary>
+    <div class="legend" style="margin:8px 0">Descarga de Binance futuros perpetuos (USDT-M) desde tu navegador. <b>5m</b> → tabla <b>velas_ref</b> (solo baja lo que falta antes y después de lo ya guardado). <b>VPRF</b> → baja las velas de 1m de cada día, calcula POC/VAH/VAL (1000 filas, 70 %) y guarda <b>solo esa fila diaria</b> en <b>vprf_diario</b>; las velas de 1m no se guardan. Necesitas haber ejecutado antes el SQL de las dos tablas. Se puede parar y reanudar: lo ya guardado no se repite.</div>
+    <div class="grid">
+      <div><label>Activos (separados por comas)</label><input id="rfSyms" value="BTC,ETH"></div>
+      <div><label>Desde</label><input type="date" id="rfStart" value="2023-01-01"></div>
+      <div><label>Hasta</label><input type="date" id="rfEnd"></div>
+    </div>
+    <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap"><button class="btn" id="rfRun5">⬇ Bajar velas 5m</button><button class="btn" id="rfRunVp">⬇ Calcular VPRF diario</button><button class="btn" id="rfCov">📊 Ver cobertura</button><button class="btn" id="rfStop" style="display:none">■ Parar</button></div>
+    <div class="status" id="rfStatus"></div><div class="scroll" style="max-height:none"><table id="rfTable" class="cl"></table></div>
   </details>
 </div>
 <div class="panel" id="spResP" style="display:none">
@@ -1395,6 +1406,13 @@ async function runVc() {
   try {
     const sym = $('spSym').value.trim().toUpperCase(), tf = $('vcSrc').value, d0 = new Date($('vcDay').value + 'T00:00:00Z').getTime();
     const a0 = d0 - 2 * 864e5, a1 = d0 + 864e5 - 1;
+    if (tf === 'bn1m') {
+      const sy = sym, bb = []; for (let k = a0; k <= a1; k += 864e5) { st.textContent = 'Pidiendo a Binance el ' + new Date(k).toISOString().slice(0, 10) + '…'; bb.push(...(await bnKlines(sy, '1m', k, k + 864e5 - 1))); await rfSleep(300); }
+      const vp0 = vprfDaily(bb, 1000, 70), keys0 = [d0 - 864e5, d0].filter(k => vp0.has(k)); if (!vp0.has(d0)) throw new Error('No hay perfil para ese día en Binance.');
+      const g2 = x => x.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      $('vcTable').innerHTML = '<tr><th>Día UTC</th><th class="r">POC</th><th class="r">VAH</th><th class="r">VAL</th><th class="r">Tamaño de fila</th><th class="r">Velas</th><th class="r">Máx.</th><th class="r">Mín.</th></tr>' + keys0.map(k => { const p = vp0.get(k); return `<tr><td>${dd(k)}</td><td class="r">${g2(p.poc)}</td><td class="r">${g2(p.vah)}</td><td class="r">${g2(p.val)}</td><td class="r">${p.bin.toFixed(3)}</td><td class="r">${p.n}</td><td class="r">${g2(p.hi)}</td><td class="r">${g2(p.lo)}</td></tr>`; }).join('');
+      st.textContent = 'Listo (Binance futuros, 1m, directo; no se guarda nada). Compara con el gráfico BINANCE:' + sym + 'USDT.P de TradingView.'; $('vcRun').disabled = false; return;
+    }
     let bars = await loadNative(sym, tf, a0, a1, n => { st.textContent = `Cargando velas ${tf}… ${n.toLocaleString('es-ES')}`; });
     const need = (tf === '1m' ? 1440 : 288) * 3 * 0.98;
     if (tf === '1m' && bars.length < need) {
@@ -1429,12 +1447,14 @@ async function runSP() {
     const from = new Date($('spStart').value + 'T00:00:00Z').getTime(), to = new Date($('spEnd').value + 'T23:59:59Z').getTime();
     const warm = 15 * 864e5; let bars = [], used = '5m';
     const prog = (tf) => n => { st.textContent = `Cargando velas ${tf}… ${n.toLocaleString('es-ES')}`; };
-    if (src !== '1m') bars = await loadNative(sym, '5m', from - warm, to, prog('5m'));
-    if (bars.length >= 100 && src === 'auto' && bars[0].t > from - warm + 3 * 864e5) {
+    const bnDs = $('spDs').value === 'binance';
+    if (bnDs) { bars = await loadRef(sym, '5m', from - warm, to, prog('5m Binance')); used = '5m Binance'; if (bars.length < 100) throw new Error('No hay velas de Binance para ' + sym + ' en ese rango (encontradas: ' + bars.length + '). Bájalas en «Datos de referencia: Binance futuros».'); }
+    else if (src !== '1m') bars = await loadNative(sym, '5m', from - warm, to, prog('5m'));
+    if (!bnDs && bars.length >= 100 && src === 'auto' && bars[0].t > from - warm + 3 * 864e5) {
       const r1 = await loadNative(sym, '1m', from - warm, bars[0].t - 1, prog('1m (completando el inicio)')), a5 = spAgg1to5(r1).filter(b => b.t < bars[0].t);
       if (a5.length) { bars = a5.concat(bars); used = '5m + 1m→5m al inicio'; }
     }
-    if (bars.length < 100 && src !== '5m') { used = '1m→5m'; const r1 = await loadNative(sym, '1m', from - warm, to, prog('1m')); bars = spAgg1to5(r1); }
+    if (!bnDs && bars.length < 100 && src !== '5m') { used = '1m→5m'; const r1 = await loadNative(sym, '1m', from - warm, to, prog('1m')); bars = spAgg1to5(r1); }
     if (bars.length < 100) throw new Error('No hay velas de ' + (src === '1m' ? '1m' : '5m') + ' para ' + sym + ' en ese rango (encontradas: ' + bars.length + ').');
     const he = $('spHE').value.split(',').map(x => parseInt(x)), e1 = he[0] || 12, e2 = he[1] || 25;
     const pv = $('spPv').value.split(',').map(x => parseInt(x)); const cfg = { mode: $('spMode').value, pL: pv[0] || 5, pR: pv[1] || pv[0] || 5, lastPivRule: $('spLpr').value === '1', ema: +$('spEma').value, ratio: +$('spRat').value, bufP: +$('spBuf').value, rmin: +$('spRmin').value, rmax: +$('spRmax').value, maxWait: +$('spWait').value, maxAge: +$('spAge').value, maxLife: +$('spLife').value, beOff: +$('spBe').value, tp1Pct: +$('spTp1').value, fee: +$('spFee').value, from, baseMs: 300000, htf: [[1800000, e1, e2, '30m'], [14400000, e1, e2, '4h']] };
@@ -1443,9 +1463,10 @@ async function runSP() {
     let vp = null, vpNote = '';
     try {
       let vb = bars;
-      if ($('spVpSrc').value === '1m') { st.textContent = 'Cargando velas de 1m para el perfil de volumen (puede tardar)…'; vb = await loadNative(sym, '1m', from - 3 * 864e5, to, n => { st.textContent = `Cargando velas 1m para el VPRF… ${n.toLocaleString('es-ES')}`; }); }
-      vp = vprfDaily(vb, 1000, 70);
-      const noVol = vb.filter(b => !(b.v > 0)).length; if (noVol > vb.length * 0.02) vpNote = `⚠ ${noVol.toLocaleString('es-ES')} velas sin volumen: el perfil de esos días no es fiable.`;
+      if (bnDs) { vp = await loadVprfRef(sym, from - 3 * 864e5, to); const inc = [...vp.values()].filter(p => p.n < 1380).length; vpNote = vp.size ? (inc ? `⚠ ${inc} día(s) de VPRF con menos de 1.380 velas de 1m: poco fiables.` : '') : '⚠ No hay VPRF guardado para ' + sym + ' en ese rango (usa «Calcular VPRF diario»).'; }
+      else if ($('spVpSrc').value === '1m') { st.textContent = 'Cargando velas de 1m para el perfil de volumen (puede tardar)…'; vb = await loadNative(sym, '1m', from - 3 * 864e5, to, n => { st.textContent = `Cargando velas 1m para el VPRF… ${n.toLocaleString('es-ES')}`; }); }
+      if (!bnDs) vp = vprfDaily(vb, 1000, 70);
+      const noVol = bnDs ? 0 : vb.filter(b => !(b.v > 0)).length; if (noVol > vb.length * 0.02) vpNote = `⚠ ${noVol.toLocaleString('es-ES')} velas sin volumen: el perfil de esos días no es fiable.`;
     } catch (e) { vpNote = 'No se pudo calcular el VPRF: ' + e.message; }
     if (vp) for (const tr of res.trades) { const day = Math.floor(tr.madeT / 864e5) * 864e5, pv = vp.get(day - 864e5); tr.vp = pv || null; tr.vz = vprfZone(tr.entry, pv); }
     SP = { vp, vpNote, bars, ema: spEma(bars.map(b => b.c), cfg.ema), res, cfg, sym, used, nb: bars.length, first: bars[0].t, last: bars[bars.length - 1].t };
@@ -1491,6 +1512,120 @@ function spCsvVelas() {
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv' })); a.download = 'Velas5m_' + SP.sym + '_' + $('spStart').value + '_a_' + $('spEnd').value + '.csv'; a.click();
 }
 $('spRun').onclick = runSP; $('spCsv').onclick = spCsv; $('spCsvV').onclick = spCsvVelas;
+
+
+// ---------- Datos de referencia: Binance futuros ----------
+const BN_SRC = 'binance_perp'; let rfStopF = false;
+const rfSleep = ms => new Promise(z => setTimeout(z, ms));
+$('rfEnd').value = new Date().toISOString().slice(0, 10);
+async function bnKlines(sym, iv, s, e) {
+  for (let a = 0; a < 6; a++) {
+    let r; try { r = await fetch(`https://fapi.binance.com/fapi/v1/klines?symbol=${sym}USDT&interval=${iv}&startTime=${s}&endTime=${e}&limit=1500`); }
+    catch (err) { throw new Error('No se pudo conectar con Binance desde el navegador (' + err.message + '). Puede estar bloqueado en tu red.'); }
+    if (r.status === 429 || r.status === 418) { await rfSleep(15000 * (a + 1)); continue; }
+    if (r.status === 451) throw new Error('Binance bloquea este acceso desde tu ubicación (código 451).');
+    if (!r.ok) throw new Error('Binance respondió ' + r.status + ' para ' + sym + 'USDT');
+    return (await r.json()).map(k => ({ t: +k[0], o: +k[1], h: +k[2], l: +k[3], c: +k[4], v: +k[5] }));
+  }
+  throw new Error('Binance limitó las peticiones (429). Espera un minuto y vuelve a pulsar: continúa donde se quedó.');
+}
+function rfBusy(on) { ['rfRun5', 'rfRunVp', 'rfCov'].forEach(k => $(k).disabled = on); $('rfStop').style.display = on ? '' : 'none'; if (on) rfStopF = false; }
+const rfSyms = () => $('rfSyms').value.split(',').map(x => x.trim().toUpperCase()).filter(Boolean);
+async function rfEdge(sym, asc) {
+  const { data, error } = await sb.from('velas_ref').select('ts').eq('fuente', BN_SRC).eq('simbolo', sym).eq('intervalo', '5m').order('ts', { ascending: asc }).limit(1);
+  if (error) throw new Error('velas_ref: ' + error.message + (error.code ? ' [' + error.code + ']' : '') + ' (¿ejecutaste el SQL de las tablas?)');
+  return data.length ? Number(data[0].ts) : null;
+}
+async function rfRun5() {
+  const st = $('rfStatus'); st.className = 'status'; rfBusy(true);
+  try {
+    const STEP = 300000, CH = 1500 * STEP, now = Date.now();
+    const from = Math.floor(new Date($('rfStart').value + 'T00:00:00Z').getTime() / STEP) * STEP, to = Math.min(new Date($('rfEnd').value + 'T23:59:59Z').getTime(), now - 2 * STEP);
+    let total = 0;
+    for (const sym of rfSyms()) {
+      const mn = await rfEdge(sym, true), mx = mn === null ? null : await rfEdge(sym, false);
+      const segs = mn === null ? [[from, to]] : [[from, Math.min(mn - STEP, to)], [mx + STEP, to]].filter(x => x[0] <= x[1]);
+      for (const [a, b] of segs) for (let s = a; s <= b; s += CH) {
+        if (rfStopF) throw new Error('Parado. Lo guardado hasta ahora se conserva; pulsa de nuevo para continuar.');
+        const e = Math.min(s + CH - STEP, b); st.textContent = `${sym}: descargando 5m desde ${new Date(s).toISOString().slice(0, 10)}… (${total.toLocaleString('es-ES')} velas guardadas)`;
+        const ks = (await bnKlines(sym, '5m', s, e)).filter(k => k.t >= s && k.t <= e && k.t % STEP === 0 && k.t + STEP <= now);
+        const rows = ks.map(k => ({ fuente: BN_SRC, simbolo: sym, intervalo: '5m', ts: k.t, fecha: new Date(k.t).toISOString().slice(0, 10), open: k.o, high: k.h, low: k.l, close: k.c, volume: k.v }));
+        for (let i = 0; i < rows.length; i += 500) { const { error } = await sb.from('velas_ref').upsert(rows.slice(i, i + 500), { onConflict: 'fuente,simbolo,intervalo,ts' }); if (error) throw new Error('No se pudo guardar en velas_ref: ' + error.message + (error.code ? ' [' + error.code + ']' : '')); }
+        total += rows.length; await rfSleep(250);
+      }
+    }
+    st.textContent = `Listo. Velas de 5m nuevas guardadas: ${total.toLocaleString('es-ES')}. Pulsa «Ver cobertura» para comprobar.`;
+  } catch (e) { st.className = 'status err'; st.textContent = e.message; }
+  rfBusy(false);
+}
+async function rfRunVp() {
+  const st = $('rfStatus'); st.className = 'status'; rfBusy(true);
+  try {
+    const D = 86400000, now = Date.now(), from = Math.floor(new Date($('rfStart').value + 'T00:00:00Z').getTime() / D) * D, lastDay = Math.floor(now / D) * D - D, to = Math.min(Math.floor(new Date($('rfEnd').value + 'T00:00:00Z').getTime() / D) * D, lastDay);
+    let total = 0;
+    for (const sym of rfSyms()) {
+      const have = new Map();
+      for (let off = 0; ; off += 1000) {
+        const { data, error } = await sb.from('vprf_diario').select('ts_dia,hi,lo').eq('fuente', BN_SRC).eq('simbolo', sym).gte('ts_dia', from - D).lte('ts_dia', to).order('ts_dia').range(off, off + 999);
+        if (error) throw new Error('vprf_diario: ' + error.message + (error.code ? ' [' + error.code + ']' : '') + ' (¿ejecutaste el SQL de las tablas?)');
+        data.forEach(r => have.set(Number(r.ts_dia), Number(r.hi) - Number(r.lo))); if (data.length < 1000) break;
+      }
+      const rng = new Map(have); let done = 0; const todo = []; for (let d = from; d <= to; d += D) if (!have.has(d)) todo.push(d);
+      const t0 = Date.now();
+      for (const d of todo) {
+        if (rfStopF) throw new Error('Parado. Lo guardado se conserva; pulsa de nuevo para continuar.');
+        const el = (Date.now() - t0) / 1000, eta = done ? Math.round(el / done * (todo.length - done) / 60) : '?';
+        st.textContent = `${sym}: VPRF del ${new Date(d).toISOString().slice(0, 10)} · ${done}/${todo.length} días · faltan ≈ ${eta} min`;
+        if (!rng.has(d - D)) { const pv = await bnKlines(sym, '1m', d - D, d - 1); if (pv.length) rng.set(d - D, Math.max(...pv.map(x => x.h)) - Math.min(...pv.map(x => x.l))); await rfSleep(400); }
+        const bars = (await bnKlines(sym, '1m', d, d + D - 1)).filter(b => b.t >= d && b.t < d + D); await rfSleep(400); done++;
+        if (!bars.length) continue;
+        const open = bars[0].o, hi = Math.max(...bars.map(x => x.h)), lo = Math.min(...bars.map(x => x.l)), pr = rng.get(d - D), bin = (pr > 0 ? pr : open * 0.05) / 1000, p = vprfProfile(bars, open, bin, 70);
+        rng.set(d, hi - lo); if (!p) continue;
+        const { error } = await sb.from('vprf_diario').upsert([{ fuente: BN_SRC, simbolo: sym, dia: new Date(d).toISOString().slice(0, 10), ts_dia: d, poc: p.poc, vah: p.vah, val: p.val, hi, lo, open, bin, nvelas: bars.length, filas: 1000, va_pct: 70 }], { onConflict: 'fuente,simbolo,dia' });
+        if (error) throw new Error('No se pudo guardar en vprf_diario: ' + error.message + (error.code ? ' [' + error.code + ']' : '')); total++;
+      }
+    }
+    st.textContent = `Listo. Días de VPRF nuevos guardados: ${total.toLocaleString('es-ES')}.`;
+  } catch (e) { st.className = 'status err'; st.textContent = e.message; }
+  rfBusy(false);
+}
+async function rfCov() {
+  const st = $('rfStatus'); st.className = 'status'; rfBusy(true); $('rfTable').innerHTML = '';
+  try {
+    const f = t => t === null ? '—' : new Date(t).toISOString().slice(0, 10), rows = [];
+    for (const sym of rfSyms()) {
+      const c5 = await sb.from('velas_ref').select('ts', { count: 'exact', head: true }).eq('fuente', BN_SRC).eq('simbolo', sym).eq('intervalo', '5m'); if (c5.error) throw new Error('velas_ref: ' + c5.error.message);
+      const mn = await rfEdge(sym, true), mx = mn === null ? null : await rfEdge(sym, false), exp = mn === null ? 0 : Math.floor((mx - mn) / 300000) + 1;
+      const cv = await sb.from('vprf_diario').select('ts_dia', { count: 'exact', head: true }).eq('fuente', BN_SRC).eq('simbolo', sym); if (cv.error) throw new Error('vprf_diario: ' + cv.error.message);
+      const inc = await sb.from('vprf_diario').select('ts_dia', { count: 'exact', head: true }).eq('fuente', BN_SRC).eq('simbolo', sym).lt('nvelas', 1380);
+      const { data: a } = await sb.from('vprf_diario').select('ts_dia').eq('fuente', BN_SRC).eq('simbolo', sym).order('ts_dia', { ascending: true }).limit(1), { data: b } = await sb.from('vprf_diario').select('ts_dia').eq('fuente', BN_SRC).eq('simbolo', sym).order('ts_dia', { ascending: false }).limit(1);
+      rows.push(`<tr><td>${sym}</td><td class="r">${(c5.count || 0).toLocaleString('es-ES')}</td><td>${f(mn)} → ${f(mx)}</td><td class="r">${exp ? Math.round((c5.count || 0) / exp * 100) + ' %' : '—'}</td><td class="r">${(cv.count || 0).toLocaleString('es-ES')}</td><td>${a && a.length ? f(Number(a[0].ts_dia)) : '—'} → ${b && b.length ? f(Number(b[0].ts_dia)) : '—'}</td><td class="r">${inc.count || 0}</td></tr>`);
+    }
+    $('rfTable').innerHTML = '<tr><th>Activo</th><th class="r">Velas 5m</th><th>Rango 5m</th><th class="r">Completo</th><th class="r">Días VPRF</th><th>Rango VPRF</th><th class="r">Días VPRF incompletos</th></tr>' + rows.join('');
+    st.textContent = '';
+  } catch (e) { st.className = 'status err'; st.textContent = e.message; }
+  rfBusy(false);
+}
+$('rfRun5').onclick = rfRun5; $('rfRunVp').onclick = rfRunVp; $('rfCov').onclick = rfCov; $('rfStop').onclick = () => { rfStopF = true; };
+async function loadRef(symbol, tf, fromTs, toTs, onPage) {
+  const PAGE = 1000; let off = 0; const rows = [];
+  while (true) {
+    const { data, error } = await sb.from('velas_ref').select('ts,open,high,low,close,volume').eq('fuente', BN_SRC).eq('simbolo', symbol).eq('intervalo', tf).gte('ts', fromTs).lte('ts', toTs).order('ts', { ascending: true }).range(off, off + PAGE - 1);
+    if (error) throw new Error('velas_ref: ' + error.message + (error.code ? ' [' + error.code + ']' : ''));
+    rows.push(...data); if (onPage) onPage(rows.length); if (data.length < PAGE) break; off += PAGE;
+  }
+  const ms = TF_MS[tf], now = Date.now(), seen = new Set();
+  return rows.map(r => ({ t: Number(r.ts), o: +r.open, h: +r.high, l: +r.low, c: +r.close, v: +r.volume || 0 })).filter(b => isFinite(b.c) && b.t + ms <= now && !seen.has(b.t) && seen.add(b.t));
+}
+async function loadVprfRef(symbol, fromTs, toTs) {
+  const m = new Map();
+  for (let off = 0; ; off += 1000) {
+    const { data, error } = await sb.from('vprf_diario').select('ts_dia,poc,vah,val,hi,lo,open,bin,nvelas').eq('fuente', BN_SRC).eq('simbolo', symbol).gte('ts_dia', fromTs).lte('ts_dia', toTs).order('ts_dia').range(off, off + 999);
+    if (error) throw new Error('vprf_diario: ' + error.message + (error.code ? ' [' + error.code + ']' : ''));
+    data.forEach(r => m.set(Number(r.ts_dia), { poc: +r.poc, vah: +r.vah, val: +r.val, hi: +r.hi, lo: +r.lo, open: +r.open, bin: +r.bin, n: +r.nvelas })); if (data.length < 1000) break;
+  }
+  return m;
+}
 
 function showTab(x) {
   ['BT', 'CX', 'CL', 'PD', 'SP'].forEach(k => { $('tab' + k).style.display = x === k ? '' : 'none'; $('tabBtn' + k).classList.toggle('on', x === k); });
