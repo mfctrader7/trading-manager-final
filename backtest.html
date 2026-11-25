@@ -121,7 +121,7 @@ details ul{color:var(--mut);line-height:1.6;padding-left:20px;margin:8px 0 0}
 <body>
 <header>
   <h1>🏇 Backtest – Carrera de Caballos</h1>
-  <div><span id="ver" style="color:var(--gold);font-size:.72rem;margin-right:12px;border:1px solid var(--line);border-radius:6px;padding:2px 7px">v. 25/11 13:05 · Setup 5m + modo pivote</span><span id="who" style="color:var(--mut);margin-right:12px"></span><a href="/dashboard.html">← Dashboard</a></div>
+  <div><span id="ver" style="color:var(--gold);font-size:.72rem;margin-right:12px;border:1px solid var(--line);border-radius:6px;padding:2px 7px">v. 25/11 14:10 · Setup 5m + sesiones</span><span id="who" style="color:var(--mut);margin-right:12px"></span><a href="/dashboard.html">← Dashboard</a></div>
 </header>
 <main>
 <div class="tabs"><button class="tab on" id="tabBtnBT">🏇 Backtest</button><button class="tab" id="tabBtnCX">📊 Análisis de cruces</button><button class="tab" id="tabBtnCL">🧮 Calculadora</button><button class="tab" id="tabBtnPD">📝 Pendientes</button><button class="tab" id="tabBtnSP">🎯 Setup 5m</button></div>
@@ -309,6 +309,7 @@ details ul{color:var(--mut);line-height:1.6;padding-left:20px;margin:8px 0 0}
     <div><label>Origen del pivote</label><select id="spMode"><option value="noLag">Extremo del tramo (sin retraso)</option><option value="classic">Pivote clásico (confirmado)</option></select></div>
     <div><label>Pivote: velas izq. / der.</label><input id="spPv" value="5,5"></div>
     <div><label>El pivote más reciente manda</label><select id="spLpr"><option value="1">Sí</option><option value="0">No</option></select></div>
+    <div><label>Horarios de sesión</label><select id="spSess"><option value="auto">Por bolsa (verano automático)</option><option value="utc">UTC fijo (00:00 · 07:00 · 13:30)</option></select></div>
     <div><label>EMA del setup</label><input type="number" id="spEma" value="12" min="2"></div>
     <div><label>Ratio TP1 (R)</label><input type="number" id="spRat" value="1.7" step="0.1"></div>
     <div><label>Buffer SL (%)</label><input type="number" id="spBuf" value="0.05" step="0.01"></div>
@@ -332,6 +333,9 @@ details ul{color:var(--mut);line-height:1.6;padding-left:20px;margin:8px 0 0}
   <h2 style="margin-top:18px">Por contexto de tendencia (EMA 12/25 en 30m y 4h)</h2>
   <div class="legend">«A favor» = el estado del TF va en el mismo sentido que la operación (precio y EMA rápida del mismo lado de la lenta). «Mixto» = sin tendencia clara. Fíjate siempre en el nº de casos y en el margen de error.</div>
   <div class="scroll" style="max-height:none"><table id="spCtx" class="cl"></table></div>
+  <h2 style="margin-top:18px">Por sesión (hora de la señal)</h2>
+  <div class="legend">Open day = desde las 00:00 UTC hasta la apertura de Europa (8:00 Londres). Europa = hasta la apertura de Wall Street (9:30 Nueva York). Wall Street = hasta las 00:00 UTC. Con «Por bolsa» el horario de verano se ajusta solo, como en tu indicador de aperturas.</div>
+  <div class="scroll" style="max-height:none"><table id="spSes" class="cl"></table></div>
   <h2 style="margin-top:18px">Operaciones (últimas 300)</h2>
   <div class="scroll" style="max-height:520px"><table id="spTrades" class="cl"></table></div>
 </div>
@@ -848,9 +852,10 @@ function spStep(s, bar, i, cfg) {
   let justFilled = false;
   if (s.state === 0) {
     const touch = L ? bar.l <= s.entry : bar.h >= s.entry;
-    if (touch) { s.state = 1; justFilled = true; s.fillT = bar.t; }
+    if (touch) { s.state = 1; justFilled = true; s.fillT = bar.t; s.mfe = 0; s.mae = 0; }
     else if (s.age > cfg.maxWait) return { out: 'NOEXEC', R: 0 };
   }
+  if (s.state >= 1) { s.mfe = Math.max(s.mfe, d * ((L ? bar.h : bar.l) - s.entry) / risk); s.mae = Math.max(s.mae, -d * ((L ? bar.l : bar.h) - s.entry) / risk); }
   if (s.state === 1) {
     const slHit = L ? bar.l < s.sl : bar.h > s.sl, tpHit = L ? bar.h >= s.tp : bar.l <= s.tp;
     if (slHit) return { out: 'SL', R: -1 - feeR };
@@ -930,6 +935,12 @@ function runSetupBacktest(bars, cfg) {
       if (cd && !isNaN(lastPH)) { const pv = lastPH, pb = lastPHb; lastPH = NaN; if (make(false, pv, pb)) { if (lpr) cancelPending(true); } }
     }
   }
+  // ¿qué habría pasado si hubiera entrado de inmediato al precio de entrada? (solo para no ejecutadas / canceladas)
+  for (const t of trades) { if (t.out !== 'NOEXEC' && t.out !== 'CANCELADA') continue;
+    t.hyp = 'sin resultado'; t.hypBars = ''; const L = t.isLong;
+    for (let j = t.madeI + 1; j < n && j <= t.madeI + cfg.maxLife; j++) { const b = bars[j];
+      const sl = L ? b.l < t.sl : b.h > t.sl, tp = L ? b.h >= t.tp : b.l <= t.tp;
+      if (sl) { t.hyp = 'SL'; t.hypBars = j - t.madeI; break; } if (tp) { t.hyp = 'TP1'; t.hypBars = j - t.madeI; break; } } }
   const done = trades.filter(t => t.out && t.madeT >= cfg.from);
   return { trades: done, open: trades.filter(t => !t.out).length, skippedRisk };
 }
@@ -1250,6 +1261,12 @@ $('printBtn').onclick = printReport;
 
 // ---------- Setup 5m ----------
 let SP = null;
+function spOff(tz, ms) { const d = new Date(ms); d.setUTCHours(12, 0, 0, 0); const h = +new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', hourCycle: 'h23' }).format(d); return h - 12; }
+function spSessOf(ms) {
+  const mode = $('spSess').value, d = new Date(ms), mins = d.getUTCHours() * 60 + d.getUTCMinutes();
+  const eu = mode === 'utc' ? 420 : Math.round((8 - spOff('Europe/London', ms)) * 60), ws = mode === 'utc' ? 810 : Math.round((9.5 - spOff('America/New_York', ms)) * 60);
+  return mins < eu ? 'OD' : mins < ws ? 'EU' : 'WS';
+}
 $('spEnd').value = new Date().toISOString().slice(0, 10);
 $('spStart').value = new Date(Date.now() - 365 * 864e5).toISOString().slice(0, 10);
 function spAgg1to5(rows) {
@@ -1267,6 +1284,10 @@ async function runSP() {
     const warm = 15 * 864e5; let bars = [], used = '5m';
     const prog = (tf) => n => { st.textContent = `Cargando velas ${tf}… ${n.toLocaleString('es-ES')}`; };
     if (src !== '1m') bars = await loadNative(sym, '5m', from - warm, to, prog('5m'));
+    if (bars.length >= 100 && src === 'auto' && bars[0].t > from - warm + 3 * 864e5) {
+      const r1 = await loadNative(sym, '1m', from - warm, bars[0].t - 1, prog('1m (completando el inicio)')), a5 = spAgg1to5(r1).filter(b => b.t < bars[0].t);
+      if (a5.length) { bars = a5.concat(bars); used = '5m + 1m→5m al inicio'; }
+    }
     if (bars.length < 100 && src !== '5m') { used = '1m→5m'; const r1 = await loadNative(sym, '1m', from - warm, to, prog('1m')); bars = spAgg1to5(r1); }
     if (bars.length < 100) throw new Error('No hay velas de ' + (src === '1m' ? '1m' : '5m') + ' para ' + sym + ' en ese rango (encontradas: ' + bars.length + ').');
     const he = $('spHE').value.split(',').map(x => parseInt(x)), e1 = he[0] || 12, e2 = he[1] || 25;
@@ -1288,18 +1309,22 @@ function renderSP() {
   $('spBase').innerHTML = head + row('Todas', all) + row('Largos', L) + row('Cortos', S);
   const be = 1 / (1 + cfg.ratio);
   $('spNote').innerHTML = `Con ratio ${cfg.ratio} y solo SL/TP, el empate está en ≈${pc(be)} de aciertos antes de comisiones. «R medio» incluye comisiones (${cfg.fee}% por lado sobre todo el nominal) y el reparto ${cfg.tp1Pct}% en TP1 / resto a BE. Entradas no ejecutadas: ${all.noexec} (${pc(all.noexec / (all.sig || 1))}) · descartadas por filtro de riesgo: ${res.skippedRisk} · sin resolver al final: ${res.open}.`;
+  const nx = T.filter(x => x.out === 'NOEXEC'), cn = T.filter(x => x.out === 'CANCELADA'), hc = (a, h) => a.filter(x => x.hyp === h).length;
+  $('spNote').innerHTML += `<br><b>Si hubieran entrado sin esperar el retroceso</b> (entrada inmediata en el precio de entrada, mismo SL/TP1): no ejecutadas ${nx.length} → ${hc(nx, 'TP1')} habrían llegado a TP1, ${hc(nx, 'SL')} al SL, ${hc(nx, 'sin resultado')} sin resultado · canceladas por pivote contrario ${cn.length} → ${hc(cn, 'TP1')} a TP1, ${hc(cn, 'SL')} al SL, ${hc(cn, 'sin resultado')} sin resultado.`;
   const groups = [['30m'], ['4h']].flatMap(([k]) => ['a favor', 'mixto', 'en contra'].map(a => [`${k}: ${a}`, T.filter(t => spAlign(t, k) === a)]));
+  const ses = [['Open day (00:00 UTC → Europa)', 'OD'], ['Europa (→ Wall Street)', 'EU'], ['Wall Street (→ 00:00 UTC)', 'WS']].map(([n, k]) => [n, T.filter(x => spSessOf(x.madeT) === k)]);
   const both = ['a favor', 'en contra'].map(a => [`30m y 4h ${a}`, T.filter(t => spAlign(t, '30m') === a && spAlign(t, '4h') === a)]);
   const mixed = [['30m a favor, 4h en contra', T.filter(t => spAlign(t, '30m') === 'a favor' && spAlign(t, '4h') === 'en contra')], ['30m en contra, 4h a favor', T.filter(t => spAlign(t, '30m') === 'en contra' && spAlign(t, '4h') === 'a favor')]];
   $('spCtx').innerHTML = head + [...groups, ...both, ...mixed].map(([n, ts]) => row(n, spSummary(ts))).join('');
+  $('spSes').innerHTML = head + ses.map(([n, ts]) => row(n, spSummary(ts))).join('') + ses.flatMap(([n, ts]) => [[n + ' · largos', ts.filter(x => x.isLong)], [n + ' · cortos', ts.filter(x => !x.isLong)]]).map(([n, ts]) => row(n, spSummary(ts))).join('');
   const last300 = T.slice().sort((a, b) => b.madeT - a.madeT).slice(0, 300);
-  $('spTrades').innerHTML = `<tr><th>Señal (UTC)</th><th>Lado</th><th class="r">Entrada</th><th class="r">SL</th><th class="r">TP1</th><th class="r">Riesgo %</th><th>30m</th><th>4h</th><th>Resultado</th><th class="r">R</th></tr>` + last300.map(t => `<tr><td>${dt(t.madeT)}</td><td>${t.isLong ? 'LARGO' : 'CORTO'}</td><td class="r">${f(t.entry)}</td><td class="r">${f(t.sl)}</td><td class="r">${f(t.tp)}</td><td class="r">${f(t.riskPct)}</td><td>${spAlign(t, '30m')}</td><td>${spAlign(t, '4h')}</td><td>${t.out}</td><td class="r ${t.R > 0 ? 'pos' : t.R < 0 ? 'neg' : ''}">${f(t.R, 2)}</td></tr>`).join('');
+  $('spTrades').innerHTML = `<tr><th>Señal (UTC)</th><th>Lado</th><th class="r">Entrada</th><th class="r">SL</th><th class="r">TP1</th><th class="r">Riesgo %</th><th>Sesión</th><th>30m</th><th>4h</th><th>Resultado</th><th class="r">R</th><th>Si entraba</th></tr>` + last300.map(t => `<tr><td>${dt(t.madeT)}</td><td>${t.isLong ? 'LARGO' : 'CORTO'}</td><td class="r">${f(t.entry)}</td><td class="r">${f(t.sl)}</td><td class="r">${f(t.tp)}</td><td class="r">${f(t.riskPct)}</td><td>${spSessOf(t.madeT)}</td><td>${spAlign(t, '30m')}</td><td>${spAlign(t, '4h')}</td><td>${t.out}</td><td class="r ${t.R > 0 ? 'pos' : t.R < 0 ? 'neg' : ''}">${f(t.R, 2)}</td><td>${t.hyp || ''}</td></tr>`).join('');
   $('spResP').style.display = ''; $('spCsv').style.display = ''; $('spCsvV').style.display = '';
 }
 function spCsv() {
   if (!SP) return; const dt = t => new Date(t).toISOString();
-  const lines = ['senal_utc,lado,entrada,sl,tp1,riesgo_pct,tendencia30m,tendencia4h,ctx30m,ctx4h,resultado,R,ejecucion_utc,salida_utc'];
-  for (const t of SP.res.trades.slice().sort((a, b) => a.madeT - b.madeT)) lines.push([dt(t.madeT), t.isLong ? 'LARGO' : 'CORTO', t.entry, t.sl, t.tp, t.riskPct.toFixed(4), t.ctx['30m'], t.ctx['4h'], spAlign(t, '30m'), spAlign(t, '4h'), t.out, t.R.toFixed(4), t.fillT ? dt(t.fillT) : '', t.exitT ? dt(t.exitT) : ''].join(','));
+  const lines = ['senal_utc,lado,entrada,sl,tp1,riesgo_pct,sesion,tendencia30m,tendencia4h,ctx30m,ctx4h,resultado,R,llego_tp1,mfe_R,mae_R,si_hubiera_entrado,velas_hasta_resultado,ejecucion_utc,salida_utc'];
+  for (const t of SP.res.trades.slice().sort((a, b) => a.madeT - b.madeT)) lines.push([dt(t.madeT), t.isLong ? 'LARGO' : 'CORTO', t.entry, t.sl, t.tp, t.riskPct.toFixed(4), spSessOf(t.madeT), t.ctx['30m'], t.ctx['4h'], spAlign(t, '30m'), spAlign(t, '4h'), t.out, t.R.toFixed(4), t.fillT ? (t.out.startsWith('TP1') ? 'SI' : 'NO') : 'no ejecutada', t.fillT ? t.mfe.toFixed(2) : '', t.fillT ? t.mae.toFixed(2) : '', t.hyp || '', t.hypBars === undefined ? '' : t.hypBars, t.fillT ? dt(t.fillT) : '', t.exitT ? dt(t.exitT) : ''].join(','));
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv' })); const d = t => new Date(t).toISOString().slice(0, 10); a.download = 'CrossSignal-5m_' + SP.sym + '_' + $('spStart').value + '_a_' + $('spEnd').value + '.csv'; a.click();
 }
 function spCsvVelas() {
