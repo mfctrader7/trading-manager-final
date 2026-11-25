@@ -316,7 +316,7 @@ details ul{color:var(--mut);line-height:1.6;padding-left:20px;margin:8px 0 0}
     <div><label>Vida máx. (velas)</label><input type="number" id="spLife" value="200"></div>
     <div><label>BE sobre entrada (%)</label><input type="number" id="spBe" value="0.05" step="0.01"></div>
     <div><label>% cerrado en TP1</label><input type="number" id="spTp1" value="75"></div>
-    <div><label>Comisión por lado (%)</label><input type="number" id="spFee" value="0.05" step="0.01"></div>
+    <div><label>Comisión por lado (%)</label><input type="number" id="spFee" value="0.02" step="0.01"></div>
     <div><label>EMAs de contexto (30m y 4h)</label><input id="spHE" value="12,25"></div>
   </div>
   <div style="margin-top:14px;display:flex;gap:12px;flex-wrap:wrap"><button class="btn" id="spRun">▶ Ejecutar backtest</button><button class="btn" id="spCsv" style="display:none">⬇ Descargar operaciones (CSV)</button></div>
@@ -1260,7 +1260,7 @@ function spCsv() {
   if (!SP) return; const dt = t => new Date(t).toISOString();
   const lines = ['senal_utc,lado,entrada,sl,tp1,riesgo_pct,tendencia30m,tendencia4h,ctx30m,ctx4h,resultado,R,ejecucion_utc,salida_utc'];
   for (const t of SP.res.trades.slice().sort((a, b) => a.madeT - b.madeT)) lines.push([dt(t.madeT), t.isLong ? 'LARGO' : 'CORTO', t.entry, t.sl, t.tp, t.riskPct.toFixed(4), t.ctx['30m'], t.ctx['4h'], spAlign(t, '30m'), spAlign(t, '4h'), t.out, t.R.toFixed(4), t.fillT ? dt(t.fillT) : '', t.exitT ? dt(t.exitT) : ''].join(','));
-  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv' })); a.download = 'setup5m_' + SP.sym + '.csv'; a.click();
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv' })); const d = t => new Date(t).toISOString().slice(0, 10); a.download = 'CrossSignal-5m_' + SP.sym + '_' + $('spStart').value + '_a_' + $('spEnd').value + '.csv'; a.click();
 }
 $('spRun').onclick = runSP; $('spCsv').onclick = spCsv;
 
