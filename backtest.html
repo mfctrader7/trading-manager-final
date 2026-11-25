@@ -121,7 +121,7 @@ details ul{color:var(--mut);line-height:1.6;padding-left:20px;margin:8px 0 0}
 <body>
 <header>
   <h1>🏇 Backtest – Carrera de Caballos</h1>
-  <div><span id="ver" style="color:var(--gold);font-size:.72rem;margin-right:12px;border:1px solid var(--line);border-radius:6px;padding:2px 7px">v. 25/11 18:40 · Setup 5m + cruces guardados + cobertura</span><span id="who" style="color:var(--mut);margin-right:12px"></span><a href="/dashboard.html">← Dashboard</a></div>
+  <div><span id="ver" style="color:var(--gold);font-size:.72rem;margin-right:12px;border:1px solid var(--line);border-radius:6px;padding:2px 7px">v. 25/11 19:30 · + VPRF diario</span><span id="who" style="color:var(--mut);margin-right:12px"></span><a href="/dashboard.html">← Dashboard</a></div>
 </header>
 <main>
 <div class="tabs"><button class="tab on" id="tabBtnBT">🏇 Backtest</button><button class="tab" id="tabBtnCX">📊 Análisis de cruces</button><button class="tab" id="tabBtnCL">🧮 Calculadora</button><button class="tab" id="tabBtnPD">📝 Pendientes</button><button class="tab" id="tabBtnSP">🎯 Setup 5m</button></div>
@@ -327,6 +327,7 @@ details ul{color:var(--mut);line-height:1.6;padding-left:20px;margin:8px 0 0}
     <div><label>Pivote: velas izq. / der.</label><input id="spPv" value="5,5"></div>
     <div><label>El pivote más reciente manda</label><select id="spLpr"><option value="1">Sí</option><option value="0">No</option></select></div>
     <div><label>Horarios de sesión</label><select id="spSess"><option value="auto">Por bolsa (verano automático)</option><option value="utc">UTC fijo (00:00 · 07:00 · 13:30)</option></select></div>
+    <div><label>Perfil de volumen (VPRF) con velas de</label><select id="spVpSrc"><option value="5m">5m (rápido)</option><option value="1m">1m (como tu indicador, más lento)</option></select></div>
     <div><label>EMA del setup</label><input type="number" id="spEma" value="12" min="2"></div>
     <div><label>Ratio TP1 (R)</label><input type="number" id="spRat" value="1.7" step="0.1"></div>
     <div><label>Buffer SL (%)</label><input type="number" id="spBuf" value="0.05" step="0.01"></div>
@@ -342,6 +343,12 @@ details ul{color:var(--mut);line-height:1.6;padding-left:20px;margin:8px 0 0}
   </div>
   <div style="margin-top:14px;display:flex;gap:12px;flex-wrap:wrap"><button class="btn" id="spRun">▶ Ejecutar backtest</button><button class="btn" id="spCsv" style="display:none">⬇ Descargar operaciones (CSV)</button><button class="btn" id="spCsvV" style="display:none">⬇ Descargar velas 5m y EMA (CSV)</button></div>
   <div class="status" id="spStatus"></div>
+  <details style="margin-top:14px"><summary style="cursor:pointer;color:var(--gold);font-weight:600">📐 Comprobar el VPRF de un día (para compararlo con TradingView)</summary>
+    <div class="legend" style="margin:8px 0">Calcula POC, VAH y VAL del día UTC que elijas con las velas de la tabla compartida. Compáralos con las etiquetas de tu indicador «VPRF Diario» en ese día (el valor final del día).</div>
+    <div class="grid"><div><label>Día (UTC)</label><input type="date" id="vcDay"></div><div><label>Velas</label><select id="vcSrc"><option value="1m">1m (como tu indicador)</option><option value="5m">5m</option></select></div></div>
+    <div style="margin-top:12px"><button class="btn" id="vcRun">▶ Calcular</button></div>
+    <div class="status" id="vcStatus"></div><div class="scroll" style="max-height:none"><table id="vcTable" class="cl"></table></div>
+  </details>
   <details style="margin-top:14px"><summary style="cursor:pointer;color:var(--gold);font-weight:600">📥 Rellenar velas de 5m desde BingX (huecos de la tabla compartida)</summary>
     <div class="legend" style="margin:8px 0">Descarga de BingX (futuros perpetuos, la misma fuente que tu gráfico) solo los tramos que faltan y los guarda en la tabla compartida <b>price_history_daily</b> con intervalo 5m. No borra nada: si una vela ya existe, se sobrescribe con el mismo valor. Ocupa poco espacio (unas 105.000 filas por año y activo).</div>
     <div class="grid">
@@ -360,6 +367,9 @@ details ul{color:var(--mut);line-height:1.6;padding-left:20px;margin:8px 0 0}
   <h2 style="margin-top:18px">Por contexto de tendencia (EMA 12/25 en 30m y 4h)</h2>
   <div class="legend">«A favor» = el estado del TF va en el mismo sentido que la operación (precio y EMA rápida del mismo lado de la lenta). «Mixto» = sin tendencia clara. Fíjate siempre en el nº de casos y en el margen de error.</div>
   <div class="scroll" style="max-height:none"><table id="spCtx" class="cl"></table></div>
+  <h2 style="margin-top:18px">Por posición respecto al VPRF de ayer</h2>
+  <div class="legend">Se compara el precio de entrada con el perfil de volumen del <b>día UTC anterior</b> ya cerrado (70 % de Value Area, 1.000 filas, como tu indicador). Zonas: bajo VAL · entre VAL y POC · entre POC y VAH · sobre VAH.</div>
+  <div class="scroll" style="max-height:none"><table id="spVp" class="cl"></table></div>
   <h2 style="margin-top:18px">Por sesión (hora de la señal)</h2>
   <div class="legend">Open day = desde las 00:00 UTC hasta la apertura de Europa (8:00 Londres). Europa = hasta la apertura de Wall Street (9:30 Nueva York). Wall Street = hasta las 00:00 UTC. Con «Por bolsa» el horario de verano se ajusta solo, como en tu indicador de aperturas.</div>
   <div class="scroll" style="max-height:none"><table id="spSes" class="cl"></table></div>
@@ -985,6 +995,45 @@ function spSummary(ts) {
 }
 function spAlign(t, name) { const v = t.ctx[name]; if (v == null) return 'sin dato'; if (v === 0) return 'mixto'; return (v === 1) === t.isLong ? 'a favor' : 'en contra'; }
 
+// ===== VPRF diario (réplica del indicador «VPRF Diario Automático» v2.3 de Marcelo) =====
+// Perfil de volumen de cada día UTC. Precio de referencia = apertura del día; tamaño de fila = rango del día anterior / filas objetivo
+// (o 5 % de la apertura si no hay día anterior). El volumen de cada sub-vela se reparte por igual entre las filas que toca (de su mínimo a su máximo).
+// POC = fila con más volumen (la primera si empatan, de abajo arriba). Value Area: se amplía desde el POC hacia la fila vecina con más volumen (arriba si empatan).
+function vprfProfile(subs, ref, bin, vaPct) {
+  const OFF = 10000, MAXI = 19999, vols = new Map(); let minI = Infinity, maxI = -Infinity;
+  for (const b of subs) {
+    const s = Math.max(0, Math.min(MAXI, Math.floor((b.l - ref) / bin) + OFF)) - OFF, e = Math.max(0, Math.min(MAXI, Math.floor((b.h - ref) / bin) + OFF)) - OFF;
+    const per = (b.v || 0) / Math.max(1, e - s + 1);
+    for (let i = s; i <= e; i++) vols.set(i, (vols.get(i) || 0) + per);
+    if (s < minI) minI = s; if (e > maxI) maxI = e;
+  }
+  if (!isFinite(minI)) return null;
+  let mx = -1, pocI = minI, tot = 0;
+  for (let i = minI; i <= maxI; i++) { const v = vols.get(i) || 0; tot += v; if (v > mx) { mx = v; pocI = i; } }
+  const target = tot * (vaPct || 70) / 100; let acc = mx, up = pocI, lo = pocI;
+  while (acc < target && (up < maxI || lo > minI)) {
+    const vu = up < maxI ? (vols.get(up + 1) || 0) : -1, vd = lo > minI ? (vols.get(lo - 1) || 0) : -1;
+    if (vu >= vd) { up++; acc += vu; } else { lo--; acc += vd; }
+  }
+  return { poc: ref + (pocI + 0.5) * bin, vah: ref + (up + 1) * bin, val: ref + lo * bin, vol: tot };
+}
+// perfiles de todos los días UTC presentes en `bars` (velas de 1m o 5m con volumen). Devuelve Map(inicioDíaUTC → {poc,vah,val,hi,lo,open,bin})
+function vprfDaily(bars, rows, vaPct) {
+  const days = new Map();
+  for (const b of bars) { const d = Math.floor(b.t / 86400000) * 86400000; let a = days.get(d); if (!a) { a = []; days.set(d, a); } a.push(b); }
+  const keys = [...days.keys()].sort((x, y) => x - y), out = new Map(); let prevRange = null;
+  for (const d of keys) {
+    const a = days.get(d), open = a[0].o, hi = Math.max(...a.map(x => x.h)), lo = Math.min(...a.map(x => x.l));
+    const est = prevRange && prevRange > 0 ? prevRange : open * 0.05, bin = est / (rows || 1000);
+    const pr = vprfProfile(a, open, bin, vaPct);
+    if (pr) out.set(d, { poc: pr.poc, vah: pr.vah, val: pr.val, hi, lo, open, bin, n: a.length });
+    prevRange = hi - lo;
+  }
+  return out;
+}
+// zona de un precio respecto a un perfil
+function vprfZone(price, p) { if (!p) return 'sin dato'; return price > p.vah ? 'sobre VAH' : price >= p.poc ? 'entre POC y VAH' : price >= p.val ? 'entre VAL y POC' : 'bajo VAL'; }
+
 </script>
 <script>
 // ===== Sesión compartida =====
@@ -1309,7 +1358,7 @@ async function runFill() {
         // BingX no tiene 5m tan atrás: se intenta armar las velas de 5m con las de 1m que ya están en la tabla compartida
         st.textContent = `BingX no tiene ${new Date(s).toISOString().slice(0, 10)}; probando con las velas de 1m guardadas…`;
         const m1 = await loadNative(sym, '1m', s, e + 4 * 60000);
-        rows = spAgg1to5(m1).filter(b => b.t >= s && b.t <= e && !have.has(b.t)).map(b => ({ user_id: SHARED_UID, simbolo: sym, intervalo: '5m', fecha: new Date(b.t).toISOString().slice(0, 10), ts: b.t, open: b.o, high: b.h, low: b.l, close: b.c, volume: 0 }));
+        rows = spAgg1to5(m1).filter(b => b.t >= s && b.t <= e && !have.has(b.t)).map(b => ({ user_id: SHARED_UID, simbolo: sym, intervalo: '5m', fecha: new Date(b.t).toISOString().slice(0, 10), ts: b.t, open: b.o, high: b.h, low: b.l, close: b.c, volume: b.v || 0 }));
         if (!rows.length) { if (firstSeen === null) emptyAtStart++; else noData++; await new Promise(z => setTimeout(z, 100)); continue; }
         fromM1 += rows.length;
       } else rows = ks.map(k => ({ user_id: SHARED_UID, simbolo: sym, intervalo: '5m', fecha: new Date(+k.time).toISOString().slice(0, 10), ts: +k.time, open: parseFloat(k.open), high: parseFloat(k.high), low: parseFloat(k.low), close: parseFloat(k.close), volume: parseFloat(k.volume) }))
@@ -1318,7 +1367,7 @@ async function runFill() {
       for (let i = 0; i < rows.length; i += 500) { const { error } = await sb.from('price_history_daily').upsert(rows.slice(i, i + 500), { onConflict: 'user_id,simbolo,intervalo,ts' }); if (error) throw new Error('No se pudo guardar: ' + error.message); }
       rows.forEach(x => have.add(x.ts)); added += rows.length; await new Promise(z => setTimeout(z, 200));
     }
-    st.textContent = chunks === 0 ? 'No faltaba nada en ese rango: la tabla ya tiene las velas de 5m.' : `Listo. Tramos revisados: ${chunks} · velas nuevas guardadas: ${added.toLocaleString('es-ES')}` + (added ? ` (de ${new Date(firstSeen).toISOString().slice(0, 16).replace('T', ' ')} a ${new Date(lastTs).toISOString().slice(0, 16).replace('T', ' ')} UTC)` : '') + (fromM1 ? `\n${fromM1.toLocaleString('es-ES')} de esas velas se armaron con las de 1m que ya estaban guardadas (el volumen de esas velas queda en 0).` : '') + (emptyAtStart ? `\nSin datos (ni en BingX ni en 1m) al principio del rango: ${emptyAtStart} tramo(s).` : '') + (noData ? `\nTramos sin datos en medio del rango: ${noData}.` : '') + '\nYa puedes ejecutar el backtest.';
+    st.textContent = chunks === 0 ? 'No faltaba nada en ese rango: la tabla ya tiene las velas de 5m.' : `Listo. Tramos revisados: ${chunks} · velas nuevas guardadas: ${added.toLocaleString('es-ES')}` + (added ? ` (de ${new Date(firstSeen).toISOString().slice(0, 16).replace('T', ' ')} a ${new Date(lastTs).toISOString().slice(0, 16).replace('T', ' ')} UTC)` : '') + (fromM1 ? `\n${fromM1.toLocaleString('es-ES')} de esas velas se armaron con las de 1m que ya estaban guardadas (con el volumen sumado de sus minutos).` : '') + (emptyAtStart ? `\nSin datos (ni en BingX ni en 1m) al principio del rango: ${emptyAtStart} tramo(s).` : '') + (noData ? `\nTramos sin datos en medio del rango: ${noData}.` : '') + '\nYa puedes ejecutar el backtest.';
   } catch (e) { st.className = 'status err'; st.textContent = 'Error: ' + e.message; }
   $('flRun').disabled = false;
 }
@@ -1334,10 +1383,29 @@ $('spStart').value = new Date(Date.now() - 365 * 864e5).toISOString().slice(0, 1
 function spAgg1to5(rows) {
   const m = new Map();
   for (const b of rows) { const k = Math.floor(b.t / 300000) * 300000; let a = m.get(k);
-    if (!a) { a = { t: k, o: b.o, h: b.h, l: b.l, c: b.c, n: 0 }; m.set(k, a); }
-    a.h = Math.max(a.h, b.h); a.l = Math.min(a.l, b.l); a.c = b.c; a.n++; }
+    if (!a) { a = { t: k, o: b.o, h: b.h, l: b.l, c: b.c, v: 0, n: 0 }; m.set(k, a); }
+    a.h = Math.max(a.h, b.h); a.l = Math.min(a.l, b.l); a.c = b.c; a.v += (b.v || 0); a.n++; }
   return [...m.values()].filter(a => a.n === 5).sort((x, y) => x.t - y.t);
 }
+
+// ---------- VPRF: comprobador y cálculo para las señales ----------
+$('vcDay').value = new Date(Date.now() - 864e5).toISOString().slice(0, 10);
+async function runVc() {
+  const st = $('vcStatus'); st.className = 'status'; $('vcRun').disabled = true; $('vcTable').innerHTML = '';
+  try {
+    const sym = $('spSym').value.trim().toUpperCase(), tf = $('vcSrc').value, d0 = new Date($('vcDay').value + 'T00:00:00Z').getTime();
+    let bars = await loadNative(sym, tf, d0 - 2 * 864e5, d0 + 864e5 - 1, n => { st.textContent = `Cargando velas ${tf}… ${n.toLocaleString('es-ES')}`; });
+    if (bars.length < 50) throw new Error('Casi no hay velas de ' + tf + ' en esos días (' + bars.length + ').');
+    const vp = vprfDaily(bars, 1000, 70), keys = [d0 - 864e5, d0].filter(k => vp.has(k));
+    if (!vp.has(d0)) throw new Error('No hay perfil para ese día (faltan velas).');
+    const f2 = x => x.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    $('vcTable').innerHTML = '<tr><th>Día UTC</th><th class="r">POC</th><th class="r">VAH</th><th class="r">VAL</th><th class="r">Tamaño de fila</th><th class="r">Velas</th><th class="r">Máx.</th><th class="r">Mín.</th></tr>' + keys.map(k => { const p = vp.get(k); return `<tr><td>${dd(k)}</td><td class="r">${f2(p.poc)}</td><td class="r">${f2(p.vah)}</td><td class="r">${f2(p.val)}</td><td class="r">${p.bin.toFixed(3)}</td><td class="r">${p.n}</td><td class="r">${f2(p.hi)}</td><td class="r">${f2(p.lo)}</td></tr>`; }).join('');
+    st.textContent = 'Listo. Si el día anterior se calculó con menos velas de las que debería, sus valores pueden diferir un poco de TradingView (afecta al tamaño de fila de hoy).';
+  } catch (e) { st.className = 'status err'; st.textContent = 'Error: ' + e.message; }
+  $('vcRun').disabled = false;
+}
+$('vcRun').onclick = runVc;
+
 async function runSP() {
   const st = $('spStatus'); st.className = 'status'; $('spRun').disabled = true;
   try {
@@ -1356,7 +1424,15 @@ async function runSP() {
     const pv = $('spPv').value.split(',').map(x => parseInt(x)); const cfg = { mode: $('spMode').value, pL: pv[0] || 5, pR: pv[1] || pv[0] || 5, lastPivRule: $('spLpr').value === '1', ema: +$('spEma').value, ratio: +$('spRat').value, bufP: +$('spBuf').value, rmin: +$('spRmin').value, rmax: +$('spRmax').value, maxWait: +$('spWait').value, maxAge: +$('spAge').value, maxLife: +$('spLife').value, beOff: +$('spBe').value, tp1Pct: +$('spTp1').value, fee: +$('spFee').value, from, baseMs: 300000, htf: [[1800000, e1, e2, '30m'], [14400000, e1, e2, '4h']] };
     st.textContent = 'Calculando…'; await new Promise(r => setTimeout(r, 30));
     const res = runSetupBacktest(bars, cfg);
-    SP = { bars, ema: spEma(bars.map(b => b.c), cfg.ema), res, cfg, sym, used, nb: bars.length, first: bars[0].t, last: bars[bars.length - 1].t };
+    let vp = null, vpNote = '';
+    try {
+      let vb = bars;
+      if ($('spVpSrc').value === '1m') { st.textContent = 'Cargando velas de 1m para el perfil de volumen (puede tardar)…'; vb = await loadNative(sym, '1m', from - 3 * 864e5, to, n => { st.textContent = `Cargando velas 1m para el VPRF… ${n.toLocaleString('es-ES')}`; }); }
+      vp = vprfDaily(vb, 1000, 70);
+      const noVol = vb.filter(b => !(b.v > 0)).length; if (noVol > vb.length * 0.02) vpNote = `⚠ ${noVol.toLocaleString('es-ES')} velas sin volumen: el perfil de esos días no es fiable.`;
+    } catch (e) { vpNote = 'No se pudo calcular el VPRF: ' + e.message; }
+    if (vp) for (const tr of res.trades) { const day = Math.floor(tr.madeT / 864e5) * 864e5, pv = vp.get(day - 864e5); tr.vp = pv || null; tr.vz = vprfZone(tr.entry, pv); }
+    SP = { vp, vpNote, bars, ema: spEma(bars.map(b => b.c), cfg.ema), res, cfg, sym, used, nb: bars.length, first: bars[0].t, last: bars[bars.length - 1].t };
     renderSP(); st.textContent = '';
   } catch (e) { st.className = 'status err'; st.textContent = 'Error: ' + e.message; }
   $('spRun').disabled = false;
@@ -1374,19 +1450,22 @@ function renderSP() {
   const nx = T.filter(x => x.out === 'NOEXEC'), cn = T.filter(x => x.out === 'CANCELADA'), hc = (a, h) => a.filter(x => x.hyp === h).length;
   $('spNote').innerHTML += `<br><b>Si hubieran entrado sin esperar el retroceso</b> (entrada inmediata en el precio de entrada, mismo SL/TP1): no ejecutadas ${nx.length} → ${hc(nx, 'TP1')} habrían llegado a TP1, ${hc(nx, 'SL')} al SL, ${hc(nx, 'sin resultado')} sin resultado · canceladas por pivote contrario ${cn.length} → ${hc(cn, 'TP1')} a TP1, ${hc(cn, 'SL')} al SL, ${hc(cn, 'sin resultado')} sin resultado.`;
   const groups = [['30m'], ['4h']].flatMap(([k]) => ['a favor', 'mixto', 'en contra'].map(a => [`${k}: ${a}`, T.filter(t => spAlign(t, k) === a)]));
+  const vzones = ['sobre VAH', 'entre POC y VAH', 'entre VAL y POC', 'bajo VAL'];
+  $('spVp').innerHTML = head + vzones.map(z => [z, T.filter(x => x.vz === z)]).map(([n, ts]) => row(n, spSummary(ts))).join('') + vzones.flatMap(z => [[z + ' · largos', T.filter(x => x.vz === z && x.isLong)], [z + ' · cortos', T.filter(x => x.vz === z && !x.isLong)]]).map(([n, ts]) => row(n, spSummary(ts))).join('') + row('sin perfil de ayer', spSummary(T.filter(x => !x.vz || x.vz === 'sin dato')));
+  if (SP.vpNote) $('spNote').innerHTML += '<br>' + SP.vpNote;
   const ses = [['Open day (00:00 UTC → Europa)', 'OD'], ['Europa (→ Wall Street)', 'EU'], ['Wall Street (→ 00:00 UTC)', 'WS']].map(([n, k]) => [n, T.filter(x => spSessOf(x.madeT) === k)]);
   const both = ['a favor', 'en contra'].map(a => [`30m y 4h ${a}`, T.filter(t => spAlign(t, '30m') === a && spAlign(t, '4h') === a)]);
   const mixed = [['30m a favor, 4h en contra', T.filter(t => spAlign(t, '30m') === 'a favor' && spAlign(t, '4h') === 'en contra')], ['30m en contra, 4h a favor', T.filter(t => spAlign(t, '30m') === 'en contra' && spAlign(t, '4h') === 'a favor')]];
   $('spCtx').innerHTML = head + [...groups, ...both, ...mixed].map(([n, ts]) => row(n, spSummary(ts))).join('');
   $('spSes').innerHTML = head + ses.map(([n, ts]) => row(n, spSummary(ts))).join('') + ses.flatMap(([n, ts]) => [[n + ' · largos', ts.filter(x => x.isLong)], [n + ' · cortos', ts.filter(x => !x.isLong)]]).map(([n, ts]) => row(n, spSummary(ts))).join('');
   const last300 = T.slice().sort((a, b) => b.madeT - a.madeT).slice(0, 300);
-  $('spTrades').innerHTML = `<tr><th>Señal (UTC)</th><th>Lado</th><th class="r">Entrada</th><th class="r">SL</th><th class="r">TP1</th><th class="r">Riesgo %</th><th>Sesión</th><th>30m</th><th>4h</th><th>Resultado</th><th class="r">R</th><th>Si entraba</th></tr>` + last300.map(t => `<tr><td>${dt(t.madeT)}</td><td>${t.isLong ? 'LARGO' : 'CORTO'}</td><td class="r">${f(t.entry)}</td><td class="r">${f(t.sl)}</td><td class="r">${f(t.tp)}</td><td class="r">${f(t.riskPct)}</td><td>${spSessOf(t.madeT)}</td><td>${spAlign(t, '30m')}</td><td>${spAlign(t, '4h')}</td><td>${t.out}</td><td class="r ${t.R > 0 ? 'pos' : t.R < 0 ? 'neg' : ''}">${f(t.R, 2)}</td><td>${t.hyp || ''}</td></tr>`).join('');
+  $('spTrades').innerHTML = `<tr><th>Señal (UTC)</th><th>Lado</th><th class="r">Entrada</th><th class="r">SL</th><th class="r">TP1</th><th class="r">Riesgo %</th><th>VPRF ayer</th><th>Sesión</th><th>30m</th><th>4h</th><th>Resultado</th><th class="r">R</th><th>Si entraba</th></tr>` + last300.map(t => `<tr><td>${dt(t.madeT)}</td><td>${t.isLong ? 'LARGO' : 'CORTO'}</td><td class="r">${f(t.entry)}</td><td class="r">${f(t.sl)}</td><td class="r">${f(t.tp)}</td><td class="r">${f(t.riskPct)}</td><td>${t.vz || ''}</td><td>${spSessOf(t.madeT)}</td><td>${spAlign(t, '30m')}</td><td>${spAlign(t, '4h')}</td><td>${t.out}</td><td class="r ${t.R > 0 ? 'pos' : t.R < 0 ? 'neg' : ''}">${f(t.R, 2)}</td><td>${t.hyp || ''}</td></tr>`).join('');
   $('spResP').style.display = ''; $('spCsv').style.display = ''; $('spCsvV').style.display = '';
 }
 function spCsv() {
   if (!SP) return; const dt = t => new Date(t).toISOString();
-  const lines = ['senal_utc,lado,entrada,sl,tp1,riesgo_pct,sesion,tendencia30m,tendencia4h,ctx30m,ctx4h,resultado,R,llego_tp1,mfe_R,mae_R,si_hubiera_entrado,velas_hasta_resultado,ejecucion_utc,salida_utc'];
-  for (const t of SP.res.trades.slice().sort((a, b) => a.madeT - b.madeT)) lines.push([dt(t.madeT), t.isLong ? 'LARGO' : 'CORTO', t.entry, t.sl, t.tp, t.riskPct.toFixed(4), spSessOf(t.madeT), t.ctx['30m'], t.ctx['4h'], spAlign(t, '30m'), spAlign(t, '4h'), t.out, t.R.toFixed(4), t.fillT ? (t.out.startsWith('TP1') ? 'SI' : 'NO') : 'no ejecutada', t.fillT ? t.mfe.toFixed(2) : '', t.fillT ? t.mae.toFixed(2) : '', t.hyp || '', t.hypBars === undefined ? '' : t.hypBars, t.fillT ? dt(t.fillT) : '', t.exitT ? dt(t.exitT) : ''].join(','));
+  const lines = ['senal_utc,lado,entrada,sl,tp1,riesgo_pct,vprf_ayer,ayer_poc,ayer_vah,ayer_val,dist_poc_pct,sesion,tendencia30m,tendencia4h,ctx30m,ctx4h,resultado,R,llego_tp1,mfe_R,mae_R,si_hubiera_entrado,velas_hasta_resultado,ejecucion_utc,salida_utc'];
+  for (const t of SP.res.trades.slice().sort((a, b) => a.madeT - b.madeT)) lines.push([dt(t.madeT), t.isLong ? 'LARGO' : 'CORTO', t.entry, t.sl, t.tp, t.riskPct.toFixed(4), t.vz || '', t.vp ? t.vp.poc.toFixed(2) : '', t.vp ? t.vp.vah.toFixed(2) : '', t.vp ? t.vp.val.toFixed(2) : '', t.vp ? ((t.entry - t.vp.poc) / t.entry * 100).toFixed(3) : '', spSessOf(t.madeT), t.ctx['30m'], t.ctx['4h'], spAlign(t, '30m'), spAlign(t, '4h'), t.out, t.R.toFixed(4), t.fillT ? (t.out.startsWith('TP1') ? 'SI' : 'NO') : 'no ejecutada', t.fillT ? t.mfe.toFixed(2) : '', t.fillT ? t.mae.toFixed(2) : '', t.hyp || '', t.hypBars === undefined ? '' : t.hypBars, t.fillT ? dt(t.fillT) : '', t.exitT ? dt(t.exitT) : ''].join(','));
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv' })); const d = t => new Date(t).toISOString().slice(0, 10); a.download = 'CrossSignal-5m_' + SP.sym + '_' + $('spStart').value + '_a_' + $('spEnd').value + '.csv'; a.click();
 }
 function spCsvVelas() {
@@ -1414,7 +1493,7 @@ async function loadNative(symbol, tf, fromTs, toTs, onPage) {
   const PAGE = 1000; let from = 0; const rows = [];
   while (true) {
     const { data, error } = await sb.from('price_history_daily')
-      .select('ts,open,high,low,close')
+      .select('ts,open,high,low,close,volume')
       .eq('user_id', SHARED_UID).eq('simbolo', symbol).eq('intervalo', tf)
       .gte('ts', fromTs).lte('ts', toTs)
       .order('ts', { ascending: true })
@@ -1426,7 +1505,7 @@ async function loadNative(symbol, tf, fromTs, toTs, onPage) {
   const ms = TF_MS[tf], now = Date.now();
   // solo velas completas y sin duplicados
   const seen = new Set();
-  return rows.map(r => ({ t: Number(r.ts), o: parseFloat(r.open), h: parseFloat(r.high), l: parseFloat(r.low), c: parseFloat(r.close) }))
+  return rows.map(r => ({ t: Number(r.ts), o: parseFloat(r.open), h: parseFloat(r.high), l: parseFloat(r.low), c: parseFloat(r.close), v: parseFloat(r.volume) || 0 }))
     .filter(b => isFinite(b.c) && b.t + ms <= now && !seen.has(b.t) && seen.add(b.t));
 }
 const durTxt = (n, tf) => { const ms = n * TF_MS[tf]; return ms >= 86400000 ? fmt(ms / 86400000, ms % 86400000 ? 1 : 0) + 'd' : fmt(ms / 3600000, 1) + 'h'; };
