@@ -89,6 +89,33 @@ details ul{color:var(--mut);line-height:1.6;padding-left:20px;margin:8px 0 0}
 .kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}
 .kv div{background:var(--card2);border-radius:10px;padding:10px}.kv small{display:block;color:var(--mut);font-size:.7rem;text-transform:uppercase}.kv b{font-size:1.05rem}
 .legend{color:var(--mut);font-size:.75rem;margin-top:6px}
+
+.pd-top{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+.pd-top .sp{flex:1}
+.pd-btn{background:var(--card);border:1px solid var(--line);color:var(--txt);border-radius:8px;padding:7px 13px;font-weight:600;cursor:pointer;font-size:.83rem}
+.pd-btn:hover{border-color:var(--gold)}.pd-btn.pri{background:linear-gradient(135deg,#F4D896,#d9b45f);color:#1a1d29;border:none}.pd-btn.dng{color:var(--red);border-color:rgba(248,113,113,.5)}
+.pd-btn.on{border-color:var(--gold);color:var(--gold)}
+.pd-list{display:flex;flex-direction:column;gap:8px}
+.pd-item{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;display:flex;align-items:center;gap:12px}
+.pd-item.sel{border-color:var(--gold)}
+.pd-item.done .pd-title{text-decoration:line-through;color:var(--mut)}
+.pd-chk{width:26px;height:26px;border-radius:50%;border:2px solid var(--mut);background:none;color:#1a1d29;cursor:pointer;flex:none;font-weight:800;font-size:.85rem;line-height:1;padding:0}
+.pd-chk:hover{border-color:var(--green)}.pd-item.done .pd-chk{background:var(--green);border-color:var(--green)}
+.pd-main{flex:1;cursor:pointer;min-width:0}
+.pd-title{font-weight:700;font-size:.98rem}
+.pd-meta{color:var(--mut);font-size:.78rem;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pd-chip{display:inline-block;background:var(--card2);border:1px solid var(--line);color:var(--gold);border-radius:6px;padding:0 7px;font-size:.7rem;margin-right:6px}
+.pd-arrow{color:var(--mut);font-size:1.3rem;cursor:pointer}
+.pd-det{background:#1d2133;border:1px solid var(--gold);border-radius:12px;padding:14px;margin:-2px 0 6px}
+.pd-det label{margin-top:8px}.pd-det label:first-child{margin-top:0}
+.pd-det textarea,.pd-form textarea,.pd-imp textarea{width:100%;background:#161926;border:1px solid var(--line);color:var(--txt);border-radius:8px;padding:8px 10px;font-size:.9rem;font-family:inherit;resize:vertical}
+.pd-det .acts{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+.pd-form,.pd-imp{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px}
+.pd-form .g{display:grid;grid-template-columns:200px 1fr;gap:10px}
+@media(max-width:700px){.pd-form .g{grid-template-columns:1fr}}
+.pd-sql{background:#161926;border:1px solid var(--line);border-radius:8px;padding:10px;font-size:.78rem;overflow:auto;white-space:pre;color:#cbd5e1}
+.pd-msg{font-size:.82rem;color:var(--mut);min-height:18px;margin:6px 0}
+.pd-empty{color:var(--mut);text-align:center;padding:26px}
 </style>
 </head>
 <body>
@@ -97,7 +124,7 @@ details ul{color:var(--mut);line-height:1.6;padding-left:20px;margin:8px 0 0}
   <div><span id="who" style="color:var(--mut);margin-right:12px"></span><a href="/dashboard.html">← Dashboard</a></div>
 </header>
 <main>
-<div class="tabs"><button class="tab on" id="tabBtnBT">🏇 Backtest</button><button class="tab" id="tabBtnCX">📊 Análisis de cruces</button><button class="tab" id="tabBtnCL">🧮 Calculadora</button></div>
+<div class="tabs"><button class="tab on" id="tabBtnBT">🏇 Backtest</button><button class="tab" id="tabBtnCX">📊 Análisis de cruces</button><button class="tab" id="tabBtnCL">🧮 Calculadora</button><button class="tab" id="tabBtnPD">📝 Pendientes</button></div>
 <div id="tabBT">
 
 <div class="panel">
@@ -270,6 +297,7 @@ details ul{color:var(--mut);line-height:1.6;padding-left:20px;margin:8px 0 0}
  </div>
 </div>
 </div>
+<div id="tabPD" style="display:none"><div id="pdRoot"><div class="pd-empty">Cargando…</div></div></div>
 </main>
 
 <script>
@@ -1052,10 +1080,11 @@ $('printBtn').onclick = printReport;
 
 // ---------- Pestañas ----------
 function showTab(x) {
-  ['BT', 'CX', 'CL'].forEach(k => { $('tab' + k).style.display = x === k ? '' : 'none'; $('tabBtn' + k).classList.toggle('on', x === k); });
+  ['BT', 'CX', 'CL', 'PD'].forEach(k => { $('tab' + k).style.display = x === k ? '' : 'none'; $('tabBtn' + k).classList.toggle('on', x === k); });
   if (typeof clOnShow === 'function') clOnShow(x === 'CL');
+  if (typeof pdOnShow === 'function') pdOnShow(x === 'PD');
 }
-$('tabBtnBT').onclick = () => showTab('BT'); $('tabBtnCX').onclick = () => showTab('CX'); $('tabBtnCL').onclick = () => showTab('CL');
+$('tabBtnBT').onclick = () => showTab('BT'); $('tabBtnCX').onclick = () => showTab('CX'); $('tabBtnCL').onclick = () => showTab('CL'); $('tabBtnPD').onclick = () => showTab('PD');
 
 // ---------- Análisis de cruces ----------
 let CX = null;
@@ -1336,6 +1365,127 @@ function toggleCxChart(tr) {
 }
 document.addEventListener('click', ev => { const tr = ev.target.closest && ev.target.closest('#cxTable tr.cxr'); if (tr) toggleCxChart(tr); });
 $('cxRun').onclick = runCX; $('cxPrint').onclick = printCX; $('cxDir').onchange = renderCX;
+
+
+// ---------- Pendientes (guardados en la base de datos) ----------
+const PD_SQL = `create table if not exists tm_pendientes (
+  id uuid primary key default gen_random_uuid(),
+  user_id text not null,
+  area text not null default 'General',
+  titulo text not null,
+  detalle text not null default '',
+  hecho boolean not null default false,
+  hecho_en timestamptz,
+  orden integer not null default 0,
+  creado_en timestamptz not null default now()
+);
+create index if not exists tm_pendientes_user_idx on tm_pendientes (user_id, area);
+alter table tm_pendientes disable row level security;
+grant all on tm_pendientes to anon, authenticated;`;
+const PD = { rows: [], area: 'Todas', showDone: false, open: null, loaded: false, form: false, imp: false, err: null, msg: '' };
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const pdDate = x => x ? new Date(x).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '';
+const pdMissing = e => !!e && (e.code === '42P01' || /tm_pendientes|schema cache|does not exist/i.test(e.message || ''));
+async function pdLoad() {
+  PD.err = null;
+  try {
+    const { data, error } = await sb.from('tm_pendientes').select('*').eq('user_id', SESSION.user_id).order('creado_en', { ascending: true });
+    if (error) { PD.err = error; PD.rows = []; } else PD.rows = data || [];
+  } catch (e) { PD.err = { message: String(e.message || e) }; PD.rows = []; }
+  PD.loaded = true; pdRender();
+}
+function pdOnShow(on) { if (on && !PD.loaded) pdLoad(); }
+function pdAreas() { return [...new Set(PD.rows.map(r => r.area || 'General'))].sort((a, b) => a.localeCompare(b, 'es')); }
+function pdRender() {
+  const root = $('pdRoot');
+  if (PD.err) {
+    root.innerHTML = pdMissing(PD.err)
+      ? `<div class="panel"><h2>📝 Pendientes</h2><p>La tabla de pendientes todavía no existe en tu base de datos. Ejecuta este SQL una sola vez en Supabase (SQL Editor → New query → Run) y pulsa «Reintentar».</p><div class="pd-sql" id="pdSql">${esc(PD_SQL)}</div><div class="pd-top" style="margin-top:10px"><button class="pd-btn" data-act="copysql">Copiar SQL</button><button class="pd-btn pri" data-act="reload">Reintentar</button></div><div class="pd-msg" id="pdMsg">${esc(PD.msg)}</div></div>`
+      : `<div class="panel"><h2>📝 Pendientes</h2><p class="err">No se pudieron cargar: ${esc(PD.err.message || '')}</p><button class="pd-btn pri" data-act="reload">Reintentar</button></div>`;
+    return;
+  }
+  const areas = pdAreas();
+  if (PD.area !== 'Todas' && !areas.includes(PD.area)) PD.area = 'Todas';
+  const inArea = r => PD.area === 'Todas' || (r.area || 'General') === PD.area;
+  const nPend = a => PD.rows.filter(r => !r.hecho && (a === 'Todas' || (r.area || 'General') === a)).length;
+  const nDone = PD.rows.filter(r => r.hecho && inArea(r)).length;
+  let h = `<div class="subtabs">` + ['Todas', ...areas].map(a => `<button class="${PD.area === a ? 'on' : ''}" data-act="area" data-v="${esc(a)}">${esc(a)} (${nPend(a)})</button>`).join('') + `</div>`;
+  h += `<div class="pd-top"><button class="pd-btn pri" data-act="new">＋ Nuevo pendiente</button><button class="pd-btn ${PD.showDone ? 'on' : ''}" data-act="done">${PD.showDone ? 'Ocultar los hechos' : 'Ver los hechos'} (${nDone})</button><span class="sp"></span><button class="pd-btn ${PD.imp ? 'on' : ''}" data-act="imp">⬇ Importar</button></div>`;
+  if (PD.form) {
+    h += `<div class="pd-form"><div class="g"><div><label>Área</label><input id="pdNA" list="pdAreas" value="${esc(PD.area === 'Todas' ? '' : PD.area)}" placeholder="Ej.: Backtest"></div><div><label>Qué (título)</label><input id="pdNT" placeholder="Título corto del pendiente"></div></div><label style="margin-top:8px">Detalle</label><textarea id="pdND" rows="4" placeholder="Más información, decisiones tomadas, próximos pasos…"></textarea><div class="pd-top" style="margin:10px 0 0"><button class="pd-btn pri" data-act="add">Guardar</button><button class="pd-btn" data-act="cancelnew">Cancelar</button></div></div>`;
+  }
+  if (PD.imp) {
+    h += `<div class="pd-imp"><label>Pegar pendientes (uno por línea: <b>Área | Título | Detalle</b>, o un JSON con [{"area","titulo","detalle","hecho"}])</label><textarea id="pdImpTxt" rows="7" placeholder="Backtest | Leer la tabla compartida de velas | Detalle opcional"></textarea><div class="pd-top" style="margin:10px 0 0"><button class="pd-btn pri" data-act="doimp">Importar</button><button class="pd-btn" data-act="cancelimp">Cerrar</button></div></div>`;
+  }
+  h += `<datalist id="pdAreas">${areas.map(a => `<option value="${esc(a)}">`).join('')}</datalist>`;
+  h += `<div class="pd-msg" id="pdMsg">${esc(PD.msg)}</div>`;
+  const list = PD.rows.filter(r => inArea(r) && (PD.showDone || !r.hecho));
+  const pend = list.filter(r => !r.hecho).sort((a, b) => (a.orden || 0) - (b.orden || 0) || String(a.creado_en).localeCompare(String(b.creado_en)));
+  const done = list.filter(r => r.hecho).sort((a, b) => String(b.hecho_en).localeCompare(String(a.hecho_en)));
+  if (!list.length) h += `<div class="pd-empty">${PD.rows.length ? 'No hay pendientes en esta vista.' : 'Aún no hay pendientes. Pulsa «＋ Nuevo pendiente» o «⬇ Importar».'}</div>`;
+  h += `<div class="pd-list">` + [...pend, ...done].map(r => {
+    const det = (r.detalle || '').replace(/\s+/g, ' ').trim();
+    let x = `<div class="pd-item ${r.hecho ? 'done' : ''} ${PD.open === r.id ? 'sel' : ''}"><button class="pd-chk" data-act="toggle" data-id="${esc(r.id)}" title="${r.hecho ? 'Reabrir' : 'Marcar como hecho'}">${r.hecho ? '✔' : ''}</button><div class="pd-main" data-act="open" data-id="${esc(r.id)}"><div class="pd-title">${esc(r.titulo)}</div><div class="pd-meta">${PD.area === 'Todas' ? `<span class="pd-chip">${esc(r.area || 'General')}</span>` : ''}${r.hecho ? 'Hecho el ' + pdDate(r.hecho_en) + (det ? ' · ' : '') : ''}${esc(det.slice(0, 120))}</div></div><span class="pd-arrow" data-act="open" data-id="${esc(r.id)}">${PD.open === r.id ? '⌄' : '›'}</span></div>`;
+    if (PD.open === r.id) {
+      x += `<div class="pd-det"><label>Qué</label><input id="pdT" value="${esc(r.titulo)}"><label>Área</label><input id="pdA" list="pdAreas" value="${esc(r.area || 'General')}"><label>Detalle</label><textarea id="pdD" rows="7">${esc(r.detalle || '')}</textarea><div class="pd-meta" style="margin-top:6px">Creado el ${pdDate(r.creado_en)}${r.hecho ? ' · Hecho el ' + pdDate(r.hecho_en) : ''}</div><div class="acts"><button class="pd-btn pri" data-act="save" data-id="${esc(r.id)}">Guardar cambios</button><button class="pd-btn" data-act="toggle" data-id="${esc(r.id)}">${r.hecho ? 'Reabrir' : 'Marcar como hecho'}</button><button class="pd-btn dng" data-act="del" data-id="${esc(r.id)}">Eliminar</button></div></div>`;
+    }
+    return x;
+  }).join('') + `</div>`;
+  root.innerHTML = h;
+}
+function pdSay(t) { PD.msg = t; const m = $('pdMsg'); if (m) m.textContent = t; }
+async function pdWrite(p, okMsg) {
+  try { const { error } = await p; if (error) { pdSay('Error: ' + (error.message || error)); return false; } if (okMsg) PD.msg = okMsg; return true; }
+  catch (e) { pdSay('Error: ' + (e.message || e)); return false; }
+}
+function pdParseImport(txt) {
+  const t = txt.trim(); if (!t) return [];
+  if (t[0] === '[') { const a = JSON.parse(t); return a.map(o => ({ area: (o.area || 'General').trim(), titulo: String(o.titulo || '').trim(), detalle: String(o.detalle || '').trim(), hecho: !!o.hecho })).filter(o => o.titulo); }
+  return t.split('\n').map(l => l.trim()).filter(Boolean).map(l => { const p = l.split('|').map(x => x.trim()); return p.length === 1 ? { area: PD.area === 'Todas' ? 'General' : PD.area, titulo: p[0], detalle: '', hecho: false } : { area: p[0] || 'General', titulo: p[1] || '', detalle: p.slice(2).join(' | '), hecho: false }; }).filter(o => o.titulo);
+}
+document.addEventListener('click', async ev => {
+  const el = ev.target.closest && ev.target.closest('#pdRoot [data-act]'); if (!el) return;
+  const act = el.dataset.act, id = el.dataset.id, row = id && PD.rows.find(r => String(r.id) === String(id));
+  if (act === 'area') { PD.area = el.dataset.v; PD.open = null; PD.msg = ''; pdRender(); }
+  else if (act === 'done') { PD.showDone = !PD.showDone; pdRender(); }
+  else if (act === 'new') { PD.form = !PD.form; PD.imp = false; pdRender(); if (PD.form && $('pdNT')) $('pdNT').focus(); }
+  else if (act === 'cancelnew') { PD.form = false; pdRender(); }
+  else if (act === 'imp') { PD.imp = !PD.imp; PD.form = false; pdRender(); }
+  else if (act === 'cancelimp') { PD.imp = false; pdRender(); }
+  else if (act === 'open') { PD.open = PD.open === id ? null : id; pdRender(); }
+  else if (act === 'reload') { PD.msg = ''; pdLoad(); }
+  else if (act === 'copysql') { try { await navigator.clipboard.writeText(PD_SQL); pdSay('SQL copiado.'); } catch (e) { const r = document.createRange(); r.selectNodeContents($('pdSql')); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); pdSay('Selecciónalo y cópialo con Ctrl+C.'); } }
+  else if (act === 'add') {
+    const titulo = $('pdNT').value.trim(); if (!titulo) { pdSay('Escribe un título.'); return; }
+    const rec = { user_id: SESSION.user_id, area: $('pdNA').value.trim() || 'General', titulo, detalle: $('pdND').value.trim() };
+    const { data, error } = await sb.from('tm_pendientes').insert(rec).select();
+    if (error) { pdSay('Error: ' + error.message); return; }
+    PD.rows.push(...(data && data.length ? data : [rec])); PD.form = false; PD.msg = 'Pendiente guardado.'; pdRender();
+  }
+  else if (act === 'save' && row) {
+    const upd = { titulo: $('pdT').value.trim() || row.titulo, area: $('pdA').value.trim() || 'General', detalle: $('pdD').value.trim() };
+    if (await pdWrite(sb.from('tm_pendientes').update(upd).eq('id', row.id), 'Cambios guardados.')) { Object.assign(row, upd); pdRender(); }
+  }
+  else if (act === 'toggle' && row) {
+    const upd = row.hecho ? { hecho: false, hecho_en: null } : { hecho: true, hecho_en: new Date().toISOString() };
+    if (await pdWrite(sb.from('tm_pendientes').update(upd).eq('id', row.id), row.hecho ? 'Reabierto.' : 'Marcado como hecho.')) { Object.assign(row, upd); pdRender(); }
+  }
+  else if (act === 'del' && row) {
+    if (!confirm('¿Eliminar este pendiente?')) return;
+    if (await pdWrite(sb.from('tm_pendientes').delete().eq('id', row.id), 'Eliminado.')) { PD.rows = PD.rows.filter(r => r !== row); PD.open = null; pdRender(); }
+  }
+  else if (act === 'doimp') {
+    let items; try { items = pdParseImport($('pdImpTxt').value); } catch (e) { pdSay('El texto no es válido: ' + e.message); return; }
+    if (!items.length) { pdSay('No hay nada que importar.'); return; }
+    const have = new Set(PD.rows.map(r => (r.area || 'General') + '|' + r.titulo));
+    const nuevos = items.filter(o => !have.has(o.area + '|' + o.titulo));
+    if (!nuevos.length) { pdSay('Todos esos pendientes ya existían.'); return; }
+    const recs = nuevos.map(o => ({ user_id: SESSION.user_id, area: o.area, titulo: o.titulo, detalle: o.detalle, hecho: o.hecho, hecho_en: o.hecho ? new Date().toISOString() : null }));
+    const { data, error } = await sb.from('tm_pendientes').insert(recs).select();
+    if (error) { pdSay('Error: ' + error.message); return; }
+    PD.rows.push(...(data && data.length ? data : recs)); PD.imp = false; PD.msg = `Importados ${nuevos.length} pendientes` + (items.length > nuevos.length ? ` (${items.length - nuevos.length} ya existían).` : '.'); pdRender();
+  }
+});
 
 $('run').onclick = run;
 </script>
