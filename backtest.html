@@ -121,7 +121,7 @@ details ul{color:var(--mut);line-height:1.6;padding-left:20px;margin:8px 0 0}
 <body>
 <header>
   <h1>🏇 Backtest – Carrera de Caballos</h1>
-  <div><span id="ver" style="color:var(--gold);font-size:.72rem;margin-right:12px;border:1px solid var(--line);border-radius:6px;padding:2px 7px">v. 25/11 14:40 · Setup 5m + rellenar velas</span><span id="who" style="color:var(--mut);margin-right:12px"></span><a href="/dashboard.html">← Dashboard</a></div>
+  <div><span id="ver" style="color:var(--gold);font-size:.72rem;margin-right:12px;border:1px solid var(--line);border-radius:6px;padding:2px 7px">v. 25/11 18:00 · Setup 5m + cruces guardados</span><span id="who" style="color:var(--mut);margin-right:12px"></span><a href="/dashboard.html">← Dashboard</a></div>
 </header>
 <main>
 <div class="tabs"><button class="tab on" id="tabBtnBT">🏇 Backtest</button><button class="tab" id="tabBtnCX">📊 Análisis de cruces</button><button class="tab" id="tabBtnCL">🧮 Calculadora</button><button class="tab" id="tabBtnPD">📝 Pendientes</button><button class="tab" id="tabBtnSP">🎯 Setup 5m</button></div>
@@ -244,8 +244,14 @@ details ul{color:var(--mut);line-height:1.6;padding-left:20px;margin:8px 0 0}
   <div style="margin-top:14px;display:flex;gap:12px;flex-wrap:wrap">
     <button class="btn" id="cxRun">▶ Analizar cruces</button>
     <button class="btn" id="cxPrint" style="display:none">🖨 Imprimir informe</button>
+    <button class="btn" id="cxSave" style="display:none">💾 Guardar este análisis</button>
   </div>
   <div class="status" id="cxStatus"></div>
+</div>
+<div class="panel" id="cxSavedP">
+  <h2>Análisis guardados</h2>
+  <div class="legend" style="margin:0 0 10px">Cada análisis guardado conserva los resultados tal como salieron (no se recalcula), para que puedas abrirlo, imprimirlo o guardarlo en PDF cuando quieras, aunque luego cambie el historial de velas.</div>
+  <div id="cxSavedBody" class="legend">Cargando…</div>
 </div>
 <div class="panel" id="cxResP" style="display:none">
   <h2 id="cxTitle"></h2>
@@ -1279,7 +1285,7 @@ async function runFill() {
     const from = Math.floor(new Date($('flStart').value + 'T00:00:00Z').getTime() / STEP) * STEP, to = Math.min(new Date($('flEnd').value + 'T23:59:59Z').getTime(), Date.now() - 2 * STEP);
     st.textContent = 'Mirando qué velas de 5m ya existen…';
     const have = new Set((await loadNative(sym, '5m', from, to, n => { st.textContent = `Mirando qué velas de 5m ya existen… ${n.toLocaleString('es-ES')}`; })).map(b => b.t));
-    let added = 0, chunks = 0, firstSeen = null, emptyAtStart = 0, lastTs = null;
+    let added = 0, chunks = 0, firstSeen = null, emptyAtStart = 0, lastTs = null, fromM1 = 0, noData = 0;
     for (let s = from; s <= to; s += CH) {
       const e = Math.min(s + CH - STEP, to); let cnt = 0; for (let x = s; x <= e; x += STEP) if (have.has(x)) cnt++;
       const want = Math.floor((e - s) / STEP) + 1; if (cnt >= want * 0.98) continue;
@@ -1287,14 +1293,21 @@ async function runFill() {
       const r = await fetch(`/api/bingx-public?path=/openApi/swap/v3/quote/klines&symbol=${bx}&interval=5m&startTime=${s}&endTime=${e}&limit=1000`);
       if (!r.ok) throw new Error('BingX respondió ' + r.status);
       const d = await r.json(); const ks = (d && d.data) || [];
-      if (!ks.length) { if (firstSeen === null) emptyAtStart++; await new Promise(z => setTimeout(z, 200)); continue; }
-      const rows = ks.map(k => ({ user_id: SHARED_UID, simbolo: sym, intervalo: '5m', fecha: new Date(+k.time).toISOString().slice(0, 10), ts: +k.time, open: parseFloat(k.open), high: parseFloat(k.high), low: parseFloat(k.low), close: parseFloat(k.close), volume: parseFloat(k.volume) }))
+      let rows;
+      if (!ks.length) {
+        // BingX no tiene 5m tan atrás: se intenta armar las velas de 5m con las de 1m que ya están en la tabla compartida
+        st.textContent = `BingX no tiene ${new Date(s).toISOString().slice(0, 10)}; probando con las velas de 1m guardadas…`;
+        const m1 = await loadNative(sym, '1m', s, e + 4 * 60000);
+        rows = spAgg1to5(m1).filter(b => b.t >= s && b.t <= e && !have.has(b.t)).map(b => ({ user_id: SHARED_UID, simbolo: sym, intervalo: '5m', fecha: new Date(b.t).toISOString().slice(0, 10), ts: b.t, open: b.o, high: b.h, low: b.l, close: b.c, volume: 0 }));
+        if (!rows.length) { if (firstSeen === null) emptyAtStart++; else noData++; await new Promise(z => setTimeout(z, 100)); continue; }
+        fromM1 += rows.length;
+      } else rows = ks.map(k => ({ user_id: SHARED_UID, simbolo: sym, intervalo: '5m', fecha: new Date(+k.time).toISOString().slice(0, 10), ts: +k.time, open: parseFloat(k.open), high: parseFloat(k.high), low: parseFloat(k.low), close: parseFloat(k.close), volume: parseFloat(k.volume) }))
         .filter(x => x.ts >= s && x.ts <= e && x.ts % STEP === 0 && isFinite(x.close) && !have.has(x.ts));
       rows.sort((a, b) => a.ts - b.ts); if (rows.length && firstSeen === null) firstSeen = rows[0].ts; if (rows.length) lastTs = rows[rows.length - 1].ts;
       for (let i = 0; i < rows.length; i += 500) { const { error } = await sb.from('price_history_daily').upsert(rows.slice(i, i + 500), { onConflict: 'user_id,simbolo,intervalo,ts' }); if (error) throw new Error('No se pudo guardar: ' + error.message); }
       rows.forEach(x => have.add(x.ts)); added += rows.length; await new Promise(z => setTimeout(z, 200));
     }
-    st.textContent = chunks === 0 ? 'No faltaba nada en ese rango: la tabla ya tiene las velas de 5m.' : `Listo. Tramos revisados: ${chunks} · velas nuevas guardadas: ${added.toLocaleString('es-ES')}` + (added ? ` (de ${new Date(firstSeen).toISOString().slice(0, 16).replace('T', ' ')} a ${new Date(lastTs).toISOString().slice(0, 16).replace('T', ' ')} UTC)` : '') + (emptyAtStart ? `\nBingX no devolvió velas en ${emptyAtStart} tramo(s) del principio del rango: probablemente no guarda 5m tan atrás.` : '') + '\nYa puedes ejecutar el backtest.';
+    st.textContent = chunks === 0 ? 'No faltaba nada en ese rango: la tabla ya tiene las velas de 5m.' : `Listo. Tramos revisados: ${chunks} · velas nuevas guardadas: ${added.toLocaleString('es-ES')}` + (added ? ` (de ${new Date(firstSeen).toISOString().slice(0, 16).replace('T', ' ')} a ${new Date(lastTs).toISOString().slice(0, 16).replace('T', ' ')} UTC)` : '') + (fromM1 ? `\n${fromM1.toLocaleString('es-ES')} de esas velas se armaron con las de 1m que ya estaban guardadas (el volumen de esas velas queda en 0).` : '') + (emptyAtStart ? `\nSin datos (ni en BingX ni en 1m) al principio del rango: ${emptyAtStart} tramo(s).` : '') + (noData ? `\nTramos sin datos en medio del rango: ${noData}.` : '') + '\nYa puedes ejecutar el backtest.';
   } catch (e) { st.className = 'status err'; st.textContent = 'Error: ' + e.message; }
   $('flRun').disabled = false;
 }
@@ -1432,7 +1445,7 @@ async function runCX() {
     CX = { sym, cfg, res, notes, bars, e3: parseInt($('cxE3').value) || 0, first: bars[0].t, last: lastEnd };
     st.className = 'status' + (notes.length ? ' warn' : '');
     st.textContent = `Listo. ${res.rows.length} cruces entre ${dd(Math.max(startMs, bars[0].t))} y ${dd(Math.min(endMs, lastEnd))}. (${bars.length.toLocaleString('es-ES')} velas ${tf})` + (notes.length ? '\n' + notes.join('\n') : '');
-    renderCX(); $('cxPrint').style.display = '';
+    renderCX(); $('cxPrint').style.display = ''; $('cxSave').style.display = '';
   } catch (e) { st.className = 'status err'; st.textContent = 'Error: ' + e.message; }
   $('cxRun').disabled = false;
 }
@@ -1595,13 +1608,83 @@ $('clReset').onclick = () => { if (!confirm('¿Vaciar los datos de esta posició
 $('clCopy').onclick = async () => { const t = clSummary(); if (!t) { $('clCopyMsg').textContent = 'No hay nada que copiar todavía.'; return; } try { await navigator.clipboard.writeText(t); $('clCopyMsg').textContent = 'Resumen copiado.'; } catch (e) { $('clCopyMsg').textContent = 'No pude copiar automáticamente; selecciona el texto de la tabla.'; } };
 clWriteForm(); clCalc();
 
+
+// ---------- Análisis de cruces guardados ----------
+const CXS_SQL = `create table if not exists tm_cruces_guardados (
+  id uuid primary key default gen_random_uuid(),
+  user_id text not null,
+  nombre text not null,
+  simbolo text not null,
+  tf text not null,
+  ema1 integer not null,
+  ema2 integer not null,
+  desde date,
+  hasta date,
+  n_cruces integer not null default 0,
+  datos jsonb not null,
+  creado_en timestamptz not null default now()
+);
+create index if not exists tm_cruces_guardados_user_idx on tm_cruces_guardados (user_id, creado_en desc);
+alter table tm_cruces_guardados disable row level security;
+grant all on tm_cruces_guardados to anon, authenticated;`;
+const cxsMissing = e => !!e && (e.code === '42P01' || /tm_cruces_guardados|schema cache|does not exist/i.test(e.message || ''));
+const cxsEsc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+function cxsShowSql(msg) {
+  $('cxSavedBody').innerHTML = `<div class="warn">${cxsEsc(msg)}</div><div style="margin-top:8px">Copia este texto y ejecútalo una sola vez en Supabase (SQL Editor → New query → Run). Después pulsa «Actualizar».</div><textarea readonly style="width:100%;height:210px;margin-top:8px;background:#161926;border:1px solid var(--line);color:var(--txt);border-radius:8px;padding:8px;font-family:monospace;font-size:.75rem">${cxsEsc(CXS_SQL)}</textarea><div style="margin-top:8px"><button class="btn" id="cxsCopy">📋 Copiar SQL</button> <button class="btn" id="cxsRef">↻ Actualizar</button></div>`;
+  $('cxsCopy').onclick = () => { navigator.clipboard.writeText(CXS_SQL).then(() => { $('cxsCopy').textContent = '✓ Copiado'; }); }; $('cxsRef').onclick = cxsLoad;
+}
+let CXS = [];
+async function cxsLoad() {
+  const body = $('cxSavedBody');
+  try {
+    const { data, error } = await sb.from('tm_cruces_guardados').select('id,nombre,simbolo,tf,ema1,ema2,desde,hasta,n_cruces,creado_en').eq('user_id', SESSION.user_id).order('creado_en', { ascending: false });
+    if (error) throw error; CXS = data || [];
+    if (!CXS.length) { body.innerHTML = 'Todavía no hay análisis guardados. Haz un análisis y pulsa «💾 Guardar este análisis».'; return; }
+    body.innerHTML = `<table class="cl"><tr><th>Nombre</th><th>Activo</th><th>TF</th><th>EMAs</th><th>Periodo</th><th class="r">Cruces</th><th>Guardado</th><th></th></tr>` + CXS.map(r => `<tr><td>${cxsEsc(r.nombre)}</td><td>${cxsEsc(r.simbolo)}</td><td>${cxsEsc(r.tf)}</td><td>${r.ema1}/${r.ema2}</td><td>${r.desde ? dd(Date.parse(r.desde)) : ''} → ${r.hasta ? dd(Date.parse(r.hasta)) : ''}</td><td class="r">${r.n_cruces}</td><td>${dt(Date.parse(r.creado_en))}</td><td style="white-space:nowrap"><button class="btn" data-a="open" data-id="${r.id}">Abrir</button> <button class="btn" data-a="print" data-id="${r.id}">🖨 Imprimir / PDF</button> <button class="btn" data-a="del" data-id="${r.id}">🗑</button></td></tr>`).join('') + '</table>';
+  } catch (e) { if (cxsMissing(e)) cxsShowSql('Falta crear la tabla donde se guardan los análisis.'); else body.innerHTML = '<span class="err">Error: ' + cxsEsc(e.message) + '</span>'; }
+}
+async function cxsSave() {
+  if (!CX) return; const c = CX.cfg, st = $('cxStatus');
+  const def = `${CX.sym} ${c.tf} EMA ${c.ema1}-${c.ema2} ${fileDate(c.startMs)} a ${fileDate(c.endMs)}`;
+  const nombre = prompt('Nombre del análisis guardado:', def); if (!nombre) return;
+  const datos = { sym: CX.sym, cfg: CX.cfg, res: CX.res, notes: CX.notes, e3: CX.e3, first: CX.first, last: CX.last };
+  const size = JSON.stringify(datos).length;
+  if (size > 12e6) { st.className = 'status err'; st.textContent = 'Este análisis es demasiado grande para guardarlo (' + (size / 1e6).toFixed(1) + ' MB). Acorta el periodo.'; return; }
+  st.className = 'status'; st.textContent = 'Guardando…';
+  const { error } = await sb.from('tm_cruces_guardados').insert({ user_id: SESSION.user_id, nombre: nombre.trim(), simbolo: CX.sym, tf: c.tf, ema1: c.ema1, ema2: c.ema2, desde: new Date(c.startMs).toISOString().slice(0, 10), hasta: new Date(c.endMs).toISOString().slice(0, 10), n_cruces: CX.res.rows.length, datos });
+  if (error) { if (cxsMissing(error)) { cxsShowSql('Antes de guardar hay que crear la tabla (solo una vez).'); st.className = 'status err'; st.textContent = 'Falta crear la tabla: el texto SQL está en «Análisis guardados», más abajo.'; } else { st.className = 'status err'; st.textContent = 'No se pudo guardar: ' + error.message; } return; }
+  st.textContent = '✓ Guardado como «' + nombre.trim() + '».'; cxsLoad();
+}
+async function cxsOpen(id, thenPrint) {
+  const st = $('cxStatus'); st.className = 'status'; st.textContent = 'Abriendo análisis guardado…';
+  const { data, error } = await sb.from('tm_cruces_guardados').select('datos,creado_en,nombre').eq('id', id).single();
+  if (error) { st.className = 'status err'; st.textContent = 'Error: ' + error.message; return; }
+  const d = data.datos; CX = { sym: d.sym, cfg: d.cfg, res: d.res, notes: d.notes || [], e3: d.e3 || 0, first: d.first, last: d.last, bars: null };
+  $('cxSym').value = d.sym; $('cxTf').value = d.cfg.tf; $('cxE1').value = d.cfg.ema1; $('cxE2').value = d.cfg.ema2; $('cxStart').value = new Date(d.cfg.startMs).toISOString().slice(0, 10); $('cxEnd').value = new Date(d.cfg.endMs).toISOString().slice(0, 10); $('cxE3').value = d.e3 || '';
+  st.textContent = `Abierto «${data.nombre}» (guardado el ${dt(Date.parse(data.creado_en))}). Son los resultados tal como se guardaron.`;
+  renderCX(); $('cxPrint').style.display = ''; $('cxSave').style.display = 'none';
+  if (thenPrint) printCX(); else $('cxResP').scrollIntoView({ behavior: 'smooth' });
+}
+document.addEventListener('click', async ev => {
+  const b = ev.target.closest && ev.target.closest('#cxSavedBody button[data-a]'); if (!b) return;
+  const id = b.dataset.id, a = b.dataset.a;
+  if (a === 'open') cxsOpen(id, false); else if (a === 'print') cxsOpen(id, true);
+  else if (a === 'del') { const r = CXS.find(x => x.id === id); if (!confirm('¿Eliminar «' + (r ? r.nombre : '') + '»? No se puede deshacer.')) return; const { error } = await sb.from('tm_cruces_guardados').delete().eq('id', id); if (error) alert('No se pudo eliminar: ' + error.message); else cxsLoad(); }
+});
+$('cxSave').onclick = cxsSave; cxsLoad();
+
 // ---------- Gráfico desplegable de un cruce ----------
 let CXCH = null;
 function closeCxChart() {
   if (CXCH) { try { CXCH.chart.remove(); } catch (e) {} CXCH.tr.remove(); CXCH = null; }
   document.querySelectorAll('#cxTable tr.cxr.sel').forEach(x => x.classList.remove('sel'));
 }
-function toggleCxChart(tr) {
+async function toggleCxChart(tr) {
+  if (!CX.bars) {
+    const st = $('cxStatus'); st.className = 'status'; st.textContent = 'Cargando las velas de este análisis para dibujar el gráfico…';
+    try { CX.bars = await loadNative(CX.sym, CX.cfg.tf, CX.first, CX.last + 1); st.textContent = ''; } catch (e) { st.className = 'status err'; st.textContent = 'No se pudieron cargar las velas: ' + e.message; return; }
+    if (!CX.bars.length) { CX.bars = null; st.className = 'status err'; st.textContent = 'No hay velas guardadas para dibujar este gráfico.'; return; }
+  }
   const i = parseInt(tr.dataset.i);
   if (CXCH && CXCH.tr.previousElementSibling === tr) { closeCxChart(); return; }
   closeCxChart();
