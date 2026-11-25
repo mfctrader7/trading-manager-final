@@ -121,7 +121,7 @@ details ul{color:var(--mut);line-height:1.6;padding-left:20px;margin:8px 0 0}
 <body>
 <header>
   <h1>🏇 Backtest – Carrera de Caballos</h1>
-  <div><span id="ver" style="color:var(--gold);font-size:.72rem;margin-right:12px;border:1px solid var(--line);border-radius:6px;padding:2px 7px">v. 25/11 14:10 · Setup 5m + sesiones</span><span id="who" style="color:var(--mut);margin-right:12px"></span><a href="/dashboard.html">← Dashboard</a></div>
+  <div><span id="ver" style="color:var(--gold);font-size:.72rem;margin-right:12px;border:1px solid var(--line);border-radius:6px;padding:2px 7px">v. 25/11 14:40 · Setup 5m + rellenar velas</span><span id="who" style="color:var(--mut);margin-right:12px"></span><a href="/dashboard.html">← Dashboard</a></div>
 </header>
 <main>
 <div class="tabs"><button class="tab on" id="tabBtnBT">🏇 Backtest</button><button class="tab" id="tabBtnCX">📊 Análisis de cruces</button><button class="tab" id="tabBtnCL">🧮 Calculadora</button><button class="tab" id="tabBtnPD">📝 Pendientes</button><button class="tab" id="tabBtnSP">🎯 Setup 5m</button></div>
@@ -325,6 +325,16 @@ details ul{color:var(--mut);line-height:1.6;padding-left:20px;margin:8px 0 0}
   </div>
   <div style="margin-top:14px;display:flex;gap:12px;flex-wrap:wrap"><button class="btn" id="spRun">▶ Ejecutar backtest</button><button class="btn" id="spCsv" style="display:none">⬇ Descargar operaciones (CSV)</button><button class="btn" id="spCsvV" style="display:none">⬇ Descargar velas 5m y EMA (CSV)</button></div>
   <div class="status" id="spStatus"></div>
+  <details style="margin-top:14px"><summary style="cursor:pointer;color:var(--gold);font-weight:600">📥 Rellenar velas de 5m desde BingX (huecos de la tabla compartida)</summary>
+    <div class="legend" style="margin:8px 0">Descarga de BingX (futuros perpetuos, la misma fuente que tu gráfico) solo los tramos que faltan y los guarda en la tabla compartida <b>price_history_daily</b> con intervalo 5m. No borra nada: si una vela ya existe, se sobrescribe con el mismo valor. Ocupa poco espacio (unas 105.000 filas por año y activo).</div>
+    <div class="grid">
+      <div><label>Símbolo en BingX</label><input id="flSym" value="BTC-USDT"></div>
+      <div><label>Desde</label><input type="date" id="flStart"></div>
+      <div><label>Hasta</label><input type="date" id="flEnd"></div>
+    </div>
+    <div style="margin-top:12px"><button class="btn" id="flRun">⬇ Detectar huecos y rellenar</button></div>
+    <div class="status" id="flStatus"></div>
+  </details>
 </div>
 <div class="panel" id="spResP" style="display:none">
   <h2 id="spTitle"></h2>
@@ -1261,6 +1271,34 @@ $('printBtn').onclick = printReport;
 
 // ---------- Setup 5m ----------
 let SP = null;
+$('flEnd').value = new Date().toISOString().slice(0, 10); $('flStart').value = new Date(Date.now() - 365 * 864e5).toISOString().slice(0, 10);
+async function runFill() {
+  const st = $('flStatus'); st.className = 'status'; $('flRun').disabled = true;
+  try {
+    const sym = $('spSym').value.trim().toUpperCase(), bx = $('flSym').value.trim().toUpperCase(), STEP = 300000, CH = 1000 * STEP;
+    const from = Math.floor(new Date($('flStart').value + 'T00:00:00Z').getTime() / STEP) * STEP, to = Math.min(new Date($('flEnd').value + 'T23:59:59Z').getTime(), Date.now() - 2 * STEP);
+    st.textContent = 'Mirando qué velas de 5m ya existen…';
+    const have = new Set((await loadNative(sym, '5m', from, to, n => { st.textContent = `Mirando qué velas de 5m ya existen… ${n.toLocaleString('es-ES')}`; })).map(b => b.t));
+    let added = 0, chunks = 0, firstSeen = null, emptyAtStart = 0, lastTs = null;
+    for (let s = from; s <= to; s += CH) {
+      const e = Math.min(s + CH - STEP, to); let cnt = 0; for (let x = s; x <= e; x += STEP) if (have.has(x)) cnt++;
+      const want = Math.floor((e - s) / STEP) + 1; if (cnt >= want * 0.98) continue;
+      chunks++; st.textContent = `Descargando ${new Date(s).toISOString().slice(0, 10)}… (${added.toLocaleString('es-ES')} velas nuevas)`;
+      const r = await fetch(`/api/bingx-public?path=/openApi/swap/v3/quote/klines&symbol=${bx}&interval=5m&startTime=${s}&endTime=${e}&limit=1000`);
+      if (!r.ok) throw new Error('BingX respondió ' + r.status);
+      const d = await r.json(); const ks = (d && d.data) || [];
+      if (!ks.length) { if (firstSeen === null) emptyAtStart++; await new Promise(z => setTimeout(z, 200)); continue; }
+      const rows = ks.map(k => ({ user_id: SHARED_UID, simbolo: sym, intervalo: '5m', fecha: new Date(+k.time).toISOString().slice(0, 10), ts: +k.time, open: parseFloat(k.open), high: parseFloat(k.high), low: parseFloat(k.low), close: parseFloat(k.close), volume: parseFloat(k.volume) }))
+        .filter(x => x.ts >= s && x.ts <= e && x.ts % STEP === 0 && isFinite(x.close) && !have.has(x.ts));
+      rows.sort((a, b) => a.ts - b.ts); if (rows.length && firstSeen === null) firstSeen = rows[0].ts; if (rows.length) lastTs = rows[rows.length - 1].ts;
+      for (let i = 0; i < rows.length; i += 500) { const { error } = await sb.from('price_history_daily').upsert(rows.slice(i, i + 500), { onConflict: 'user_id,simbolo,intervalo,ts' }); if (error) throw new Error('No se pudo guardar: ' + error.message); }
+      rows.forEach(x => have.add(x.ts)); added += rows.length; await new Promise(z => setTimeout(z, 200));
+    }
+    st.textContent = chunks === 0 ? 'No faltaba nada en ese rango: la tabla ya tiene las velas de 5m.' : `Listo. Tramos revisados: ${chunks} · velas nuevas guardadas: ${added.toLocaleString('es-ES')}` + (added ? ` (de ${new Date(firstSeen).toISOString().slice(0, 16).replace('T', ' ')} a ${new Date(lastTs).toISOString().slice(0, 16).replace('T', ' ')} UTC)` : '') + (emptyAtStart ? `\nBingX no devolvió velas en ${emptyAtStart} tramo(s) del principio del rango: probablemente no guarda 5m tan atrás.` : '') + '\nYa puedes ejecutar el backtest.';
+  } catch (e) { st.className = 'status err'; st.textContent = 'Error: ' + e.message; }
+  $('flRun').disabled = false;
+}
+$('flRun').onclick = runFill;
 function spOff(tz, ms) { const d = new Date(ms); d.setUTCHours(12, 0, 0, 0); const h = +new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', hourCycle: 'h23' }).format(d); return h - 12; }
 function spSessOf(ms) {
   const mode = $('spSess').value, d = new Date(ms), mins = d.getUTCHours() * 60 + d.getUTCMinutes();
