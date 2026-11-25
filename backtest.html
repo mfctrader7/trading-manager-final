@@ -121,7 +121,7 @@ details ul{color:var(--mut);line-height:1.6;padding-left:20px;margin:8px 0 0}
 <body>
 <header>
   <h1>🏇 Backtest – Carrera de Caballos</h1>
-  <div><span id="ver" style="color:var(--gold);font-size:.72rem;margin-right:12px;border:1px solid var(--line);border-radius:6px;padding:2px 7px">v. 25/11 18:00 · Setup 5m + cruces guardados</span><span id="who" style="color:var(--mut);margin-right:12px"></span><a href="/dashboard.html">← Dashboard</a></div>
+  <div><span id="ver" style="color:var(--gold);font-size:.72rem;margin-right:12px;border:1px solid var(--line);border-radius:6px;padding:2px 7px">v. 25/11 18:40 · Setup 5m + cruces guardados + cobertura</span><span id="who" style="color:var(--mut);margin-right:12px"></span><a href="/dashboard.html">← Dashboard</a></div>
 </header>
 <main>
 <div class="tabs"><button class="tab on" id="tabBtnBT">🏇 Backtest</button><button class="tab" id="tabBtnCX">📊 Análisis de cruces</button><button class="tab" id="tabBtnCL">🧮 Calculadora</button><button class="tab" id="tabBtnPD">📝 Pendientes</button><button class="tab" id="tabBtnSP">🎯 Setup 5m</button></div>
@@ -247,6 +247,17 @@ details ul{color:var(--mut);line-height:1.6;padding-left:20px;margin:8px 0 0}
     <button class="btn" id="cxSave" style="display:none">💾 Guardar este análisis</button>
   </div>
   <div class="status" id="cxStatus"></div>
+</div>
+<div class="panel" id="cobP">
+  <h2>🔎 Cobertura de velas por activo</h2>
+  <div class="legend" style="margin:0 0 10px">Consulta qué velas hay guardadas en la tabla compartida: desde qué fecha, hasta cuál y cuántas, para cada uno de tus activos. Sirve para saber con qué activos y desde cuándo se puede hacer el análisis de cruces.</div>
+  <div class="grid">
+    <div><label>Temporalidades (separadas por coma)</label><input id="cobIv" value="1d,3d"></div>
+    <div><label>Otros símbolos (opcional, separados por coma)</label><input id="cobExtra" placeholder="ej. BTC, ETH"></div>
+  </div>
+  <div style="margin-top:12px"><button class="btn" id="cobRun">▶ Consultar cobertura</button></div>
+  <div class="status" id="cobStatus"></div>
+  <div class="scroll" style="max-height:none"><table id="cobTable" class="cl"></table></div>
 </div>
 <div class="panel" id="cxSavedP">
   <h2>Análisis guardados</h2>
@@ -1609,6 +1620,38 @@ $('clCopy').onclick = async () => { const t = clSummary(); if (!t) { $('clCopyMs
 clWriteForm(); clCalc();
 
 
+
+// ---------- Cobertura de velas ----------
+async function cobRun() {
+  const st = $('cobStatus'); st.className = 'status'; $('cobRun').disabled = true; $('cobTable').innerHTML = '';
+  try {
+    const ivs = $('cobIv').value.split(',').map(x => x.trim()).filter(Boolean);
+    const extra = $('cobExtra').value.split(',').map(x => x.trim().toUpperCase()).filter(Boolean);
+    st.textContent = 'Leyendo tu lista de activos…';
+    const { data: as } = await sb.from('assets').select('symbol').eq('user_id', SESSION.user_id).order('symbol', { ascending: true });
+    const syms = [...new Set([...(as || []).map(a => String(a.symbol).toUpperCase()), ...extra])];
+    if (!syms.length) throw new Error('No encuentro activos en tu lista. Escríbelos en «Otros símbolos».');
+    const jobs = []; syms.forEach(s => ivs.forEach(iv => jobs.push([s, iv])));
+    const out = {}; let done = 0;
+    const base = (s, iv) => sb.from('price_history_daily').select('ts', { count: 'exact', head: false }).eq('user_id', SHARED_UID).eq('simbolo', s).eq('intervalo', iv);
+    const one = async ([s, iv]) => {
+      const a = await base(s, iv).order('ts', { ascending: true }).limit(1), b = await base(s, iv).order('ts', { ascending: false }).limit(1);
+      const c = await sb.from('price_history_daily').select('ts', { count: 'exact', head: true }).eq('user_id', SHARED_UID).eq('simbolo', s).eq('intervalo', iv);
+      if (a.error) throw new Error(a.error.message);
+      out[s + '|' + iv] = { min: a.data && a.data[0] ? Number(a.data[0].ts) : null, max: b.data && b.data[0] ? Number(b.data[0].ts) : null, n: c.count == null ? null : c.count };
+      done++; st.textContent = `Consultando… ${done}/${jobs.length}`;
+    };
+    for (let i = 0; i < jobs.length; i += 6) await Promise.all(jobs.slice(i, i + 6).map(one));
+    const lim = Date.UTC(2021, 1, 1);
+    const cell = (r, iv) => { if (!r || r.min == null) return '<td colspan="3" style="color:var(--mut)">sin velas</td>'; const exp = Math.round((r.max - r.min) / TF_MS[iv]) + 1, miss = r.n != null ? exp - r.n : null; return `<td class="${r.min > lim ? 'warn' : ''}">${dd(r.min)}</td><td>${dd(r.max)}</td><td class="r">${r.n == null ? '—' : r.n.toLocaleString('es-ES')}${miss > 0 ? ` <span class="warn" title="Velas que faltan dentro del rango">(faltan ${miss})</span>` : ''}</td>`; };
+    $('cobTable').innerHTML = '<tr><th>Activo</th>' + ivs.map(iv => `<th>${iv} desde</th><th>hasta</th><th class="r">velas</th>`).join('') + '</tr>' + syms.map(s => `<tr><td><b>${cxsEsc(s)}</b></td>${ivs.map(iv => cell(out[s + '|' + iv], iv)).join('')}</tr>`).join('');
+    const withAll = syms.filter(s => ivs.every(iv => out[s + '|' + iv] && out[s + '|' + iv].min != null)).length;
+    st.textContent = `Listo. ${syms.length} activos consultados · ${withAll} tienen velas en todas las temporalidades pedidas. En amarillo: la fecha de inicio es posterior a enero de 2021.`;
+  } catch (e) { st.className = 'status err'; st.textContent = 'Error: ' + e.message; }
+  $('cobRun').disabled = false;
+}
+$('cobRun').onclick = cobRun;
+
 // ---------- Análisis de cruces guardados ----------
 const CXS_SQL = `create table if not exists tm_cruces_guardados (
   id uuid primary key default gen_random_uuid(),
@@ -1626,11 +1669,13 @@ const CXS_SQL = `create table if not exists tm_cruces_guardados (
 );
 create index if not exists tm_cruces_guardados_user_idx on tm_cruces_guardados (user_id, creado_en desc);
 alter table tm_cruces_guardados disable row level security;
-grant all on tm_cruces_guardados to anon, authenticated;`;
-const cxsMissing = e => !!e && (e.code === '42P01' || /tm_cruces_guardados|schema cache|does not exist/i.test(e.message || ''));
+grant all on tm_cruces_guardados to anon, authenticated;
+notify pgrst, 'reload schema';`;
+const cxsMissing = e => !!e && (e.code === '42P01' || e.code === 'PGRST205' || /Could not find the table|relation .* does not exist/i.test(e.message || ''));
+const cxsErr = e => (e && e.message ? e.message : String(e)) + (e && e.code ? ' [' + e.code + ']' : '');
 const cxsEsc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-function cxsShowSql(msg) {
-  $('cxSavedBody').innerHTML = `<div class="warn">${cxsEsc(msg)}</div><div style="margin-top:8px">Copia este texto y ejecútalo una sola vez en Supabase (SQL Editor → New query → Run). Después pulsa «Actualizar».</div><textarea readonly style="width:100%;height:210px;margin-top:8px;background:#161926;border:1px solid var(--line);color:var(--txt);border-radius:8px;padding:8px;font-family:monospace;font-size:.75rem">${cxsEsc(CXS_SQL)}</textarea><div style="margin-top:8px"><button class="btn" id="cxsCopy">📋 Copiar SQL</button> <button class="btn" id="cxsRef">↻ Actualizar</button></div>`;
+function cxsShowSql(msg, raw) {
+  $('cxSavedBody').innerHTML = `<div class="warn">${cxsEsc(msg)}</div>${raw ? '<div class="err" style="margin-top:6px">Mensaje de la base de datos: ' + cxsEsc(raw) + '</div>' : ''}<div style="margin-top:8px">Copia este texto y ejecútalo una sola vez en Supabase (SQL Editor → New query → Run). Después pulsa «Actualizar».</div><textarea readonly style="width:100%;height:210px;margin-top:8px;background:#161926;border:1px solid var(--line);color:var(--txt);border-radius:8px;padding:8px;font-family:monospace;font-size:.75rem">${cxsEsc(CXS_SQL)}</textarea><div style="margin-top:8px"><button class="btn" id="cxsCopy">📋 Copiar SQL</button> <button class="btn" id="cxsRef">↻ Actualizar</button></div>`;
   $('cxsCopy').onclick = () => { navigator.clipboard.writeText(CXS_SQL).then(() => { $('cxsCopy').textContent = '✓ Copiado'; }); }; $('cxsRef').onclick = cxsLoad;
 }
 let CXS = [];
@@ -1641,7 +1686,7 @@ async function cxsLoad() {
     if (error) throw error; CXS = data || [];
     if (!CXS.length) { body.innerHTML = 'Todavía no hay análisis guardados. Haz un análisis y pulsa «💾 Guardar este análisis».'; return; }
     body.innerHTML = `<table class="cl"><tr><th>Nombre</th><th>Activo</th><th>TF</th><th>EMAs</th><th>Periodo</th><th class="r">Cruces</th><th>Guardado</th><th></th></tr>` + CXS.map(r => `<tr><td>${cxsEsc(r.nombre)}</td><td>${cxsEsc(r.simbolo)}</td><td>${cxsEsc(r.tf)}</td><td>${r.ema1}/${r.ema2}</td><td>${r.desde ? dd(Date.parse(r.desde)) : ''} → ${r.hasta ? dd(Date.parse(r.hasta)) : ''}</td><td class="r">${r.n_cruces}</td><td>${dt(Date.parse(r.creado_en))}</td><td style="white-space:nowrap"><button class="btn" data-a="open" data-id="${r.id}">Abrir</button> <button class="btn" data-a="print" data-id="${r.id}">🖨 Imprimir / PDF</button> <button class="btn" data-a="del" data-id="${r.id}">🗑</button></td></tr>`).join('') + '</table>';
-  } catch (e) { if (cxsMissing(e)) cxsShowSql('Falta crear la tabla donde se guardan los análisis.'); else body.innerHTML = '<span class="err">Error: ' + cxsEsc(e.message) + '</span>'; }
+  } catch (e) { if (cxsMissing(e)) cxsShowSql('La base de datos no encuentra la tabla donde se guardan los análisis.', cxsErr(e)); else body.innerHTML = '<span class="err">Error al leer los análisis guardados: ' + cxsEsc(cxsErr(e)) + '</span>'; }
 }
 async function cxsSave() {
   if (!CX) return; const c = CX.cfg, st = $('cxStatus');
@@ -1652,7 +1697,7 @@ async function cxsSave() {
   if (size > 12e6) { st.className = 'status err'; st.textContent = 'Este análisis es demasiado grande para guardarlo (' + (size / 1e6).toFixed(1) + ' MB). Acorta el periodo.'; return; }
   st.className = 'status'; st.textContent = 'Guardando…';
   const { error } = await sb.from('tm_cruces_guardados').insert({ user_id: SESSION.user_id, nombre: nombre.trim(), simbolo: CX.sym, tf: c.tf, ema1: c.ema1, ema2: c.ema2, desde: new Date(c.startMs).toISOString().slice(0, 10), hasta: new Date(c.endMs).toISOString().slice(0, 10), n_cruces: CX.res.rows.length, datos });
-  if (error) { if (cxsMissing(error)) { cxsShowSql('Antes de guardar hay que crear la tabla (solo una vez).'); st.className = 'status err'; st.textContent = 'Falta crear la tabla: el texto SQL está en «Análisis guardados», más abajo.'; } else { st.className = 'status err'; st.textContent = 'No se pudo guardar: ' + error.message; } return; }
+  if (error) { st.className = 'status err'; if (cxsMissing(error)) { cxsShowSql('La base de datos no encuentra la tabla (hay que crearla una vez, o esperar un minuto si ya la creaste).', cxsErr(error)); st.textContent = 'No se pudo guardar: la tabla no existe todavía. Mensaje: ' + cxsErr(error); } else { st.textContent = 'No se pudo guardar. Mensaje exacto de la base de datos: ' + cxsErr(error); } return; }
   st.textContent = '✓ Guardado como «' + nombre.trim() + '».'; cxsLoad();
 }
 async function cxsOpen(id, thenPrint) {
