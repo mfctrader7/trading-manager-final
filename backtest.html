@@ -306,6 +306,9 @@ details ul{color:var(--mut);line-height:1.6;padding-left:20px;margin:8px 0 0}
     <div><label>Velas de origen</label><select id="spSrc"><option value="auto">Automático (5m, si no 1m)</option><option value="5m">5m</option><option value="1m">1m → 5m</option></select></div>
     <div><label>Desde</label><input type="date" id="spStart"></div>
     <div><label>Hasta</label><input type="date" id="spEnd"></div>
+    <div><label>Origen del pivote</label><select id="spMode"><option value="noLag">Extremo del tramo (sin retraso)</option><option value="classic">Pivote clásico (confirmado)</option></select></div>
+    <div><label>Pivote: velas izq. / der.</label><input id="spPv" value="5,5"></div>
+    <div><label>El pivote más reciente manda</label><select id="spLpr"><option value="1">Sí</option><option value="0">No</option></select></div>
     <div><label>EMA del setup</label><input type="number" id="spEma" value="12" min="2"></div>
     <div><label>Ratio TP1 (R)</label><input type="number" id="spRat" value="1.7" step="0.1"></div>
     <div><label>Buffer SL (%)</label><input type="number" id="spBuf" value="0.05" step="0.01"></div>
@@ -319,7 +322,7 @@ details ul{color:var(--mut);line-height:1.6;padding-left:20px;margin:8px 0 0}
     <div><label>Comisión por lado (%)</label><input type="number" id="spFee" value="0.02" step="0.01"></div>
     <div><label>EMAs de contexto (30m y 4h)</label><input id="spHE" value="12,25"></div>
   </div>
-  <div style="margin-top:14px;display:flex;gap:12px;flex-wrap:wrap"><button class="btn" id="spRun">▶ Ejecutar backtest</button><button class="btn" id="spCsv" style="display:none">⬇ Descargar operaciones (CSV)</button></div>
+  <div style="margin-top:14px;display:flex;gap:12px;flex-wrap:wrap"><button class="btn" id="spRun">▶ Ejecutar backtest</button><button class="btn" id="spCsv" style="display:none">⬇ Descargar operaciones (CSV)</button><button class="btn" id="spCsvV" style="display:none">⬇ Descargar velas 5m y EMA (CSV)</button></div>
   <div class="status" id="spStatus"></div>
 </div>
 <div class="panel" id="spResP" style="display:none">
@@ -866,6 +869,15 @@ function runSetupBacktest(bars, cfg) {
   // cfg: ema, ratio, bufP, rmin, rmax, maxWait, maxAge, maxLife, beOff, tp1Pct, fee, from(ts), baseMs, htf:[[ms,e1,e2,nombre],...]
   const n = bars.length, close = bars.map(b => b.c), ema = spEma(close, cfg.ema);
   const H = (cfg.htf || []).map(h => ({ name: h[3], arr: spHtf(bars, cfg.baseMs, h[0], h[1], h[2]), ptr: { i: -1 } }));
+  const classic = cfg.mode === 'classic', pL = cfg.pL || 5, pR = cfg.pR || 5;
+  const pivLo = new Array(n).fill(NaN), pivHi = new Array(n).fill(NaN);
+  if (classic) for (let i = pL + pR; i < n; i++) { const c = i - pR; let lo = true, hi = true;
+    for (let k = 1; k <= pL && (lo || hi); k++) { if (!(bars[c - k].l > bars[c].l)) lo = false; if (!(bars[c - k].h < bars[c].h)) hi = false; }
+    for (let k = 1; k <= pR && (lo || hi); k++) { if (!(bars[c + k].l > bars[c].l)) lo = false; if (!(bars[c + k].h < bars[c].h)) hi = false; }
+    if (lo) pivLo[i] = bars[c].l; if (hi) pivHi[i] = bars[c].h; }
+  const cuA = new Array(n).fill(false), cdA = new Array(n).fill(false);
+  for (let i = 1; i < n; i++) { if (isNaN(ema[i]) || isNaN(ema[i - 1])) continue; cuA[i] = close[i] > ema[i] && close[i - 1] <= ema[i - 1]; cdA[i] = close[i] < ema[i] && close[i - 1] >= ema[i - 1]; }
+  let lastPL = NaN, lastPLb = -1, lastPH = NaN, lastPHb = -1;
   const trades = [], acts = [];
   let runHi = NaN, runLo = NaN, runHiB = -1, runLoB = -1, madeCnt = 0, skippedRisk = 0;
   const finish = (s, r, bar) => { s.out = r.out; s.R = r.R; s.exitT = bar.t; };
@@ -878,8 +890,8 @@ function runSetupBacktest(bars, cfg) {
     // 1) actualizar abiertas
     for (let k = acts.length - 1; k >= 0; k--) { const r = spStep(acts[k], b, i, cfg); if (r) { finish(acts[k], r, b); acts.splice(k, 1); } }
     // 2) nuevas
-    const make = (isLong, pv, pvB) => {
-      const entry = e, buf = pv * cfg.bufP / 100, sl = isLong ? pv - buf : pv + buf, risk = isLong ? entry - sl : sl - entry, rp = risk / entry * 100;
+    const make = (isLong, pv, pvB, entry0) => {
+      const entry = entry0 === undefined ? e : entry0, buf = pv * cfg.bufP / 100, sl = isLong ? pv - buf : pv + buf, risk = isLong ? entry - sl : sl - entry, rp = risk / entry * 100;
       if (!(risk > 0 && rp >= cfg.rmin && rp <= cfg.rmax)) { skippedRisk++; return false; }
       const s = { isLong, entry, sl, risk, riskPct: rp, tp: isLong ? entry + cfg.ratio * risk : entry - cfg.ratio * risk, be: isLong ? entry * (1 + cfg.beOff / 100) : entry * (1 - cfg.beOff / 100),
         state: 0, age: 0, madeI: i, madeT: b.t, pvT: bars[pvB].t, pv };
@@ -887,8 +899,36 @@ function runSetupBacktest(bars, cfg) {
       acts.push(s); trades.push(s); return true;
     };
     const cancelPending = (cancelLong) => { for (let k = acts.length - 1; k >= 0; k--) if (acts[k].state === 0 && acts[k].isLong === cancelLong) { finish(acts[k], { out: 'CANCELADA', R: 0 }, b); acts.splice(k, 1); } };
-    if (cu && !isNaN(runLo) && i - runLoB <= cfg.maxAge) { if (make(true, runLo, runLoB)) cancelPending(false); }
-    if (cd && !isNaN(runHi) && i - runHiB <= cfg.maxAge) { if (make(false, runHi, runHiB)) cancelPending(true); }
+    if (!classic) {
+      if (cu && !isNaN(runLo) && i - runLoB <= cfg.maxAge) { if (make(true, runLo, runLoB)) cancelPending(false); }
+      if (cd && !isNaN(runHi) && i - runHiB <= cfg.maxAge) { if (make(false, runHi, runHiB)) cancelPending(true); }
+    } else {
+      const lpr = cfg.lastPivRule !== false;
+      if (!isNaN(lastPL) && (b.l < lastPL || i - lastPLb > cfg.maxAge)) lastPL = NaN;
+      if (!isNaN(lastPH) && (b.h > lastPH || i - lastPHb > cfg.maxAge)) lastPH = NaN;
+      // LARGO
+      if (!isNaN(pivLo[i])) {
+        const pv = pivLo[i]; if (lpr) { lastPH = NaN; cancelPending(false); } lastPL = NaN;
+        if (pv < ema[i - pR]) {
+          lastPL = pv; lastPLb = i - pR; let bk = -1;
+          for (let k = pR - 1; k >= 0; k--) if (cuA[i - k]) { bk = k; break; }
+          if (bk >= 0) { const ent = ema[i - bk]; let stale = false; for (let j = bk - 1; j >= 0; j--) if (bars[i - j].l <= ent) stale = true;
+            if (!stale) { lastPL = NaN; make(true, pv, i - pR, ent); } }
+        }
+      }
+      if (cu && !isNaN(lastPL)) { const pv = lastPL, pb = lastPLb; lastPL = NaN; if (make(true, pv, pb)) { if (lpr) cancelPending(false); } }
+      // CORTO
+      if (!isNaN(pivHi[i])) {
+        const pv = pivHi[i]; if (lpr) { lastPL = NaN; cancelPending(true); } lastPH = NaN;
+        if (pv > ema[i - pR]) {
+          lastPH = pv; lastPHb = i - pR; let bk = -1;
+          for (let k = pR - 1; k >= 0; k--) if (cdA[i - k]) { bk = k; break; }
+          if (bk >= 0) { const ent = ema[i - bk]; let stale = false; for (let j = bk - 1; j >= 0; j--) if (bars[i - j].h >= ent) stale = true;
+            if (!stale) { lastPH = NaN; make(false, pv, i - pR, ent); } }
+        }
+      }
+      if (cd && !isNaN(lastPH)) { const pv = lastPH, pb = lastPHb; lastPH = NaN; if (make(false, pv, pb)) { if (lpr) cancelPending(true); } }
+    }
   }
   const done = trades.filter(t => t.out && t.madeT >= cfg.from);
   return { trades: done, open: trades.filter(t => !t.out).length, skippedRisk };
@@ -1230,10 +1270,10 @@ async function runSP() {
     if (bars.length < 100 && src !== '5m') { used = '1m→5m'; const r1 = await loadNative(sym, '1m', from - warm, to, prog('1m')); bars = spAgg1to5(r1); }
     if (bars.length < 100) throw new Error('No hay velas de ' + (src === '1m' ? '1m' : '5m') + ' para ' + sym + ' en ese rango (encontradas: ' + bars.length + ').');
     const he = $('spHE').value.split(',').map(x => parseInt(x)), e1 = he[0] || 12, e2 = he[1] || 25;
-    const cfg = { ema: +$('spEma').value, ratio: +$('spRat').value, bufP: +$('spBuf').value, rmin: +$('spRmin').value, rmax: +$('spRmax').value, maxWait: +$('spWait').value, maxAge: +$('spAge').value, maxLife: +$('spLife').value, beOff: +$('spBe').value, tp1Pct: +$('spTp1').value, fee: +$('spFee').value, from, baseMs: 300000, htf: [[1800000, e1, e2, '30m'], [14400000, e1, e2, '4h']] };
+    const pv = $('spPv').value.split(',').map(x => parseInt(x)); const cfg = { mode: $('spMode').value, pL: pv[0] || 5, pR: pv[1] || pv[0] || 5, lastPivRule: $('spLpr').value === '1', ema: +$('spEma').value, ratio: +$('spRat').value, bufP: +$('spBuf').value, rmin: +$('spRmin').value, rmax: +$('spRmax').value, maxWait: +$('spWait').value, maxAge: +$('spAge').value, maxLife: +$('spLife').value, beOff: +$('spBe').value, tp1Pct: +$('spTp1').value, fee: +$('spFee').value, from, baseMs: 300000, htf: [[1800000, e1, e2, '30m'], [14400000, e1, e2, '4h']] };
     st.textContent = 'Calculando…'; await new Promise(r => setTimeout(r, 30));
     const res = runSetupBacktest(bars, cfg);
-    SP = { res, cfg, sym, used, nb: bars.length, first: bars[0].t, last: bars[bars.length - 1].t };
+    SP = { bars, ema: spEma(bars.map(b => b.c), cfg.ema), res, cfg, sym, used, nb: bars.length, first: bars[0].t, last: bars[bars.length - 1].t };
     renderSP(); st.textContent = '';
   } catch (e) { st.className = 'status err'; st.textContent = 'Error: ' + e.message; }
   $('spRun').disabled = false;
@@ -1254,7 +1294,7 @@ function renderSP() {
   $('spCtx').innerHTML = head + [...groups, ...both, ...mixed].map(([n, ts]) => row(n, spSummary(ts))).join('');
   const last300 = T.slice().sort((a, b) => b.madeT - a.madeT).slice(0, 300);
   $('spTrades').innerHTML = `<tr><th>Señal (UTC)</th><th>Lado</th><th class="r">Entrada</th><th class="r">SL</th><th class="r">TP1</th><th class="r">Riesgo %</th><th>30m</th><th>4h</th><th>Resultado</th><th class="r">R</th></tr>` + last300.map(t => `<tr><td>${dt(t.madeT)}</td><td>${t.isLong ? 'LARGO' : 'CORTO'}</td><td class="r">${f(t.entry)}</td><td class="r">${f(t.sl)}</td><td class="r">${f(t.tp)}</td><td class="r">${f(t.riskPct)}</td><td>${spAlign(t, '30m')}</td><td>${spAlign(t, '4h')}</td><td>${t.out}</td><td class="r ${t.R > 0 ? 'pos' : t.R < 0 ? 'neg' : ''}">${f(t.R, 2)}</td></tr>`).join('');
-  $('spResP').style.display = ''; $('spCsv').style.display = '';
+  $('spResP').style.display = ''; $('spCsv').style.display = ''; $('spCsvV').style.display = '';
 }
 function spCsv() {
   if (!SP) return; const dt = t => new Date(t).toISOString();
@@ -1262,7 +1302,13 @@ function spCsv() {
   for (const t of SP.res.trades.slice().sort((a, b) => a.madeT - b.madeT)) lines.push([dt(t.madeT), t.isLong ? 'LARGO' : 'CORTO', t.entry, t.sl, t.tp, t.riskPct.toFixed(4), t.ctx['30m'], t.ctx['4h'], spAlign(t, '30m'), spAlign(t, '4h'), t.out, t.R.toFixed(4), t.fillT ? dt(t.fillT) : '', t.exitT ? dt(t.exitT) : ''].join(','));
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv' })); const d = t => new Date(t).toISOString().slice(0, 10); a.download = 'CrossSignal-5m_' + SP.sym + '_' + $('spStart').value + '_a_' + $('spEnd').value + '.csv'; a.click();
 }
-$('spRun').onclick = runSP; $('spCsv').onclick = spCsv;
+function spCsvVelas() {
+  if (!SP) return; const from = new Date($('spStart').value + 'T00:00:00Z').getTime() - 864e5, iso = t => new Date(t).toISOString();
+  const lines = ['vela_utc,apertura,maximo,minimo,cierre,ema' + SP.cfg.ema];
+  SP.bars.forEach((b, i) => { if (b.t >= from) lines.push([iso(b.t), b.o, b.h, b.l, b.c, isNaN(SP.ema[i]) ? '' : SP.ema[i].toFixed(2)].join(',')); });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv' })); a.download = 'Velas5m_' + SP.sym + '_' + $('spStart').value + '_a_' + $('spEnd').value + '.csv'; a.click();
+}
+$('spRun').onclick = runSP; $('spCsv').onclick = spCsv; $('spCsvV').onclick = spCsvVelas;
 
 function showTab(x) {
   ['BT', 'CX', 'CL', 'PD', 'SP'].forEach(k => { $('tab' + k).style.display = x === k ? '' : 'none'; $('tabBtn' + k).classList.toggle('on', x === k); });
