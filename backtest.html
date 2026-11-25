@@ -121,10 +121,10 @@ details ul{color:var(--mut);line-height:1.6;padding-left:20px;margin:8px 0 0}
 <body>
 <header>
   <h1>🏇 Backtest – Carrera de Caballos</h1>
-  <div><span id="ver" style="color:var(--gold);font-size:.72rem;margin-right:12px;border:1px solid var(--line);border-radius:6px;padding:2px 7px">v. 25/11/2026 · con Pendientes</span><span id="who" style="color:var(--mut);margin-right:12px"></span><a href="/dashboard.html">← Dashboard</a></div>
+  <div><span id="ver" style="color:var(--gold);font-size:.72rem;margin-right:12px;border:1px solid var(--line);border-radius:6px;padding:2px 7px">v. 25/11/2026 · con Setup 5m</span><span id="who" style="color:var(--mut);margin-right:12px"></span><a href="/dashboard.html">← Dashboard</a></div>
 </header>
 <main>
-<div class="tabs"><button class="tab on" id="tabBtnBT">🏇 Backtest</button><button class="tab" id="tabBtnCX">📊 Análisis de cruces</button><button class="tab" id="tabBtnCL">🧮 Calculadora</button><button class="tab" id="tabBtnPD">📝 Pendientes</button></div>
+<div class="tabs"><button class="tab on" id="tabBtnBT">🏇 Backtest</button><button class="tab" id="tabBtnCX">📊 Análisis de cruces</button><button class="tab" id="tabBtnCL">🧮 Calculadora</button><button class="tab" id="tabBtnPD">📝 Pendientes</button><button class="tab" id="tabBtnSP">🎯 Setup 5m</button></div>
 <div id="tabBT">
 
 <div class="panel">
@@ -295,6 +295,42 @@ details ul{color:var(--mut);line-height:1.6;padding-left:20px;margin:8px 0 0}
   </div>
   <div class="panel"><h2>Detalle de entradas</h2><div class="scroll" style="max-height:none"><table class="cl" id="clEntTable"></table></div></div>
  </div>
+</div>
+</div>
+<div id="tabSP" style="display:none">
+<div class="panel">
+  <h2>Backtest del setup de pivote (CrossSignal Pro v1.2)</h2>
+  <div class="legend" style="margin:0 0 10px">Mismas reglas que el indicador en modo «sin retraso»: el pivote es el extremo del tramo desde el último cruce contrario de la EMA; la vela que cierra al otro lado de la EMA marca la ruptura; entrada límite en la EMA de esa vela; SL tras el pivote más el buffer; TP1 a R veces el riesgo (cierra el % indicado) y BE para el resto. Si una vela toca SL y TP, cuenta el SL. Una entrada que no se ejecuta en N velas se anota aparte. El contexto de 30m y 4h usa solo velas <b>ya cerradas</b> (sin mirar al futuro).</div>
+  <div class="grid">
+    <div><label>Activo (símbolo)</label><input id="spSym" value="BTC"></div>
+    <div><label>Velas de origen</label><select id="spSrc"><option value="auto">Automático (5m, si no 1m)</option><option value="5m">5m</option><option value="1m">1m → 5m</option></select></div>
+    <div><label>Desde</label><input type="date" id="spStart"></div>
+    <div><label>Hasta</label><input type="date" id="spEnd"></div>
+    <div><label>EMA del setup</label><input type="number" id="spEma" value="12" min="2"></div>
+    <div><label>Ratio TP1 (R)</label><input type="number" id="spRat" value="1.7" step="0.1"></div>
+    <div><label>Buffer SL (%)</label><input type="number" id="spBuf" value="0.05" step="0.01"></div>
+    <div><label>Riesgo mín. (%)</label><input type="number" id="spRmin" value="0.05" step="0.01"></div>
+    <div><label>Riesgo máx. (%)</label><input type="number" id="spRmax" value="1.5" step="0.1"></div>
+    <div><label>Velas máx. esperando</label><input type="number" id="spWait" value="10"></div>
+    <div><label>Antigüedad máx. pivote</label><input type="number" id="spAge" value="50"></div>
+    <div><label>Vida máx. (velas)</label><input type="number" id="spLife" value="200"></div>
+    <div><label>BE sobre entrada (%)</label><input type="number" id="spBe" value="0.05" step="0.01"></div>
+    <div><label>% cerrado en TP1</label><input type="number" id="spTp1" value="75"></div>
+    <div><label>Comisión por lado (%)</label><input type="number" id="spFee" value="0.05" step="0.01"></div>
+    <div><label>EMAs de contexto (30m y 4h)</label><input id="spHE" value="12,25"></div>
+  </div>
+  <div style="margin-top:14px;display:flex;gap:12px;flex-wrap:wrap"><button class="btn" id="spRun">▶ Ejecutar backtest</button><button class="btn" id="spCsv" style="display:none">⬇ Descargar operaciones (CSV)</button></div>
+  <div class="status" id="spStatus"></div>
+</div>
+<div class="panel" id="spResP" style="display:none">
+  <h2 id="spTitle"></h2>
+  <div class="scroll" style="max-height:none"><table id="spBase" class="cl"></table></div>
+  <div class="legend" id="spNote" style="margin-top:8px"></div>
+  <h2 style="margin-top:18px">Por contexto de tendencia (EMA 12/25 en 30m y 4h)</h2>
+  <div class="legend">«A favor» = el estado del TF va en el mismo sentido que la operación (precio y EMA rápida del mismo lado de la lenta). «Mixto» = sin tendencia clara. Fíjate siempre en el nº de casos y en el margen de error.</div>
+  <div class="scroll" style="max-height:none"><table id="spCtx" class="cl"></table></div>
+  <h2 style="margin-top:18px">Operaciones (últimas 300)</h2>
+  <div class="scroll" style="max-height:520px"><table id="spTrades" class="cl"></table></div>
 </div>
 </div>
 <div id="tabPD" style="display:none"><div id="pdRoot"><div class="pd-empty">Cargando…</div></div></div>
@@ -779,6 +815,98 @@ function calcPosition(P, price) {
 
 if (typeof module !== 'undefined') module.exports = { calcEMAarr, crossInfo, prepareSignals, runHorse, analyzeCrosses, buildTfBars, analyzeCrossesNative, calcPosition };
 
+// ===== Motor del setup CrossSignal (pivote + ruptura EMA + retesteo) — réplica del indicador v1.2 (modo sin retraso) =====
+function spEma(vals, n) {
+  const out = new Array(vals.length).fill(NaN); if (vals.length < n) return out;
+  let s = 0; for (let i = 0; i < n; i++) s += vals[i];
+  out[n - 1] = s / n; const k = 2 / (n + 1);
+  for (let i = n; i < vals.length; i++) out[i] = k * vals[i] + (1 - k) * out[i - 1];
+  return out;
+}
+function spAgg(bars, baseMs, tfMs) {
+  const m = new Map();
+  for (const b of bars) { const k = Math.floor(b.t / tfMs) * tfMs; let a = m.get(k);
+    if (!a) { a = { t: k, o: b.o, h: b.h, l: b.l, c: b.c, n: 0 }; m.set(k, a); }
+    a.h = Math.max(a.h, b.h); a.l = Math.min(a.l, b.l); a.c = b.c; a.n++; }
+  const need = Math.round(tfMs / baseMs), lastEnd = bars.length ? bars[bars.length - 1].t + baseMs : 0;
+  return [...m.values()].sort((x, y) => x.t - y.t).filter(a => a.n >= need || a.t + tfMs <= lastEnd && a.n >= need);
+}
+// estado de tendencia por TF (EMA 12/25): 1 alcista, -1 bajista, 0 mixto. Solo con velas CERRADAS.
+function spHtf(bars5, baseMs, tfMs, e1, e2) {
+  const hb = spAgg(bars5, baseMs, tfMs), c = hb.map(x => x.c), a = spEma(c, e1), b = spEma(c, e2);
+  return hb.map((x, j) => ({ end: x.t + tfMs, st: isNaN(b[j]) ? null : (a[j] > b[j] && c[j] > b[j] ? 1 : a[j] < b[j] && c[j] < b[j] ? -1 : 0), e1: a[j], e2: b[j], c: c[j] }));
+}
+function spCtxAt(arr, T, ptr) { while (ptr.i + 1 < arr.length && arr[ptr.i + 1].end <= T) ptr.i++; return ptr.i >= 0 && arr[ptr.i] && arr[ptr.i].end <= T ? arr[ptr.i] : null; }
+
+// un paso de vida de una operación (misma lógica que f_upd). Devuelve null o {out, R}
+function spStep(s, bar, i, cfg) {
+  const L = s.isLong, d = L ? 1 : -1, risk = s.risk; s.age++;
+  const feeR = cfg.fee / 100 * 2 * s.entry / risk, fr = cfg.tp1Pct / 100;
+  let justFilled = false;
+  if (s.state === 0) {
+    const touch = L ? bar.l <= s.entry : bar.h >= s.entry;
+    if (touch) { s.state = 1; justFilled = true; s.fillT = bar.t; }
+    else if (s.age > cfg.maxWait) return { out: 'NOEXEC', R: 0 };
+  }
+  if (s.state === 1) {
+    const slHit = L ? bar.l < s.sl : bar.h > s.sl, tpHit = L ? bar.h >= s.tp : bar.l <= s.tp;
+    if (slHit) return { out: 'SL', R: -1 - feeR };
+    if (tpHit && !justFilled) { s.state = 2; s.tpT = bar.t; s.tpI = i; }
+  } else if (s.state === 2 && i > s.tpI) {
+    if (L ? bar.l <= s.be : bar.h >= s.be) return { out: 'TP1+BE', R: fr * cfg.ratio + (1 - fr) * d * (s.be - s.entry) / risk - feeR };
+  }
+  if (s.age > cfg.maxLife) {
+    const rc = d * (bar.c - s.entry) / risk;
+    return s.state === 2 ? { out: 'TP1+TIEMPO', R: fr * cfg.ratio + (1 - fr) * rc - feeR } : { out: 'TIEMPO', R: rc - feeR };
+  }
+  return null;
+}
+
+function runSetupBacktest(bars, cfg) {
+  // cfg: ema, ratio, bufP, rmin, rmax, maxWait, maxAge, maxLife, beOff, tp1Pct, fee, from(ts), baseMs, htf:[[ms,e1,e2,nombre],...]
+  const n = bars.length, close = bars.map(b => b.c), ema = spEma(close, cfg.ema);
+  const H = (cfg.htf || []).map(h => ({ name: h[3], arr: spHtf(bars, cfg.baseMs, h[0], h[1], h[2]), ptr: { i: -1 } }));
+  const trades = [], acts = [];
+  let runHi = NaN, runLo = NaN, runHiB = -1, runLoB = -1, madeCnt = 0, skippedRisk = 0;
+  const finish = (s, r, bar) => { s.out = r.out; s.R = r.R; s.exitT = bar.t; };
+  for (let i = 1; i < n; i++) {
+    const b = bars[i], e = ema[i], ep = ema[i - 1];
+    const cu = !isNaN(e) && !isNaN(ep) && close[i] > e && close[i - 1] <= ep;
+    const cd = !isNaN(e) && !isNaN(ep) && close[i] < e && close[i - 1] >= ep;
+    if (cu) { runHi = b.h; runHiB = i; } else if (!isNaN(runHi) && b.h > runHi) { runHi = b.h; runHiB = i; }
+    if (cd) { runLo = b.l; runLoB = i; } else if (!isNaN(runLo) && b.l < runLo) { runLo = b.l; runLoB = i; }
+    // 1) actualizar abiertas
+    for (let k = acts.length - 1; k >= 0; k--) { const r = spStep(acts[k], b, i, cfg); if (r) { finish(acts[k], r, b); acts.splice(k, 1); } }
+    // 2) nuevas
+    const make = (isLong, pv, pvB) => {
+      const entry = e, buf = pv * cfg.bufP / 100, sl = isLong ? pv - buf : pv + buf, risk = isLong ? entry - sl : sl - entry, rp = risk / entry * 100;
+      if (!(risk > 0 && rp >= cfg.rmin && rp <= cfg.rmax)) { skippedRisk++; return false; }
+      const s = { isLong, entry, sl, risk, riskPct: rp, tp: isLong ? entry + cfg.ratio * risk : entry - cfg.ratio * risk, be: isLong ? entry * (1 + cfg.beOff / 100) : entry * (1 - cfg.beOff / 100),
+        state: 0, age: 0, madeI: i, madeT: b.t, pvT: bars[pvB].t, pv };
+      s.ctx = {}; for (const h of H) { const c = spCtxAt(h.arr, b.t + cfg.baseMs, h.ptr); s.ctx[h.name] = c ? c.st : null; }
+      acts.push(s); trades.push(s); return true;
+    };
+    const cancelPending = (cancelLong) => { for (let k = acts.length - 1; k >= 0; k--) if (acts[k].state === 0 && acts[k].isLong === cancelLong) { finish(acts[k], { out: 'CANCELADA', R: 0 }, b); acts.splice(k, 1); } };
+    if (cu && !isNaN(runLo) && i - runLoB <= cfg.maxAge) { if (make(true, runLo, runLoB)) cancelPending(false); }
+    if (cd && !isNaN(runHi) && i - runHiB <= cfg.maxAge) { if (make(false, runHi, runHiB)) cancelPending(true); }
+  }
+  const done = trades.filter(t => t.out && t.madeT >= cfg.from);
+  return { trades: done, open: trades.filter(t => !t.out).length, skippedRisk };
+}
+
+// ===== Estadística =====
+function spWilson(k, n) { if (!n) return [NaN, NaN]; const z = 1.96, p = k / n, d = 1 + z * z / n, c = p + z * z / (2 * n), m = z * Math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)); return [(c - m) / d, (c + m) / d]; }
+function spSummary(ts) {
+  const ex = ts.filter(t => t.out !== 'NOEXEC' && t.out !== 'CANCELADA');
+  const tp = ex.filter(t => t.out.startsWith('TP1')).length, sl = ex.filter(t => t.out === 'SL').length;
+  const R = ex.map(t => t.R), sum = R.reduce((a, b) => a + b, 0), gw = R.filter(x => x > 0).reduce((a, b) => a + b, 0), gl = -R.filter(x => x < 0).reduce((a, b) => a + b, 0);
+  const avg = ex.length ? sum / ex.length : NaN, sd = ex.length > 1 ? Math.sqrt(R.reduce((a, x) => a + (x - avg) ** 2, 0) / (ex.length - 1)) : NaN;
+  const ord = ex.slice().sort((a, b) => a.exitT - b.exitT); let eq = 0, pk = 0, dd = 0; for (const t of ord) { eq += t.R; pk = Math.max(pk, eq); dd = Math.max(dd, pk - eq); }
+  const ci = spWilson(tp, ex.length);
+  return { sig: ts.length, n: ex.length, noexec: ts.length - ex.length, tp, sl, win: ex.length ? tp / ex.length : NaN, ciLo: ci[0], ciHi: ci[1], avgR: avg, seR: ex.length > 1 ? sd / Math.sqrt(ex.length) : NaN, sumR: sum, pf: gl > 0 ? gw / gl : (gw > 0 ? Infinity : NaN), dd };
+}
+function spAlign(t, name) { const v = t.ctx[name]; if (v == null) return 'sin dato'; if (v === 0) return 'mixto'; return (v === 1) === t.isLong ? 'a favor' : 'en contra'; }
+
 </script>
 <script>
 // ===== Sesión compartida =====
@@ -1079,12 +1207,69 @@ function printReport() {
 $('printBtn').onclick = printReport;
 
 // ---------- Pestañas ----------
+
+// ---------- Setup 5m ----------
+let SP = null;
+$('spEnd').value = new Date().toISOString().slice(0, 10);
+$('spStart').value = new Date(Date.now() - 365 * 864e5).toISOString().slice(0, 10);
+function spAgg1to5(rows) {
+  const m = new Map();
+  for (const b of rows) { const k = Math.floor(b.t / 300000) * 300000; let a = m.get(k);
+    if (!a) { a = { t: k, o: b.o, h: b.h, l: b.l, c: b.c, n: 0 }; m.set(k, a); }
+    a.h = Math.max(a.h, b.h); a.l = Math.min(a.l, b.l); a.c = b.c; a.n++; }
+  return [...m.values()].filter(a => a.n === 5).sort((x, y) => x.t - y.t);
+}
+async function runSP() {
+  const st = $('spStatus'); st.className = 'status'; $('spRun').disabled = true;
+  try {
+    const sym = $('spSym').value.trim().toUpperCase(), src = $('spSrc').value;
+    const from = new Date($('spStart').value + 'T00:00:00Z').getTime(), to = new Date($('spEnd').value + 'T23:59:59Z').getTime();
+    const warm = 15 * 864e5; let bars = [], used = '5m';
+    const prog = (tf) => n => { st.textContent = `Cargando velas ${tf}… ${n.toLocaleString('es-ES')}`; };
+    if (src !== '1m') bars = await loadNative(sym, '5m', from - warm, to, prog('5m'));
+    if (bars.length < 100 && src !== '5m') { used = '1m→5m'; const r1 = await loadNative(sym, '1m', from - warm, to, prog('1m')); bars = spAgg1to5(r1); }
+    if (bars.length < 100) throw new Error('No hay velas de ' + (src === '1m' ? '1m' : '5m') + ' para ' + sym + ' en ese rango (encontradas: ' + bars.length + ').');
+    const he = $('spHE').value.split(',').map(x => parseInt(x)), e1 = he[0] || 12, e2 = he[1] || 25;
+    const cfg = { ema: +$('spEma').value, ratio: +$('spRat').value, bufP: +$('spBuf').value, rmin: +$('spRmin').value, rmax: +$('spRmax').value, maxWait: +$('spWait').value, maxAge: +$('spAge').value, maxLife: +$('spLife').value, beOff: +$('spBe').value, tp1Pct: +$('spTp1').value, fee: +$('spFee').value, from, baseMs: 300000, htf: [[1800000, e1, e2, '30m'], [14400000, e1, e2, '4h']] };
+    st.textContent = 'Calculando…'; await new Promise(r => setTimeout(r, 30));
+    const res = runSetupBacktest(bars, cfg);
+    SP = { res, cfg, sym, used, nb: bars.length, first: bars[0].t, last: bars[bars.length - 1].t };
+    renderSP(); st.textContent = '';
+  } catch (e) { st.className = 'status err'; st.textContent = 'Error: ' + e.message; }
+  $('spRun').disabled = false;
+}
+function renderSP() {
+  const { res, cfg, sym, used, nb, last } = SP, T = res.trades, dt = t => new Date(t).toISOString().slice(0, 16).replace('T', ' ');
+  const f = (x, d = 2) => isFinite(x) ? x.toFixed(d) : '—', pc = x => isFinite(x) ? (x * 100).toFixed(1) + '%' : '—';
+  const row = (name, s) => `<tr><td>${name}</td><td class="r">${s.sig}</td><td class="r">${s.n}</td><td class="r">${pc(s.win)} <span style="color:var(--mut)">(${pc(s.ciLo)}–${pc(s.ciHi)})</span></td><td class="r ${s.avgR > 0 ? 'pos' : 'neg'}">${f(s.avgR, 3)} ±${f(1.96 * s.seR, 3)}</td><td class="r">${f(s.sumR, 1)}</td><td class="r">${f(s.pf)}</td><td class="r">${f(s.dd, 1)}</td></tr>`;
+  const head = `<tr><th>Grupo</th><th class="r">Señales</th><th class="r">Ejecutadas</th><th class="r">Llegan a TP1 (IC 95%)</th><th class="r">R medio ±IC</th><th class="r">R total</th><th class="r">Factor beneficio</th><th class="r">Caída máx. (R)</th></tr>`;
+  $('spTitle').textContent = `${sym} · ${nb.toLocaleString('es-ES')} velas ${used} hasta ${dt(last)} UTC`;
+  const all = spSummary(T), L = spSummary(T.filter(t => t.isLong)), S = spSummary(T.filter(t => !t.isLong));
+  $('spBase').innerHTML = head + row('Todas', all) + row('Largos', L) + row('Cortos', S);
+  const be = 1 / (1 + cfg.ratio);
+  $('spNote').innerHTML = `Con ratio ${cfg.ratio} y solo SL/TP, el empate está en ≈${pc(be)} de aciertos antes de comisiones. «R medio» incluye comisiones (${cfg.fee}% por lado sobre todo el nominal) y el reparto ${cfg.tp1Pct}% en TP1 / resto a BE. Entradas no ejecutadas: ${all.noexec} (${pc(all.noexec / (all.sig || 1))}) · descartadas por filtro de riesgo: ${res.skippedRisk} · sin resolver al final: ${res.open}.`;
+  const groups = [['30m'], ['4h']].flatMap(([k]) => ['a favor', 'mixto', 'en contra'].map(a => [`${k}: ${a}`, T.filter(t => spAlign(t, k) === a)]));
+  const both = ['a favor', 'en contra'].map(a => [`30m y 4h ${a}`, T.filter(t => spAlign(t, '30m') === a && spAlign(t, '4h') === a)]);
+  const mixed = [['30m a favor, 4h en contra', T.filter(t => spAlign(t, '30m') === 'a favor' && spAlign(t, '4h') === 'en contra')], ['30m en contra, 4h a favor', T.filter(t => spAlign(t, '30m') === 'en contra' && spAlign(t, '4h') === 'a favor')]];
+  $('spCtx').innerHTML = head + [...groups, ...both, ...mixed].map(([n, ts]) => row(n, spSummary(ts))).join('');
+  const last300 = T.slice().sort((a, b) => b.madeT - a.madeT).slice(0, 300);
+  $('spTrades').innerHTML = `<tr><th>Señal (UTC)</th><th>Lado</th><th class="r">Entrada</th><th class="r">SL</th><th class="r">TP1</th><th class="r">Riesgo %</th><th>30m</th><th>4h</th><th>Resultado</th><th class="r">R</th></tr>` + last300.map(t => `<tr><td>${dt(t.madeT)}</td><td>${t.isLong ? 'LARGO' : 'CORTO'}</td><td class="r">${f(t.entry)}</td><td class="r">${f(t.sl)}</td><td class="r">${f(t.tp)}</td><td class="r">${f(t.riskPct)}</td><td>${spAlign(t, '30m')}</td><td>${spAlign(t, '4h')}</td><td>${t.out}</td><td class="r ${t.R > 0 ? 'pos' : t.R < 0 ? 'neg' : ''}">${f(t.R, 2)}</td></tr>`).join('');
+  $('spResP').style.display = ''; $('spCsv').style.display = '';
+}
+function spCsv() {
+  if (!SP) return; const dt = t => new Date(t).toISOString();
+  const lines = ['senal_utc,lado,entrada,sl,tp1,riesgo_pct,tendencia30m,tendencia4h,ctx30m,ctx4h,resultado,R,ejecucion_utc,salida_utc'];
+  for (const t of SP.res.trades.slice().sort((a, b) => a.madeT - b.madeT)) lines.push([dt(t.madeT), t.isLong ? 'LARGO' : 'CORTO', t.entry, t.sl, t.tp, t.riskPct.toFixed(4), t.ctx['30m'], t.ctx['4h'], spAlign(t, '30m'), spAlign(t, '4h'), t.out, t.R.toFixed(4), t.fillT ? dt(t.fillT) : '', t.exitT ? dt(t.exitT) : ''].join(','));
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv' })); a.download = 'setup5m_' + SP.sym + '.csv'; a.click();
+}
+$('spRun').onclick = runSP; $('spCsv').onclick = spCsv;
+
 function showTab(x) {
-  ['BT', 'CX', 'CL', 'PD'].forEach(k => { $('tab' + k).style.display = x === k ? '' : 'none'; $('tabBtn' + k).classList.toggle('on', x === k); });
+  ['BT', 'CX', 'CL', 'PD', 'SP'].forEach(k => { $('tab' + k).style.display = x === k ? '' : 'none'; $('tabBtn' + k).classList.toggle('on', x === k); });
   if (typeof clOnShow === 'function') clOnShow(x === 'CL');
   if (typeof pdOnShow === 'function') pdOnShow(x === 'PD');
 }
-$('tabBtnBT').onclick = () => showTab('BT'); $('tabBtnCX').onclick = () => showTab('CX'); $('tabBtnCL').onclick = () => showTab('CL'); $('tabBtnPD').onclick = () => showTab('PD');
+$('tabBtnBT').onclick = () => showTab('BT'); $('tabBtnCX').onclick = () => showTab('CX'); $('tabBtnCL').onclick = () => showTab('CL'); $('tabBtnPD').onclick = () => showTab('PD'); $('tabBtnSP').onclick = () => showTab('SP');
 
 // ---------- Análisis de cruces ----------
 let CX = null;
