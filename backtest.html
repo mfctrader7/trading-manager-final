@@ -401,7 +401,7 @@ details ul{color:var(--mut);line-height:1.6;padding-left:20px;margin:8px 0 0}
     <div><label>Desde</label><input type="date" id="rpStart" value="2020-06-01"></div>
     <div><label>Hasta</label><input type="date" id="rpEnd"></div>
     <div><label>TF de los cruces menores (anticipación)</label><select id="rpLtf"><option>4h</option><option selected>8h</option><option>12h</option><option>1d</option></select></div>
-    <div><label>Capital futuros ($)</label><input id="rpFC" type="number" step="any" value="50000"></div><div><label>Capital spot ($)</label><input id="rpSC" type="number" step="any" value="50000"></div><div><label>Máx. corto nocional ($)</label><input id="rpMS" type="number" step="any" value="60000"></div><div><label>Máx. largo ($)</label><input id="rpML" type="number" step="any" value="50000"></div><div><label>Comisión futuros por lado (%)</label><input id="rpFF" type="number" step="any" value="0.05"></div><div><label>Comisión spot por lado (%)</label><input id="rpFSP" type="number" step="any" value="0.1"></div><div><label>Margen de mantenimiento (%)</label><input id="rpMM" type="number" step="any" value="0.5"></div>
+    <div><label>Capital futuros ($)</label><input id="rpFC" type="number" step="any" value="50000"></div><div><label>Capital spot ($)</label><input id="rpSC" type="number" step="any" value="50000"></div><div><label>Apalancamiento máx. del corto (x)</label><input id="rpLev" type="number" step="any" value="3"></div><div><label>Máx. corto nocional ($)</label><input id="rpMS" type="number" step="any" value="60000"></div><div><label>Máx. largo ($)</label><input id="rpML" type="number" step="any" value="50000"></div><div><label>Comisión futuros por lado (%)</label><input id="rpFF" type="number" step="any" value="0.05"></div><div><label>Comisión spot por lado (%)</label><input id="rpFSP" type="number" step="any" value="0.1"></div><div><label>Margen de mantenimiento (%)</label><input id="rpMM" type="number" step="any" value="0.5"></div>
   </div>
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;margin-top:16px">
     <div style="border:2px solid #ef5350;border-radius:12px;padding:12px">
@@ -1140,7 +1140,7 @@ function rpSim(b8, d1, bl, fund, pp) {
       if (frac > 0) { const q = lq * frac, pnl = q * (P - la); sc += q * P * (1 - p.feeS); fees += q * P * p.feeS; lq -= q; if (lq < 1e-12) { lq = 0; la = 0; } log(i, T, 'TP', 'largo', P, q * P, (evReg && reg < 0 ? 'Giro 3d bajista' : 'Cruce menor bajista') + ' · ' + Math.round(frac * 100) + '%'); ev[ev.length - 1].pnl = pnl; }
     }
     let addS = 0; if (reg < 0) addS = p.uShort * p.mTrend; else if (sl < 0) addS = p.uShort * p.mCounter;
-    if (addS > 0 && fc > 0 && sq * P + addS <= p.maxShort && (sq * P + addS) <= fc * 3) { const q = addS / P; sa = (sa * sq + P * q) / (sq + q); sq += q; fc -= addS * p.feeF; fees += addS * p.feeF; nS++; log(i, T, 'BUY', 'corto', P, addS, reg < 0 ? 'Régimen 3d bajista' : 'Cruce menor bajista (a contra)'); }
+    if (addS > 0 && fc > 0 && sq * P + addS <= p.maxShort && (sq * P + addS) <= fc * (p.maxLev || 3)) { const q = addS / P; sa = (sa * sq + P * q) / (sq + q); sq += q; fc -= addS * p.feeF; fees += addS * p.feeF; nS++; log(i, T, 'BUY', 'corto', P, addS, reg < 0 ? 'Régimen 3d bajista' : 'Cruce menor bajista (a contra)'); }
     let addL = 0;
     if (reg > 0) addL = p.uLong * p.lmTrend;
     else if (p.longStart === 'always') addL = p.uLong * p.smallAlways;
@@ -1829,7 +1829,7 @@ async function rpData(sym, tf, st) {
 }
 function rpParams() {
   const n = id => +$(id).value, d = id => $(id).value ? Date.parse($(id).value + 'T00:00:00Z') : null;
-  return { ltf: $('rpLtf').value, uShort: 1, mTrend: n('rpBS'), mCounter: n('rpUC'), uLong: 1, lmTrend: n('rpUL'), lmCounter: n('rpBL'), longStart: $('rpLS').value, smallAlways: n('rpSA'), confirmBars: n('rpCB'), pctTp: n('rpTP') / 100, pctTpL: n('rpTPL') / 100, flipS: n('rpFS') / 100, flipL: n('rpFL') / 100, tpLong: $('rpTL').value === '1', futCap: n('rpFC'), spotCap: n('rpSC'), maxShort: n('rpMS'), maxLong: n('rpML'), feeF: n('rpFF') / 100, feeS: n('rpFSP') / 100, mm: n('rpMM') / 100, start: d('rpStart') || 0, end: d('rpEnd') != null ? d('rpEnd') + 86400000 : Infinity };
+  return { ltf: $('rpLtf').value, uShort: 1, mTrend: n('rpBS'), mCounter: n('rpUC'), uLong: 1, lmTrend: n('rpUL'), lmCounter: n('rpBL'), longStart: $('rpLS').value, smallAlways: n('rpSA'), confirmBars: n('rpCB'), pctTp: n('rpTP') / 100, pctTpL: n('rpTPL') / 100, flipS: n('rpFS') / 100, flipL: n('rpFL') / 100, tpLong: $('rpTL').value === '1', futCap: n('rpFC'), spotCap: n('rpSC'), maxShort: n('rpMS'), maxLev: n('rpLev') || 3, maxLong: n('rpML'), feeF: n('rpFF') / 100, feeS: n('rpFSP') / 100, mm: n('rpMM') / 100, start: d('rpStart') || 0, end: d('rpEnd') != null ? d('rpEnd') + 86400000 : Infinity };
 }
 async function rpRun() {
   const st = $('rpSt'); st.className = 'status'; $('rpRun').disabled = true;
