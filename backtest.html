@@ -121,10 +121,10 @@ details ul{color:var(--mut);line-height:1.6;padding-left:20px;margin:8px 0 0}
 <body>
 <header>
   <h1>🏇 Backtest – Carrera de Caballos</h1>
-  <div><span id="ver" style="color:var(--gold);font-size:.72rem;margin-right:12px;border:1px solid var(--line);border-radius:6px;padding:2px 7px">v. 26/11 13:30 · + velas altas, funding y CSV (Binance)</span><span id="who" style="color:var(--mut);margin-right:12px"></span><a href="/dashboard.html">← Dashboard</a></div>
+  <div><span id="ver" style="color:var(--gold);font-size:.72rem;margin-right:12px;border:1px solid var(--line);border-radius:6px;padding:2px 7px">v. 26/11 18:00 · + pestaña Represa</span><span id="who" style="color:var(--mut);margin-right:12px"></span><a href="/dashboard.html">← Dashboard</a></div>
 </header>
 <main>
-<div class="tabs"><button class="tab on" id="tabBtnBT">🏇 Backtest</button><button class="tab" id="tabBtnCX">📊 Análisis de cruces</button><button class="tab" id="tabBtnCL">🧮 Calculadora</button><button class="tab" id="tabBtnPD">📝 Pendientes</button><button class="tab" id="tabBtnSP">🎯 Setup 5m</button></div>
+<div class="tabs"><button class="tab on" id="tabBtnBT">🏇 Backtest</button><button class="tab" id="tabBtnCX">📊 Análisis de cruces</button><button class="tab" id="tabBtnCL">🧮 Calculadora</button><button class="tab" id="tabBtnPD">📝 Pendientes</button><button class="tab" id="tabBtnSP">🎯 Setup 5m</button><button class="tab" id="tabBtnRP">🌊 Represa</button></div>
 <div id="tabBT">
 
 <div class="panel">
@@ -389,6 +389,45 @@ details ul{color:var(--mut);line-height:1.6;padding-left:20px;margin:8px 0 0}
   <div class="scroll" style="max-height:none"><table id="spSes" class="cl"></table></div>
   <h2 style="margin-top:18px">Operaciones (últimas 300)</h2>
   <div class="scroll" style="max-height:520px"><table id="spTrades" class="cl"></table></div>
+</div>
+</div>
+<div id="tabRP" style="display:none">
+<div class="panel">
+  <h2>Represa · DCA corto (perp) + DCA largo (spot) según cruces EMA12/25</h2>
+  <div class="legend" style="margin:0 0 10px">Régimen = estado EMA12/EMA25 en velas <b>3d</b> (ancladas como TradingView). Con régimen bajista se compra corto cada vela de 8h; con régimen alcista pero cruce menor bajista se compra corto en pequeño (a contra). El largo en spot compra en régimen alcista y, según el modo, también al empezar a acumular. Los cruces menores alcistas cierran parte del corto (TP parcial); un giro 3d cierra el % de «giro». Datos: Binance futuros (velas_ref + funding_ref). Liquidación comprobada con el máximo de la vela.</div>
+  <div class="grid">
+    <div><label>Activo</label><select id="rpSym"><option>BTC</option><option>ETH</option></select></div>
+    <div><label>Desde</label><input type="date" id="rpStart" value="2020-06-01"></div>
+    <div><label>Hasta</label><input type="date" id="rpEnd"></div>
+    <div><label>TF de anticipación (cruces menores)</label><select id="rpLtf"><option>4h</option><option selected>8h</option><option>12h</option><option>1d</option></select></div>
+    <div><label>Corto: $ por vela 8h (tendencia)</label><input id="rpUS" type="number" value="100"></div>
+    <div><label>Corto: mult. tendencia</label><input id="rpMT" type="number" step="0.05" value="1"></div>
+    <div><label>Corto: mult. a contra</label><input id="rpMC" type="number" step="0.05" value="0.25"></div>
+    <div><label>Largo spot: $ por vela 8h</label><input id="rpUL" type="number" value="33.33"></div>
+    <div><label>Largo: mult. tendencia</label><input id="rpLMT" type="number" step="0.05" value="1"></div>
+    <div><label>Largo: mult. a contra</label><input id="rpLMC" type="number" step="0.05" value="0.25"></div>
+    <div><label>Cuándo empieza el largo</label><select id="rpLS"><option value="ltf">Con cruce menor alcista</option><option value="confirm">Tras caída confirmada + cruce menor</option><option value="always">Siempre, en pequeño</option><option value="trend">Solo régimen alcista</option></select></div>
+    <div><label>Pequeño siempre (mult.)</label><input id="rpSA" type="number" step="0.05" value="0.1"></div>
+    <div><label>Barras 8h de confirmación</label><input id="rpCB" type="number" value="30"></div>
+    <div><label>TP parcial por cruce menor (%)</label><input id="rpTP" type="number" value="25"></div>
+    <div><label>Cierre corto al giro 3d (%)</label><input id="rpFS" type="number" value="100"></div>
+    <div><label>Cierre largo al giro 3d (%)</label><input id="rpFL" type="number" value="50"></div>
+    <div><label>Parciales en el largo</label><select id="rpTL"><option value="1">Sí</option><option value="0">No</option></select></div>
+    <div><label>Capital futuros ($)</label><input id="rpFC" type="number" value="50000"></div>
+    <div><label>Capital spot ($)</label><input id="rpSC" type="number" value="50000"></div>
+    <div><label>Máx. corto nocional ($)</label><input id="rpMS" type="number" value="60000"></div>
+    <div><label>Máx. largo ($)</label><input id="rpML" type="number" value="50000"></div>
+    <div><label>Comisión futuros por lado (%)</label><input id="rpFF" type="number" step="0.01" value="0.05"></div>
+    <div><label>Comisión spot por lado (%)</label><input id="rpFSP" type="number" step="0.01" value="0.1"></div>
+    <div><label>Margen de mantenimiento (%)</label><input id="rpMM" type="number" step="0.05" value="0.5"></div>
+  </div>
+  <div style="margin-top:14px;display:flex;gap:12px;flex-wrap:wrap"><button class="btn" id="rpRun">▶ Simular</button><button class="btn" id="rpCsv" style="display:none">⬇ Operaciones (CSV)</button></div>
+  <div class="status" id="rpSt"></div>
+</div>
+<div id="rpOut" style="display:none">
+  <div class="panel"><div class="grid" id="rpKpi"></div></div>
+  <div class="panel"><h2>Precio, PEPP y liquidación</h2><div class="legend" style="margin:0 0 8px"><b style="color:#ef5350">▬ PEPP corto</b> · <b style="color:#26a69a">▬ PEPP largo</b> · <b style="color:#FF9800">┄ Liquidación del corto</b> · flechas: compras y parciales · la línea de liquidación solo se dibuja si está a menos de +80 % del precio · fondo de la caja inferior = equity</div><div id="rpPx" style="height:460px"></div><div id="rpEq" style="height:180px;margin-top:8px"></div></div>
+  <div class="panel"><h2>Operaciones</h2><div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px"><select id="rpFk"><option value="">Todas</option><option value="BUY">Compras</option><option value="TP">Parciales / cierres</option><option value="LIQ">Liquidaciones</option></select><select id="rpFsd"><option value="">Corto y largo</option><option value="corto">Corto</option><option value="largo">Largo</option></select><span class="status" id="rpCnt" style="margin:0"></span></div><div style="max-height:420px;overflow:auto"><table id="rpTbl"></table></div></div>
 </div>
 </div>
 <div id="tabPD" style="display:none"><div id="pdRoot"><div class="pd-empty">Cargando…</div></div></div>
@@ -1048,6 +1087,70 @@ function vprfDaily(bars, rows, vaPct) {
 // zona de un precio respecto a un perfil
 function vprfZone(price, p) { if (!p) return 'sin dato'; return price > p.vah ? 'sobre VAH' : price >= p.poc ? 'entre POC y VAH' : price >= p.val ? 'entre VAL y POC' : 'bajo VAL'; }
 
+// ===== Represa engine (puro, sin DOM) =====
+const RP_DUR = { '4h': 14400000, '8h': 28800000, '12h': 43200000, '1d': 86400000 };
+const RP_DEF = { ltf: '8h', uShort: 100, mTrend: 1, mCounter: 0.25, uLong: 33.33, lmTrend: 1, lmCounter: 0.25, longStart: 'ltf', pctTp: 0.25, flipS: 1, flipL: 0.5, futCap: 50000, spotCap: 50000, maxShort: 60000, maxLong: 50000, feeF: 0.0005, feeS: 0.001, mm: 0.005, smallAlways: 0.1, tpLong: true, confirmBars: 30, start: Date.UTC(2020, 5, 1), end: Infinity };
+function rpEmaState(bars) { // signo EMA12-EMA25 al cierre de cada barra
+  const a = 2 / 13, b = 2 / 26; let e1 = null, e2 = null; const s = [];
+  for (const x of bars) { e1 = e1 == null ? x.c : e1 + a * (x.c - e1); e2 = e2 == null ? x.c : e2 + b * (x.c - e2); s.push(Math.sign(e1 - e2)); }
+  return s;
+}
+function rpBuild3d(d1) { // velas 3d ancladas a la primera vela 1d (como TradingView)
+  if (!d1.length) return []; const A = d1[0].t, D = 259200000, g = new Map();
+  for (const x of d1) { const k = Math.floor((x.t - A) / D); if (!g.has(k)) g.set(k, []); g.get(k).push(x); }
+  const out = []; [...g.keys()].sort((a, b) => a - b).forEach(k => { const v = g.get(k); if (v.length === 3) out.push({ t: A + k * D, o: v[0].o, h: Math.max(...v.map(x => x.h)), l: Math.min(...v.map(x => x.l)), c: v[2].c }); });
+  return out;
+}
+function rpPrep(b8, d1, bl, fund, p) {
+  const h3 = rpBuild3d(d1), s3 = rpEmaState(h3), sl = rpEmaState(bl), dl = RP_DUR[p.ltf];
+  const g = b8.map(x => ({ ...x, tc: x.t + 28800000, reg: 0, sl: 0, fund: 0 }));
+  let j = 0, k = 0, r3 = 0, rl = 0;
+  for (const x of g) {
+    while (j < h3.length && h3[j].t + 259200000 <= x.tc) { r3 = s3[j]; j++; }
+    while (k < bl.length && bl[k].t + dl <= x.tc) { rl = sl[k]; k++; }
+    x.reg = r3; x.sl = rl;
+  }
+  const tcs = g.map(x => x.tc);
+  for (const f of fund) { let lo = 0, hi = tcs.length; while (lo < hi) { const m = (lo + hi) >> 1; if (tcs[m] < f.t) lo = m + 1; else hi = m; } if (lo < g.length) g[lo].fund += f.rate; }
+  return g.filter(x => x.t >= p.start && x.t <= p.end);
+}
+function rpSim(b8, d1, bl, fund, pp) {
+  const p = { ...RP_DEF, ...pp }, g = rpPrep(b8, d1, bl, fund, p); if (!g.length) return null;
+  let fc = p.futCap, sc = p.spotCap, sq = 0, sa = 0, lq = 0, la = 0, prevReg = g[0].reg, prevSl = g[0].sl;
+  const ev = [], bars = [], eq = []; let mind = 1e9, maxexp = 0, liq = 0, fees = 0, fundtot = 0, nS = 0, nL = 0, peak = 0, mdd = 0, flast = 0;
+  const log = (i, t, kind, side, px, usd, note) => ev.push({ i, t, kind, side, px, usd, note, sq, sa, lq, la });
+  g.forEach((r, i) => {
+    const P = r.c, reg = r.reg, sl = r.sl, evSl = sl !== prevSl, evReg = reg !== prevReg, T = r.tc;
+    if (sq > 0 && r.fund !== 0) { const f_ = sq * P * r.fund; fc += f_; fundtot += f_; }
+    if (sq > 0 && fc + sq * (sa - r.h) <= p.mm * sq * r.h) { liq++; log(i, T, 'LIQ', 'corto', r.h, sq * r.h, 'Liquidación del corto'); fc = 0; sq = 0; sa = 0; }
+    if (sq > 0) {
+      let frac = 0; if (evSl && sl > 0) frac = Math.max(frac, p.pctTp); if (evReg && reg > 0) frac = Math.max(frac, p.flipS);
+      if (frac > 0) { const q = sq * frac, pnl = q * (sa - P); fc += pnl - q * P * p.feeF; fees += q * P * p.feeF; sq -= q; if (sq < 1e-12) { sq = 0; sa = 0; } log(i, T, 'TP', 'corto', P, q * P, (evReg && reg > 0 ? 'Giro 3d alcista' : 'Cruce menor alcista') + ' · ' + Math.round(frac * 100) + '%'); ev[ev.length - 1].pnl = pnl; }
+    }
+    if (lq > 0 && p.tpLong) {
+      let frac = 0; if (evSl && sl < 0 && reg > 0) frac = Math.max(frac, p.pctTp); if (evReg && reg < 0) frac = Math.max(frac, p.flipL);
+      if (frac > 0) { const q = lq * frac, pnl = q * (P - la); sc += q * P * (1 - p.feeS); fees += q * P * p.feeS; lq -= q; if (lq < 1e-12) { lq = 0; la = 0; } log(i, T, 'TP', 'largo', P, q * P, (evReg && reg < 0 ? 'Giro 3d bajista' : 'Cruce menor bajista') + ' · ' + Math.round(frac * 100) + '%'); ev[ev.length - 1].pnl = pnl; }
+    }
+    let addS = 0; if (reg < 0) addS = p.uShort * p.mTrend; else if (sl < 0) addS = p.uShort * p.mCounter;
+    if (addS > 0 && fc > 0 && sq * P + addS <= p.maxShort && (sq * P + addS) <= fc * 3) { const q = addS / P; sa = (sa * sq + P * q) / (sq + q); sq += q; fc -= addS * p.feeF; fees += addS * p.feeF; nS++; log(i, T, 'BUY', 'corto', P, addS, reg < 0 ? 'Régimen 3d bajista' : 'Cruce menor bajista (a contra)'); }
+    let addL = 0;
+    if (reg > 0) addL = p.uLong * p.lmTrend;
+    else if (p.longStart === 'always') addL = p.uLong * p.smallAlways;
+    else if ((p.longStart === 'ltf' || p.longStart === 'confirm') && sl > 0) addL = p.uLong * p.lmCounter;
+    if (p.longStart === 'confirm' && reg < 0) { let n = 0; for (let k = Math.max(0, i - p.confirmBars); k < i; k++) if (g[k].reg < 0) n++; if (n < p.confirmBars) addL = 0; }
+    if (addL > 0 && sc >= addL && lq * P + addL <= p.maxLong) { const q = addL * (1 - p.feeS) / P; la = (la * lq + P * q) / (lq + q); lq += q; sc -= addL; fees += addL * p.feeS; nL++; log(i, T, 'BUY', 'largo', P, addL, reg > 0 ? 'Régimen 3d alcista' : 'Acumulación (cruce menor alcista)'); }
+    const E = fc + sq * (sa - P) + sc + lq * P; eq.push(E); peak = Math.max(peak, E); mdd = Math.max(mdd, (peak - E) / peak);
+    let pl = null; if (sq > 0) { pl = (fc + sq * sa) / (sq * (1 + p.mm)); mind = Math.min(mind, (pl - P) / P * 100); }
+    maxexp = Math.max(maxexp, sq * P + lq * P);
+    bars.push({ t: r.t, tc: T, o: r.o, h: r.h, l: r.l, c: r.c, reg, sl, E, sq, sa: sq > 0 ? sa : null, lq, la: lq > 0 ? la : null, pl, fut: fc + sq * (sa - P), spot: sc + lq * P });
+    prevReg = reg; prevSl = sl;
+  });
+  const last = g[g.length - 1], tot = p.futCap + p.spotCap, E = eq[eq.length - 1];
+  const pS = fc + sq * (sa - last.c) - p.futCap, pL = sc + lq * last.c - p.spotCap, bh = tot * last.c / g[0].c;
+  return { p, bars, ev, sum: { pnlCorto: pS, pnlLargo: pL, final: E, ret: (E / tot - 1) * 100, bh: (bh / tot - 1) * 100, mdd: mdd * 100, distLiqMin: mind < 1e8 ? mind : null, liq, expMax: maxexp, fees, funding: fundtot, nS, nL, pnlTot: E - tot } };
+}
+if (typeof module !== 'undefined') module.exports = { rpSim, rpBuild3d, rpEmaState, RP_DEF };
+
 </script>
 <script>
 // ===== Sesión compartida =====
@@ -1695,11 +1798,83 @@ async function loadVprfRef(symbol, fromTs, toTs) {
 }
 
 function showTab(x) {
-  ['BT', 'CX', 'CL', 'PD', 'SP'].forEach(k => { $('tab' + k).style.display = x === k ? '' : 'none'; $('tabBtn' + k).classList.toggle('on', x === k); });
+  ['BT', 'CX', 'CL', 'PD', 'SP', 'RP'].forEach(k => { $('tab' + k).style.display = x === k ? '' : 'none'; $('tabBtn' + k).classList.toggle('on', x === k); });
   if (typeof clOnShow === 'function') clOnShow(x === 'CL');
   if (typeof pdOnShow === 'function') pdOnShow(x === 'PD');
 }
-$('tabBtnBT').onclick = () => showTab('BT'); $('tabBtnCX').onclick = () => showTab('CX'); $('tabBtnCL').onclick = () => showTab('CL'); $('tabBtnPD').onclick = () => showTab('PD'); $('tabBtnSP').onclick = () => showTab('SP');
+$('tabBtnBT').onclick = () => showTab('BT'); $('tabBtnCX').onclick = () => showTab('CX'); $('tabBtnCL').onclick = () => showTab('CL'); $('tabBtnPD').onclick = () => showTab('PD'); $('tabBtnSP').onclick = () => showTab('SP'); $('tabBtnRP').onclick = () => showTab('RP');
+
+
+// ---------- Represa ----------
+const RPC = {}; let RP = null;
+async function rpFund(sym) {
+  const out = [];
+  for (let off = 0; ; off += 1000) { const { data, error } = await sb.from('funding_ref').select('ts,rate').eq('fuente', BN_SRC).eq('simbolo', sym).order('ts').range(off, off + 999); if (error) throw new Error('funding_ref: ' + error.message); data.forEach(r => out.push({ t: Number(r.ts), rate: +r.rate })); if (data.length < 1000) break; }
+  return out;
+}
+async function rpData(sym, tf, st) {
+  const k = sym + '|' + tf; if (RPC[k]) return RPC[k];
+  st.textContent = 'Cargando ' + sym + ' ' + tf + '…';
+  const v = await loadRef(sym, tf, 0, Date.now(), n => st.textContent = 'Cargando ' + sym + ' ' + tf + ': ' + n.toLocaleString('es-ES'));
+  if (!v.length) throw new Error('No hay velas ' + tf + ' de ' + sym + ' en velas_ref. Descárgalas en «Setup 5m → Datos de referencia».');
+  return RPC[k] = v;
+}
+function rpParams() {
+  const n = id => +$(id).value, d = id => $(id).value ? Date.parse($(id).value + 'T00:00:00Z') : null;
+  return { ltf: $('rpLtf').value, uShort: n('rpUS'), mTrend: n('rpMT'), mCounter: n('rpMC'), uLong: n('rpUL'), lmTrend: n('rpLMT'), lmCounter: n('rpLMC'), longStart: $('rpLS').value, smallAlways: n('rpSA'), confirmBars: n('rpCB'), pctTp: n('rpTP') / 100, flipS: n('rpFS') / 100, flipL: n('rpFL') / 100, tpLong: $('rpTL').value === '1', futCap: n('rpFC'), spotCap: n('rpSC'), maxShort: n('rpMS'), maxLong: n('rpML'), feeF: n('rpFF') / 100, feeS: n('rpFSP') / 100, mm: n('rpMM') / 100, start: d('rpStart') || 0, end: d('rpEnd') != null ? d('rpEnd') + 86400000 : Infinity };
+}
+async function rpRun() {
+  const st = $('rpSt'); st.className = 'status'; $('rpRun').disabled = true;
+  try {
+    const sym = $('rpSym').value, p = rpParams();
+    const b8 = await rpData(sym, '8h', st), d1 = await rpData(sym, '1d', st), bl = await rpData(sym, p.ltf, st);
+    st.textContent = 'Cargando funding…'; const fk = sym + '|fund'; const fu = RPC[fk] || (RPC[fk] = await rpFund(sym));
+    if (!fu.length) st.textContent = 'Aviso: no hay funding en funding_ref; se simula sin funding.';
+    else st.textContent = '';
+    if (p.longStart === 'trend') { p.longStart = 'none'; }
+    RP = rpSim(b8, d1, bl, fu, p); if (!RP) throw new Error('Sin velas en ese rango.');
+    RP.sym = sym; rpRender();
+  } catch (e) { st.className = 'status err'; st.textContent = e.message; }
+  $('rpRun').disabled = false;
+}
+const rpM = n => (n < 0 ? '−' : '') + '$' + fmt(Math.abs(n), 0);
+function rpRender() {
+  const { sum: s, bars, ev, p } = RP; $('rpOut').style.display = ''; $('rpCsv').style.display = '';
+  const tot = p.futCap + p.spotCap, c = v => v >= 0 ? 'pos' : 'neg';
+  const K = (l, v, cl) => `<div class="card" style="cursor:default"><div class="row"><span>${l}</span></div><div class="big ${cl || ''}">${v}</div></div>`;
+  $('rpKpi').innerHTML = K('Resultado total', rpM(s.pnlTot) + ' (' + pct(s.ret, 1) + ')', c(s.pnlTot)) + K('Corto (perp)', rpM(s.pnlCorto), c(s.pnlCorto)) + K('Largo (spot)', rpM(s.pnlLargo), c(s.pnlLargo)) + K('Comprar y mantener (mismo capital)', pct(s.bh, 1)) + K('Drawdown máx. equity', fmt(s.mdd, 1) + '%') + K('Liquidaciones', s.liq, s.liq ? 'neg' : '') + K('Distancia mín. a liquidación', s.distLiqMin == null ? '—' : fmt(s.distLiqMin, 1) + '% sobre el precio') + K('Exposición máx. (corto+largo)', rpM(s.expMax)) + K('Comisiones', rpM(-s.fees), 'neg') + K('Funding recibido (+) / pagado (−)', rpM(s.funding), c(s.funding)) + K('Compras corto / largo', s.nS + ' / ' + s.nL);
+  const sec = ms => Math.floor(ms / 1000);
+  ['rpPx', 'rpEq'].forEach(id => { $(id).innerHTML = ''; });
+  const mk = (id, h) => LightweightCharts.createChart($(id), { width: $(id).clientWidth, height: h, layout: { background: { color: '#12141f' }, textColor: '#A8B2C1' }, grid: { vertLines: { color: '#1f2336' }, horzLines: { color: '#1f2336' } }, rightPriceScale: { borderColor: '#363c57' }, timeScale: { borderColor: '#363c57', timeVisible: false, minBarSpacing: 0.02, rightOffset: 3 }, localization: { locale: 'es-ES', dateFormat: 'dd/MM/yyyy' }, crosshair: { mode: 0 } });
+  const ch = mk('rpPx', 460), cs = ch.addCandlestickSeries({ upColor: '#26a69a', downColor: '#ef5350', borderVisible: false, wickUpColor: '#26a69a', wickDownColor: '#ef5350' });
+  const T = b => sec(b.tc);
+  // La vela "tc" = cierre de la barra; para el gráfico usamos la apertura
+  cs.setData(bars.map(b => ({ time: sec(b.t), open: b.o, high: b.h, low: b.l, close: b.c })));
+  bars.forEach(b => { b.plv = (b.pl != null && b.pl < b.c * 1.8) ? b.pl : null; });
+  const L = (key, color, style) => { const sr = ch.addLineSeries({ color, lineWidth: 2, lineStyle: style || 0, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false }); sr.setData(bars.map(b => b[key] == null ? { time: sec(b.t) } : { time: sec(b.t), value: b[key] })); return sr; };
+  L('sa', '#ef5350'); L('la', '#26a69a'); L('plv', '#FF9800', 2);
+  const idxT = new Map(bars.map((b, i) => [i, sec(b.t)]));
+  const stepMk = Math.max(1, Math.ceil(ev.filter(e => e.kind === 'BUY').length / 300)); const marks = [];
+  ev.forEach((e, j) => { if (e.kind === 'BUY' && j % stepMk) return; if (e.kind === 'TP' && e.usd < 300) return; const t = idxT.get(e.i); if (t == null) return; const short = e.side === 'corto'; marks.push({ time: t, position: short ? 'aboveBar' : 'belowBar', shape: e.kind === 'BUY' ? (short ? 'arrowDown' : 'arrowUp') : e.kind === 'LIQ' ? 'square' : 'circle', color: e.kind === 'LIQ' ? '#FF9800' : short ? '#ef5350' : '#26a69a', text: e.kind === 'BUY' ? '' : e.kind === 'LIQ' ? 'LIQ' : 'TP' }); });
+  const seen = new Set(); cs.setMarkers(marks.sort((a, b) => a.time - b.time));
+  const ce = mk('rpEq', 180); const a = ce.addAreaSeries({ lineColor: '#F4D03F', topColor: 'rgba(244,208,63,.25)', bottomColor: 'rgba(244,208,63,0)', lineWidth: 2, priceLineVisible: false });
+  a.setData(bars.map(b => ({ time: sec(b.t), value: b.E })));
+  let lk = false; const sy = (x, y) => x.timeScale().subscribeVisibleLogicalRangeChange(r => { if (r && !lk) { lk = true; y.timeScale().setVisibleLogicalRange(r); lk = false; } }); sy(ch, ce); sy(ce, ch); ch.timeScale().fitContent();
+  rpTable();
+}
+function rpTable() {
+  const k = $('rpFk').value, sd = $('rpFsd').value, d = t => new Date(t).toISOString().slice(0, 16).replace('T', ' ');
+  const rows = RP.ev.filter(e => (!k || e.kind === k) && (!sd || e.side === sd)), lim = rows.slice(-2000);
+  $('rpCnt').textContent = rows.length.toLocaleString('es-ES') + ' eventos' + (rows.length > lim.length ? ' (muestro los últimos 2.000)' : '');
+  $('rpTbl').innerHTML = '<tr><th>Fecha (UTC)</th><th>Tipo</th><th>Lado</th><th class="r">Precio</th><th class="r">$</th><th class="r">PEPP corto</th><th class="r">PEPP largo</th><th class="r">Pos. corto</th><th class="r">Pos. largo</th><th>Motivo</th><th class="r">P&amp;L</th></tr>' + lim.map(e => `<tr><td>${d(e.t)}</td><td>${e.kind}</td><td>${e.side}</td><td class="r">${fmt(e.px, 2)}</td><td class="r">${fmt(e.usd, 0)}</td><td class="r">${e.sq > 0 ? fmt(e.sa, 2) : '—'}</td><td class="r">${e.lq > 0 ? fmt(e.la, 2) : '—'}</td><td class="r">${fmt(e.sq, 4)}</td><td class="r">${fmt(e.lq, 4)}</td><td>${esc(e.note)}</td><td class="r ${e.pnl > 0 ? 'pos' : e.pnl < 0 ? 'neg' : ''}">${e.pnl == null ? '' : rpM(e.pnl)}</td></tr>`).join('');
+}
+function rpCsv() {
+  const d = t => new Date(t).toISOString().slice(0, 19).replace('T', ' ');
+  const L = ['fecha_utc;tipo;lado;precio;usd;pepp_corto;pepp_largo;pos_corto;pos_largo;motivo;pnl'];
+  RP.ev.forEach(e => L.push([d(e.t), e.kind, e.side, e.px, e.usd.toFixed(2), e.sq > 0 ? e.sa : '', e.lq > 0 ? e.la : '', e.sq, e.lq, e.note, e.pnl == null ? '' : e.pnl.toFixed(2)].join(';')));
+  rfDownload('Represa_' + RP.sym + '.csv', L);
+}
+$('rpRun').onclick = rpRun; $('rpCsv').onclick = rpCsv; $('rpFk').onchange = () => RP && rpTable(); $('rpFsd').onchange = () => RP && rpTable();
 
 // ---------- Análisis de cruces ----------
 let CX = null;
