@@ -121,7 +121,7 @@ details ul{color:var(--mut);line-height:1.6;padding-left:20px;margin:8px 0 0}
 <body>
 <header>
   <h1>🏇 Backtest – Carrera de Caballos</h1>
-  <div><span id="ver" style="color:var(--gold);font-size:.72rem;margin-right:12px;border:1px solid var(--line);border-radius:6px;padding:2px 7px">v. 26/11 18:00 · + pestaña Represa</span><span id="who" style="color:var(--mut);margin-right:12px"></span><a href="/dashboard.html">← Dashboard</a></div>
+  <div><span id="ver" style="color:var(--gold);font-size:.72rem;margin-right:12px;border:1px solid var(--line);border-radius:6px;padding:2px 7px">v. 26/11 20:30 · Represa: reglas por régimen</span><span id="who" style="color:var(--mut);margin-right:12px"></span><a href="/dashboard.html">← Dashboard</a></div>
 </header>
 <main>
 <div class="tabs"><button class="tab on" id="tabBtnBT">🏇 Backtest</button><button class="tab" id="tabBtnCX">📊 Análisis de cruces</button><button class="tab" id="tabBtnCL">🧮 Calculadora</button><button class="tab" id="tabBtnPD">📝 Pendientes</button><button class="tab" id="tabBtnSP">🎯 Setup 5m</button><button class="tab" id="tabBtnRP">🌊 Represa</button></div>
@@ -394,32 +394,40 @@ details ul{color:var(--mut);line-height:1.6;padding-left:20px;margin:8px 0 0}
 <div id="tabRP" style="display:none">
 <div class="panel">
   <h2>Represa · DCA corto (perp) + DCA largo (spot) según cruces EMA12/25</h2>
-  <div class="legend" style="margin:0 0 10px">Régimen = estado EMA12/EMA25 en velas <b>3d</b> (ancladas como TradingView). Con régimen bajista se compra corto cada vela de 8h; con régimen alcista pero cruce menor bajista se compra corto en pequeño (a contra). El largo en spot compra en régimen alcista y, según el modo, también al empezar a acumular. Los cruces menores alcistas cierran parte del corto (TP parcial); un giro 3d cierra el % de «giro». Datos: Binance futuros (velas_ref + funding_ref). Liquidación comprobada con el máximo de la vela.</div>
+  <div class="legend" style="margin:0 0 10px">El régimen lo marca EMA12/EMA25 en velas <b>3d</b> (ancladas como TradingView). Abajo tienes las reglas de cada régimen por separado. Todos los importes son en dólares por vela de 8h. Datos: Binance futuros (velas_ref + funding_ref). Liquidación comprobada con el máximo de la vela.</div>
+  <h3 style="margin:14px 0 6px;font-size:.95rem">⚙️ General</h3>
   <div class="grid">
     <div><label>Activo</label><select id="rpSym"><option>BTC</option><option>ETH</option></select></div>
     <div><label>Desde</label><input type="date" id="rpStart" value="2020-06-01"></div>
     <div><label>Hasta</label><input type="date" id="rpEnd"></div>
-    <div><label>TF de anticipación (cruces menores)</label><select id="rpLtf"><option>4h</option><option selected>8h</option><option>12h</option><option>1d</option></select></div>
-    <div><label>Corto: $ por vela 8h (tendencia)</label><input id="rpUS" type="number" value="100"></div>
-    <div><label>Corto: mult. tendencia</label><input id="rpMT" type="number" step="0.05" value="1"></div>
-    <div><label>Corto: mult. a contra</label><input id="rpMC" type="number" step="0.05" value="0.25"></div>
-    <div><label>Largo spot: $ por vela 8h</label><input id="rpUL" type="number" value="33.33"></div>
-    <div><label>Largo: mult. tendencia</label><input id="rpLMT" type="number" step="0.05" value="1"></div>
-    <div><label>Largo: mult. a contra</label><input id="rpLMC" type="number" step="0.05" value="0.25"></div>
-    <div><label>Cuándo empieza el largo</label><select id="rpLS"><option value="ltf">Con cruce menor alcista</option><option value="confirm">Tras caída confirmada + cruce menor</option><option value="always">Siempre, en pequeño</option><option value="trend">Solo régimen alcista</option></select></div>
-    <div><label>Pequeño siempre (mult.)</label><input id="rpSA" type="number" step="0.05" value="0.1"></div>
-    <div><label>Barras 8h de confirmación</label><input id="rpCB" type="number" value="30"></div>
-    <div><label>TP parcial por cruce menor (%)</label><input id="rpTP" type="number" value="25"></div>
-    <div><label>Cierre corto al giro 3d (%)</label><input id="rpFS" type="number" value="100"></div>
-    <div><label>Cierre largo al giro 3d (%)</label><input id="rpFL" type="number" value="50"></div>
-    <div><label>Parciales en el largo</label><select id="rpTL"><option value="1">Sí</option><option value="0">No</option></select></div>
-    <div><label>Capital futuros ($)</label><input id="rpFC" type="number" value="50000"></div>
-    <div><label>Capital spot ($)</label><input id="rpSC" type="number" value="50000"></div>
-    <div><label>Máx. corto nocional ($)</label><input id="rpMS" type="number" value="60000"></div>
-    <div><label>Máx. largo ($)</label><input id="rpML" type="number" value="50000"></div>
-    <div><label>Comisión futuros por lado (%)</label><input id="rpFF" type="number" step="0.01" value="0.05"></div>
-    <div><label>Comisión spot por lado (%)</label><input id="rpFSP" type="number" step="0.01" value="0.1"></div>
-    <div><label>Margen de mantenimiento (%)</label><input id="rpMM" type="number" step="0.05" value="0.5"></div>
+    <div><label>TF de los cruces menores (anticipación)</label><select id="rpLtf"><option>4h</option><option selected>8h</option><option>12h</option><option>1d</option></select></div>
+    <div><label>Capital futuros ($)</label><input id="rpFC" type="number" step="any" value="50000"></div><div><label>Capital spot ($)</label><input id="rpSC" type="number" step="any" value="50000"></div><div><label>Máx. corto nocional ($)</label><input id="rpMS" type="number" step="any" value="60000"></div><div><label>Máx. largo ($)</label><input id="rpML" type="number" step="any" value="50000"></div><div><label>Comisión futuros por lado (%)</label><input id="rpFF" type="number" step="any" value="0.05"></div><div><label>Comisión spot por lado (%)</label><input id="rpFSP" type="number" step="any" value="0.1"></div><div><label>Margen de mantenimiento (%)</label><input id="rpMM" type="number" step="any" value="0.5"></div>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;margin-top:16px">
+    <div style="border:2px solid #ef5350;border-radius:12px;padding:12px">
+      <h3 style="margin:0 0 4px;color:#ef5350;font-size:1rem">🔴 Régimen BAJISTA (3d: EMA12 &lt; EMA25)</h3>
+      <div class="legend" style="margin:0 0 8px">Se vende fuerte (a favor) y se acumula poco en spot. Cada importe es lo que se compra en <b>cada vela de 8h</b>.</div>
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr))">
+        <div><label>Corto: $ por vela</label><input id="rpBS" type="number" step="any" value="100"></div>
+        <div><label>Largo spot: cuándo empieza</label><select id="rpLS"><option value="ltf">Con cruce menor alcista</option><option value="confirm">Tras caída confirmada + cruce menor</option><option value="always">Siempre, en pequeño</option><option value="none">No compra largo</option></select></div>
+        <div><label>Largo: $ por vela (acumulación)</label><input id="rpBL" type="number" step="any" value="8.33"></div><div><label>Largo «siempre»: $ por vela</label><input id="rpSA" type="number" step="any" value="3.33"></div><div><label>Confirmación: velas 8h bajistas</label><input id="rpCB" type="number" step="any" value="30"></div>
+      </div>
+      <div class="legend" style="margin:10px 0 4px"><b>Al girar a alcista</b> (cruce 3d)</div>
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr))"><div><label>Cerrar corto (%)</label><input id="rpFS" type="number" step="any" value="100"></div></div>
+      <div class="legend" style="margin:10px 0 4px"><b>Mientras dure</b>: cada cruce menor alcista</div>
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr))"><div><label>Cerrar corto parcial (%)</label><input id="rpTP" type="number" step="any" value="25"></div></div>
+    </div>
+    <div style="border:2px solid #26a69a;border-radius:12px;padding:12px">
+      <h3 style="margin:0 0 4px;color:#26a69a;font-size:1rem">🟢 Régimen ALCISTA (3d: EMA12 &gt; EMA25)</h3>
+      <div class="legend" style="margin:0 0 8px">Se compra largo a favor; el corto solo entra pequeño, a contra, cuando hay cruce menor bajista.</div>
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr))">
+        <div><label>Largo spot: $ por vela</label><input id="rpUL" type="number" step="any" value="33.33"></div><div><label>Corto a contra: $ por vela</label><input id="rpUC" type="number" step="any" value="25"></div>
+      </div>
+      <div class="legend" style="margin:10px 0 4px"><b>Al girar a bajista</b> (cruce 3d)</div>
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr))"><div><label>Cerrar largo (%)</label><input id="rpFL" type="number" step="any" value="50"></div></div>
+      <div class="legend" style="margin:10px 0 4px"><b>Mientras dure</b>: cada cruce menor bajista</div>
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr))"><div><label>Cerrar largo parcial (%)</label><input id="rpTPL" type="number" step="any" value="25"></div><div><label>¿Aplicar?</label><select id="rpTL"><option value="1">Sí</option><option value="0">No</option></select></div></div>
+    </div>
   </div>
   <div style="margin-top:14px;display:flex;gap:12px;flex-wrap:wrap"><button class="btn" id="rpRun">▶ Simular</button><button class="btn" id="rpCsv" style="display:none">⬇ Operaciones (CSV)</button></div>
   <div class="status" id="rpSt"></div>
@@ -1128,7 +1136,7 @@ function rpSim(b8, d1, bl, fund, pp) {
       if (frac > 0) { const q = sq * frac, pnl = q * (sa - P); fc += pnl - q * P * p.feeF; fees += q * P * p.feeF; sq -= q; if (sq < 1e-12) { sq = 0; sa = 0; } log(i, T, 'TP', 'corto', P, q * P, (evReg && reg > 0 ? 'Giro 3d alcista' : 'Cruce menor alcista') + ' · ' + Math.round(frac * 100) + '%'); ev[ev.length - 1].pnl = pnl; }
     }
     if (lq > 0 && p.tpLong) {
-      let frac = 0; if (evSl && sl < 0 && reg > 0) frac = Math.max(frac, p.pctTp); if (evReg && reg < 0) frac = Math.max(frac, p.flipL);
+      let frac = 0; if (evSl && sl < 0 && reg > 0) frac = Math.max(frac, p.pctTpL != null ? p.pctTpL : p.pctTp); if (evReg && reg < 0) frac = Math.max(frac, p.flipL);
       if (frac > 0) { const q = lq * frac, pnl = q * (P - la); sc += q * P * (1 - p.feeS); fees += q * P * p.feeS; lq -= q; if (lq < 1e-12) { lq = 0; la = 0; } log(i, T, 'TP', 'largo', P, q * P, (evReg && reg < 0 ? 'Giro 3d bajista' : 'Cruce menor bajista') + ' · ' + Math.round(frac * 100) + '%'); ev[ev.length - 1].pnl = pnl; }
     }
     let addS = 0; if (reg < 0) addS = p.uShort * p.mTrend; else if (sl < 0) addS = p.uShort * p.mCounter;
@@ -1821,7 +1829,7 @@ async function rpData(sym, tf, st) {
 }
 function rpParams() {
   const n = id => +$(id).value, d = id => $(id).value ? Date.parse($(id).value + 'T00:00:00Z') : null;
-  return { ltf: $('rpLtf').value, uShort: n('rpUS'), mTrend: n('rpMT'), mCounter: n('rpMC'), uLong: n('rpUL'), lmTrend: n('rpLMT'), lmCounter: n('rpLMC'), longStart: $('rpLS').value, smallAlways: n('rpSA'), confirmBars: n('rpCB'), pctTp: n('rpTP') / 100, flipS: n('rpFS') / 100, flipL: n('rpFL') / 100, tpLong: $('rpTL').value === '1', futCap: n('rpFC'), spotCap: n('rpSC'), maxShort: n('rpMS'), maxLong: n('rpML'), feeF: n('rpFF') / 100, feeS: n('rpFSP') / 100, mm: n('rpMM') / 100, start: d('rpStart') || 0, end: d('rpEnd') != null ? d('rpEnd') + 86400000 : Infinity };
+  return { ltf: $('rpLtf').value, uShort: 1, mTrend: n('rpBS'), mCounter: n('rpUC'), uLong: 1, lmTrend: n('rpUL'), lmCounter: n('rpBL'), longStart: $('rpLS').value, smallAlways: n('rpSA'), confirmBars: n('rpCB'), pctTp: n('rpTP') / 100, pctTpL: n('rpTPL') / 100, flipS: n('rpFS') / 100, flipL: n('rpFL') / 100, tpLong: $('rpTL').value === '1', futCap: n('rpFC'), spotCap: n('rpSC'), maxShort: n('rpMS'), maxLong: n('rpML'), feeF: n('rpFF') / 100, feeS: n('rpFSP') / 100, mm: n('rpMM') / 100, start: d('rpStart') || 0, end: d('rpEnd') != null ? d('rpEnd') + 86400000 : Infinity };
 }
 async function rpRun() {
   const st = $('rpSt'); st.className = 'status'; $('rpRun').disabled = true;
@@ -1831,7 +1839,6 @@ async function rpRun() {
     st.textContent = 'Cargando funding…'; const fk = sym + '|fund'; const fu = RPC[fk] || (RPC[fk] = await rpFund(sym));
     if (!fu.length) st.textContent = 'Aviso: no hay funding en funding_ref; se simula sin funding.';
     else st.textContent = '';
-    if (p.longStart === 'trend') { p.longStart = 'none'; }
     RP = rpSim(b8, d1, bl, fu, p); if (!RP) throw new Error('Sin velas en ese rango.');
     RP.sym = sym; rpRender();
   } catch (e) { st.className = 'status err'; st.textContent = e.message; }
