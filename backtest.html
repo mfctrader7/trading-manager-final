@@ -121,7 +121,7 @@ details ul{color:var(--mut);line-height:1.6;padding-left:20px;margin:8px 0 0}
 <body>
 <header>
   <h1>🏇 Backtest – Carrera de Caballos</h1>
-  <div><span id="ver" style="color:var(--gold);font-size:.72rem;margin-right:12px;border:1px solid var(--line);border-radius:6px;padding:2px 7px">v. 25/11 20:30 · + Binance (velas_ref, vprf_diario)</span><span id="who" style="color:var(--mut);margin-right:12px"></span><a href="/dashboard.html">← Dashboard</a></div>
+  <div><span id="ver" style="color:var(--gold);font-size:.72rem;margin-right:12px;border:1px solid var(--line);border-radius:6px;padding:2px 7px">v. 26/11 13:30 · + velas altas, funding y CSV (Binance)</span><span id="who" style="color:var(--mut);margin-right:12px"></span><a href="/dashboard.html">← Dashboard</a></div>
 </header>
 <main>
 <div class="tabs"><button class="tab on" id="tabBtnBT">🏇 Backtest</button><button class="tab" id="tabBtnCX">📊 Análisis de cruces</button><button class="tab" id="tabBtnCL">🧮 Calculadora</button><button class="tab" id="tabBtnPD">📝 Pendientes</button><button class="tab" id="tabBtnSP">🎯 Setup 5m</button></div>
@@ -368,7 +368,10 @@ details ul{color:var(--mut);line-height:1.6;padding-left:20px;margin:8px 0 0}
       <div><label>Hasta</label><input type="date" id="rfEnd"></div>
     </div>
     <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap"><button class="btn" id="rfRun5">⬇ Bajar velas 5m</button><button class="btn" id="rfRunVp">⬇ Calcular VPRF diario</button><button class="btn" id="rfCov">📊 Ver cobertura</button><button class="btn" id="rfStop" style="display:none">■ Parar</button></div>
-    <div class="status" id="rfStatus"></div><div class="scroll" style="max-height:none"><table id="rfTable" class="cl"></table></div>
+    <div class="legend" style="margin:14px 0 6px"><b>Velas altas y funding</b> (para estudiar cruces de EMA en 3d, 24h, 12h, 8h y 4h y costes de mantener posiciones). Mismas tablas: las velas van a <b>velas_ref</b> con su intervalo; el funding a <b>funding_ref</b> (SQL aparte). Binance futuros tiene BTC desde sept. 2019 y ETH desde nov. 2019.</div>
+    <div class="grid"><div><label>Desde (velas altas y funding)</label><input type="date" id="rfStartHi" value="2019-09-01"></div><div><label>Intervalo para exportar</label><select id="rfTf"><option>1d</option><option>3d</option><option>12h</option><option>8h</option><option>4h</option><option>1h</option><option>5m</option></select></div></div>
+    <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap"><button class="btn" id="rfRunHi">⬇ Bajar velas 1d · 3d · 12h · 8h · 4h</button><button class="btn" id="rfRunFund">⬇ Bajar funding</button><button class="btn" id="rfCsv">💾 Exportar velas (CSV)</button><button class="btn" id="rfCsvF">💾 Exportar funding (CSV)</button></div>
+    <div class="status" id="rfStatus"></div><div class="scroll" style="max-height:none"><table id="rfTable" class="cl"></table><table id="rfTable2" class="cl" style="margin-top:10px"></table></div>
   </details>
 </div>
 <div class="panel" id="spResP" style="display:none">
@@ -1529,32 +1532,89 @@ async function bnKlines(sym, iv, s, e) {
   }
   throw new Error('Binance limitó las peticiones (429). Espera un minuto y vuelve a pulsar: continúa donde se quedó.');
 }
-function rfBusy(on) { ['rfRun5', 'rfRunVp', 'rfCov'].forEach(k => $(k).disabled = on); $('rfStop').style.display = on ? '' : 'none'; if (on) rfStopF = false; }
+function rfBusy(on) { ['rfRun5', 'rfRunVp', 'rfCov', 'rfRunHi', 'rfRunFund', 'rfCsv', 'rfCsvF'].forEach(k => $(k).disabled = on); $('rfStop').style.display = on ? '' : 'none'; if (on) rfStopF = false; }
 const rfSyms = () => $('rfSyms').value.split(',').map(x => x.trim().toUpperCase()).filter(Boolean);
-async function rfEdge(sym, asc) {
-  const { data, error } = await sb.from('velas_ref').select('ts').eq('fuente', BN_SRC).eq('simbolo', sym).eq('intervalo', '5m').order('ts', { ascending: asc }).limit(1);
+async function rfEdge(sym, asc, iv = '5m') {
+  const { data, error } = await sb.from('velas_ref').select('ts').eq('fuente', BN_SRC).eq('simbolo', sym).eq('intervalo', iv).order('ts', { ascending: asc }).limit(1);
   if (error) throw new Error('velas_ref: ' + error.message + (error.code ? ' [' + error.code + ']' : '') + ' (¿ejecutaste el SQL de las tablas?)');
   return data.length ? Number(data[0].ts) : null;
 }
-async function rfRun5() {
+async function rfRunTfs(ivs, startId) {
   const st = $('rfStatus'); st.className = 'status'; rfBusy(true);
   try {
-    const STEP = 300000, CH = 1500 * STEP, now = Date.now();
-    const from = Math.floor(new Date($('rfStart').value + 'T00:00:00Z').getTime() / STEP) * STEP, to = Math.min(new Date($('rfEnd').value + 'T23:59:59Z').getTime(), now - 2 * STEP);
-    let total = 0;
-    for (const sym of rfSyms()) {
-      const mn = await rfEdge(sym, true), mx = mn === null ? null : await rfEdge(sym, false);
-      const segs = mn === null ? [[from, to]] : [[from, Math.min(mn - STEP, to)], [mx + STEP, to]].filter(x => x[0] <= x[1]);
-      for (const [a, b] of segs) for (let s = a; s <= b; s += CH) {
-        if (rfStopF) throw new Error('Parado. Lo guardado hasta ahora se conserva; pulsa de nuevo para continuar.');
-        const e = Math.min(s + CH - STEP, b); st.textContent = `${sym}: descargando 5m desde ${new Date(s).toISOString().slice(0, 10)}… (${total.toLocaleString('es-ES')} velas guardadas)`;
-        const ks = (await bnKlines(sym, '5m', s, e)).filter(k => k.t >= s && k.t <= e && k.t % STEP === 0 && k.t + STEP <= now);
-        const rows = ks.map(k => ({ fuente: BN_SRC, simbolo: sym, intervalo: '5m', ts: k.t, fecha: new Date(k.t).toISOString().slice(0, 10), open: k.o, high: k.h, low: k.l, close: k.c, volume: k.v }));
-        for (let i = 0; i < rows.length; i += 500) { const { error } = await sb.from('velas_ref').upsert(rows.slice(i, i + 500), { onConflict: 'fuente,simbolo,intervalo,ts' }); if (error) throw new Error('No se pudo guardar en velas_ref: ' + error.message + (error.code ? ' [' + error.code + ']' : '')); }
-        total += rows.length; await rfSleep(250);
+    const now = Date.now(); let total = 0;
+    for (const iv of ivs) {
+      const STEP = TF_MS[iv], CH = 1500 * STEP, al = iv !== '3d';
+      const from = Math.floor(new Date($(startId).value + 'T00:00:00Z').getTime() / (al ? STEP : 86400000)) * (al ? STEP : 86400000), to = Math.min(new Date($('rfEnd').value + 'T23:59:59Z').getTime(), now - 2 * 60000);
+      for (const sym of rfSyms()) {
+        const mn = await rfEdge(sym, true, iv), mx = mn === null ? null : await rfEdge(sym, false, iv);
+        const segs = mn === null ? [[from, to]] : [[from, Math.min(mn - 1, to)], [mx + STEP, to]].filter(x => x[0] <= x[1]);
+        for (const [a, b] of segs) for (let s = a; s <= b; s += CH) {
+          if (rfStopF) throw new Error('Parado. Lo guardado hasta ahora se conserva; pulsa de nuevo para continuar.');
+          const e = Math.min(s + CH - 1, b); st.textContent = `${sym} ${iv}: descargando desde ${new Date(s).toISOString().slice(0, 10)}… (${total.toLocaleString('es-ES')} velas guardadas)`;
+          const ks = (await bnKlines(sym, iv, s, e)).filter(k => k.t >= s && k.t <= e && (!al || k.t % STEP === 0) && k.t + STEP <= now);
+          const rows = ks.map(k => ({ fuente: BN_SRC, simbolo: sym, intervalo: iv, ts: k.t, fecha: new Date(k.t).toISOString().slice(0, 10), open: k.o, high: k.h, low: k.l, close: k.c, volume: k.v }));
+          for (let i = 0; i < rows.length; i += 500) { const { error } = await sb.from('velas_ref').upsert(rows.slice(i, i + 500), { onConflict: 'fuente,simbolo,intervalo,ts' }); if (error) throw new Error('No se pudo guardar en velas_ref: ' + error.message + (error.code ? ' [' + error.code + ']' : '')); }
+          total += rows.length; await rfSleep(250);
+        }
       }
     }
-    st.textContent = `Listo. Velas de 5m nuevas guardadas: ${total.toLocaleString('es-ES')}. Pulsa «Ver cobertura» para comprobar.`;
+    st.textContent = `Listo. Velas nuevas guardadas: ${total.toLocaleString('es-ES')}. Pulsa «Ver cobertura» para comprobar.`;
+  } catch (e) { st.className = 'status err'; st.textContent = e.message; }
+  rfBusy(false);
+}
+const rfRun5 = () => rfRunTfs(['5m'], 'rfStart');
+const rfRunHi = () => rfRunTfs(['1d', '3d', '12h', '8h', '4h'], 'rfStartHi');
+async function rfRunFund() {
+  const st = $('rfStatus'); st.className = 'status'; rfBusy(true);
+  try {
+    const now = Date.now(); let total = 0;
+    for (const sym of rfSyms()) {
+      const q = async asc => { const { data, error } = await sb.from('funding_ref').select('ts').eq('fuente', BN_SRC).eq('simbolo', sym).order('ts', { ascending: asc }).limit(1); if (error) throw new Error('funding_ref: ' + error.message + (error.code ? ' [' + error.code + ']' : '') + ' (¿ejecutaste sql_funding_ref.sql?)'); return data.length ? Number(data[0].ts) : null; };
+      const from = new Date($('rfStartHi').value + 'T00:00:00Z').getTime(), mn = await q(true), mx = mn === null ? null : await q(false);
+      const segs = mn === null ? [[from, now]] : [[from, mn - 1], [mx + 1, now]].filter(x => x[0] < x[1]);
+      for (const [a, b] of segs) { let s = a;
+        while (s < b) {
+          if (rfStopF) throw new Error('Parado. Lo guardado se conserva; pulsa de nuevo para continuar.');
+          st.textContent = `${sym}: funding desde ${new Date(s).toISOString().slice(0, 10)}… (${total.toLocaleString('es-ES')} registros)`;
+          const r = await fetch(`https://fapi.binance.com/fapi/v1/fundingRate?symbol=${sym}USDT&startTime=${s}&endTime=${b}&limit=1000`);
+          if (r.status === 429 || r.status === 418) { await rfSleep(20000); continue; }
+          if (!r.ok) throw new Error('Binance respondió ' + r.status + ' en el funding de ' + sym);
+          const ks = await r.json(); if (!ks.length) break;
+          const rows = ks.map(k => ({ fuente: BN_SRC, simbolo: sym, ts: +k.fundingTime, rate: parseFloat(k.fundingRate), mark: parseFloat(k.markPrice) || null }));
+          for (let i = 0; i < rows.length; i += 500) { const { error } = await sb.from('funding_ref').upsert(rows.slice(i, i + 500), { onConflict: 'fuente,simbolo,ts' }); if (error) throw new Error('No se pudo guardar en funding_ref: ' + error.message + (error.code ? ' [' + error.code + ']' : '')); }
+          total += rows.length; const last = Math.max(...rows.map(x => x.ts)); if (last < s) break; s = last + 1; await rfSleep(300);
+        } }
+    }
+    st.textContent = `Listo. Registros de funding nuevos: ${total.toLocaleString('es-ES')}.`;
+  } catch (e) { st.className = 'status err'; st.textContent = e.message; }
+  rfBusy(false);
+}
+function rfDownload(name, lines) { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv' })); a.download = name; a.click(); }
+async function rfCsv() {
+  const st = $('rfStatus'); st.className = 'status'; rfBusy(true);
+  try {
+    const iv = $('rfTf').value; let n = 0;
+    for (const sym of rfSyms()) {
+      const bars = await loadRef(sym, iv, 0, Date.now(), k => { st.textContent = `${sym} ${iv}: leyendo ${k.toLocaleString('es-ES')} velas…`; });
+      if (!bars.length) { st.textContent = `No hay velas ${iv} de ${sym} en velas_ref.`; continue; }
+      rfDownload(`VelasRef_${sym}_${iv}_${new Date(bars[0].t).toISOString().slice(0, 10)}_a_${new Date(bars[bars.length - 1].t).toISOString().slice(0, 10)}.csv`, ['vela_utc,apertura,maximo,minimo,cierre,volumen'].concat(bars.map(b => [new Date(b.t).toISOString(), b.o, b.h, b.l, b.c, b.v].join(',')))); n++;
+    }
+    st.textContent = n ? `Listo: ${n} archivo(s) descargado(s).` : st.textContent;
+  } catch (e) { st.className = 'status err'; st.textContent = e.message; }
+  rfBusy(false);
+}
+async function rfCsvF() {
+  const st = $('rfStatus'); st.className = 'status'; rfBusy(true);
+  try {
+    let n = 0;
+    for (const sym of rfSyms()) {
+      const rows = [];
+      for (let off = 0; ; off += 1000) { const { data, error } = await sb.from('funding_ref').select('ts,rate,mark').eq('fuente', BN_SRC).eq('simbolo', sym).order('ts').range(off, off + 999); if (error) throw new Error('funding_ref: ' + error.message); rows.push(...data); if (data.length < 1000) break; }
+      if (!rows.length) { st.textContent = `No hay funding de ${sym}.`; continue; }
+      rfDownload(`Funding_${sym}_${new Date(Number(rows[0].ts)).toISOString().slice(0, 10)}_a_${new Date(Number(rows[rows.length - 1].ts)).toISOString().slice(0, 10)}.csv`, ['momento_utc,tasa,mark'].concat(rows.map(r => [new Date(Number(r.ts)).toISOString(), r.rate, r.mark].join(',')))); n++;
+    }
+    st.textContent = n ? `Listo: ${n} archivo(s) descargado(s).` : st.textContent;
   } catch (e) { st.className = 'status err'; st.textContent = e.message; }
   rfBusy(false);
 }
@@ -1601,12 +1661,19 @@ async function rfCov() {
       const { data: a } = await sb.from('vprf_diario').select('ts_dia').eq('fuente', BN_SRC).eq('simbolo', sym).order('ts_dia', { ascending: true }).limit(1), { data: b } = await sb.from('vprf_diario').select('ts_dia').eq('fuente', BN_SRC).eq('simbolo', sym).order('ts_dia', { ascending: false }).limit(1);
       rows.push(`<tr><td>${sym}</td><td class="r">${(c5.count || 0).toLocaleString('es-ES')}</td><td>${f(mn)} → ${f(mx)}</td><td class="r">${exp ? Math.round((c5.count || 0) / exp * 100) + ' %' : '—'}</td><td class="r">${(cv.count || 0).toLocaleString('es-ES')}</td><td>${a && a.length ? f(Number(a[0].ts_dia)) : '—'} → ${b && b.length ? f(Number(b[0].ts_dia)) : '—'}</td><td class="r">${inc.count || 0}</td></tr>`);
     }
+    const rows2 = [];
+    for (const sym of rfSyms()) for (const iv of ['5m', '4h', '8h', '12h', '1d', '3d']) {
+      const c = await sb.from('velas_ref').select('ts', { count: 'exact', head: true }).eq('fuente', BN_SRC).eq('simbolo', sym).eq('intervalo', iv); if (c.error) throw new Error('velas_ref: ' + c.error.message);
+      if (!c.count) continue; const a = await rfEdge(sym, true, iv), b = await rfEdge(sym, false, iv); rows2.push(`<tr><td>${sym}</td><td>${iv}</td><td class="r">${c.count.toLocaleString('es-ES')}</td><td>${f(a)} → ${f(b)}</td><td class="r">${Math.round(c.count / ((b - a) / TF_MS[iv] + 1) * 100)} %</td></tr>`);
+    }
+    for (const sym of rfSyms()) { const c = await sb.from('funding_ref').select('ts', { count: 'exact', head: true }).eq('fuente', BN_SRC).eq('simbolo', sym); if (!c.error && c.count) { const q = async asc => { const { data } = await sb.from('funding_ref').select('ts').eq('fuente', BN_SRC).eq('simbolo', sym).order('ts', { ascending: asc }).limit(1); return data && data.length ? Number(data[0].ts) : null; }; rows2.push(`<tr><td>${sym}</td><td>funding</td><td class="r">${c.count.toLocaleString('es-ES')}</td><td>${f(await q(true))} → ${f(await q(false))}</td><td class="r">—</td></tr>`); } }
+    $('rfTable2').innerHTML = rows2.length ? '<tr><th>Activo</th><th>Intervalo</th><th class="r">Velas</th><th>Rango</th><th class="r">Completo</th></tr>' + rows2.join('') : '';
     $('rfTable').innerHTML = '<tr><th>Activo</th><th class="r">Velas 5m</th><th>Rango 5m</th><th class="r">Completo</th><th class="r">Días VPRF</th><th>Rango VPRF</th><th class="r">Días VPRF incompletos</th></tr>' + rows.join('');
     st.textContent = '';
   } catch (e) { st.className = 'status err'; st.textContent = e.message; }
   rfBusy(false);
 }
-$('rfRun5').onclick = rfRun5; $('rfRunVp').onclick = rfRunVp; $('rfCov').onclick = rfCov; $('rfStop').onclick = () => { rfStopF = true; };
+$('rfRunHi').onclick = rfRunHi; $('rfRunFund').onclick = rfRunFund; $('rfCsv').onclick = rfCsv; $('rfCsvF').onclick = rfCsvF; $('rfRun5').onclick = rfRun5; $('rfRunVp').onclick = rfRunVp; $('rfCov').onclick = rfCov; $('rfStop').onclick = () => { rfStopF = true; };
 async function loadRef(symbol, tf, fromTs, toTs, onPage) {
   const PAGE = 1000; let off = 0; const rows = [];
   while (true) {
