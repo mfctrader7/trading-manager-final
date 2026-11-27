@@ -121,7 +121,7 @@ details ul{color:var(--mut);line-height:1.6;padding-left:20px;margin:8px 0 0}
 <body>
 <header>
   <h1>🏇 Backtest – Carrera de Caballos</h1>
-  <div><span id="ver" style="color:var(--gold);font-size:.72rem;margin-right:12px;border:1px solid var(--line);border-radius:6px;padding:2px 7px">v. 26/11 22:00 · Represa: reglas de salida y panel</span><span id="who" style="color:var(--mut);margin-right:12px"></span><a href="/dashboard.html">← Dashboard</a></div>
+  <div><span id="ver" style="color:var(--gold);font-size:.72rem;margin-right:12px;border:1px solid var(--line);border-radius:6px;padding:2px 7px">v. 27/11 12:30 · Represa: caja Corto/Largo, sufrimiento, estado por fecha</span><span id="who" style="color:var(--mut);margin-right:12px"></span><a href="/dashboard.html">← Dashboard</a></div>
 </header>
 <main>
 <div class="tabs"><button class="tab on" id="tabBtnBT">🏇 Backtest</button><button class="tab" id="tabBtnCX">📊 Análisis de cruces</button><button class="tab" id="tabBtnCL">🧮 Calculadora</button><button class="tab" id="tabBtnPD">📝 Pendientes</button><button class="tab" id="tabBtnSP">🎯 Setup 5m</button><button class="tab" id="tabBtnRP">🌊 Represa</button></div>
@@ -398,31 +398,35 @@ details ul{color:var(--mut);line-height:1.6;padding-left:20px;margin:8px 0 0}
   <h3 style="margin:14px 0 6px;font-size:.95rem">⚙️ General</h3>
   <div class="grid">
     <div><label>Activo</label><select id="rpSym"><option>BTC</option><option>ETH</option></select></div>
-    <div><label>Desde</label><input type="date" id="rpStart" value="2020-06-01"></div>
+    <div><label>Desde</label><input type="date" id="rpStart" value="2025-10-01"></div>
     <div><label>Hasta</label><input type="date" id="rpEnd"></div>
-    <div><label>TF de los cruces menores (anticipación)</label><select id="rpLtf"><option>4h</option><option selected>8h</option><option>12h</option><option>1d</option></select></div>
-    <div><label>Capital futuros ($)</label><input id="rpFC" type="number" step="any" value="50000"></div><div><label>Capital spot ($)</label><input id="rpSC" type="number" step="any" value="50000"></div><div><label>Apalancamiento máx. del corto (x)</label><input id="rpLev" type="number" step="any" value="3"></div><div><label>Máx. corto nocional ($)</label><input id="rpMS" type="number" step="any" value="60000"></div><div><label>Máx. largo ($)</label><input id="rpML" type="number" step="any" value="50000"></div><div><label>Comisión futuros por lado (%)</label><input id="rpFF" type="number" step="any" value="0.05"></div><div><label>Comisión spot por lado (%)</label><input id="rpFSP" type="number" step="any" value="0.1"></div><div><label>Margen de mantenimiento (%)</label><input id="rpMM" type="number" step="any" value="0.5"></div>
+    <div><label>TF de los cruces menores</label><select id="rpLtf"><option>4h</option><option selected>8h</option><option>12h</option><option>1d</option></select></div>
   </div>
-  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;margin-top:16px">
+  <div class="legend" style="margin:8px 0 0">Régimen = EMA12 vs EMA25 en velas 3d (lento). Señal menor = EMA12 vs EMA25 en el TF de arriba (rápida). Importes = dólares por cada vela de 8h.</div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px;margin-top:16px">
     <div style="border:2px solid #ef5350;border-radius:12px;padding:12px">
-      <h3 style="margin:0 0 4px;color:#ef5350;font-size:1rem">🔴 Régimen BAJISTA (3d: EMA12 &lt; EMA25)</h3>
-      <div class="legend" style="margin:0 0 8px">Se vende fuerte (a favor) y se acumula poco en spot. Cada importe es lo que se compra en <b>cada vela de 8h</b>.</div>
-      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr))">
-        <div><label>Corto: $ por vela</label><input id="rpBS" type="number" step="any" value="100"></div>
-        <div><label>Largo spot: cuándo empieza</label><select id="rpLS"><option value="ltf">Con cruce menor alcista</option><option value="confirm">Tras caída confirmada + cruce menor</option><option value="always">Siempre, en pequeño</option><option value="none">No compra largo</option></select></div>
-        <div><label title="Cuánto compra de largo en cada vela de 8h cuando, estando en régimen bajista, hay un cruce menor alcista (empieza a acumular)">Largo: $ por vela al acumular ⓘ</label><input id="rpBL" type="number" step="any" value="8.33"></div><div><label title="Solo si eliges «Siempre, en pequeño»: compra esto en cada vela de 8h aunque no haya cruce">Largo «siempre»: $ por vela ⓘ</label><input id="rpSA" type="number" step="any" value="3.33"></div><div><label title="Solo en el modo «Tras caída confirmada»: el largo no empieza hasta que las últimas N velas de 8h estén todas en régimen bajista (30 velas = 10 días)">Confirmación: velas 8h bajistas ⓘ</label><input id="rpCB" type="number" step="any" value="30"></div>
-      </div>
-      <div class="legend" style="margin:12px 0 4px"><b>🎯 Reglas de salida</b> del corto (cierra parte de la posición corta) <span style="opacity:.7">(se pueden combinar; si dos se cumplen en la misma vela manda la mayor)</span></div>
-      <div id="rpRulesCorto"></div><button class="tab" id="rpAddCorto" style="padding:5px 10px;font-size:.78rem;margin-top:6px">+ Añadir regla</button>
+      <h3 style="margin:0 0 6px;color:#ef5350;font-size:1rem">🔴 CORTO (futuros perpetuos)</h3>
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))"><div><label>¿Activo?</label><select id="rpEnS"><option value="1">Sí</option><option value="0">No</option></select></div></div>
+      <div class="legend" style="margin:10px 0 4px"><b>💰 Capital y límites</b></div>
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))"><div><label>Capital / margen ($)</label><input id="rpFC" type="number" step="any" value="50000"></div><div><label title="Valor máximo de la posición corta (cantidad × precio). Al llegar, deja de vender">Máx. corto nocional ($)</label><input id="rpMS" type="number" step="any" value="60000"></div><div><label>Apalancamiento máx. (x)</label><input id="rpLev" type="number" step="any" value="3"></div><div><label>Comisión por lado (%)</label><input id="rpFF" type="number" step="any" value="0.05"></div><div><label>Margen de mantenimiento (%)</label><input id="rpMM" type="number" step="any" value="0.5"></div></div>
+      <div class="legend" style="margin:10px 0 4px"><b>📥 ENTRADAS</b> (vende en cada vela de 8h)</div>
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))"><div><label>Régimen BAJISTA (a favor): $ por vela</label><input id="rpBS" type="number" step="any" value="30"></div><div><label>Régimen ALCISTA con señal menor bajista (a contra): $ por vela</label><input id="rpUC" type="number" step="any" value="10"></div></div>
+      <div class="legend" style="margin:12px 0 4px"><b>🎯 SALIDAS</b> <span style="opacity:.75">(sin reglas = nunca cierra, solo acumula)</span></div><div id="rpRulesCorto"></div><button class="tab" id="rpAddCorto" style="padding:5px 10px;font-size:.78rem;margin-top:6px">+ Añadir regla</button>
     </div>
     <div style="border:2px solid #26a69a;border-radius:12px;padding:12px">
-      <h3 style="margin:0 0 4px;color:#26a69a;font-size:1rem">🟢 Régimen ALCISTA (3d: EMA12 &gt; EMA25)</h3>
-      <div class="legend" style="margin:0 0 8px">Se compra largo a favor; el corto solo entra pequeño, a contra, cuando hay cruce menor bajista.</div>
-      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr))">
-        <div><label>Largo spot: $ por vela</label><input id="rpUL" type="number" step="any" value="33.33"></div><div><label>Corto a contra: $ por vela</label><input id="rpUC" type="number" step="any" value="25"></div>
+      <h3 style="margin:0 0 6px;color:#26a69a;font-size:1rem">🟢 LARGO (compra en spot)</h3>
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))"><div><label>¿Activo?</label><select id="rpEnL"><option value="1">Sí</option><option value="0">No</option></select></div></div>
+      <div class="legend" style="margin:10px 0 4px"><b>💰 Capital y límites</b></div>
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))"><div><label>Capital spot ($)</label><input id="rpSC" type="number" step="any" value="50000"></div><div><label>Máx. largo ($)</label><input id="rpML" type="number" step="any" value="50000"></div><div><label>Comisión por lado (%)</label><input id="rpFSP" type="number" step="any" value="0.1"></div></div>
+      <div class="legend" style="margin:10px 0 4px"><b>📥 ENTRADAS</b> (compra en cada vela de 8h)</div>
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">
+        <div><label>Régimen ALCISTA: $ por vela</label><input id="rpUL" type="number" step="any" value="10"></div>
+        <div><label>Régimen BAJISTA: cuándo compra</label><select id="rpLS"><option value="ltf" selected>Solo con señal menor alcista</option><option value="confirm">Tras caída confirmada + señal menor alcista</option><option value="always">Siempre, en pequeño</option><option value="none">No compra</option></select></div>
+        <div><label title="Se usa en los modos «Solo con señal menor» y «Tras caída confirmada»">BAJISTA con señal menor alcista: $ por vela</label><input id="rpBL" type="number" step="any" value="25"></div>
+        <div><label title="Solo se usa en el modo «Siempre, en pequeño»">BAJISTA modo «Siempre»: $ por vela</label><input id="rpSA" type="number" step="any" value="3.33"></div>
+        <div><label title="Solo en el modo «Tras caída confirmada»: no empieza hasta que las últimas N velas de 8h estén en régimen bajista (30 = 10 días)">Caída confirmada: velas 8h seguidas en bajista</label><input id="rpCB" type="number" step="any" value="30"></div>
       </div>
-      <div class="legend" style="margin:12px 0 4px"><b>🎯 Reglas de salida</b> del largo (cierra parte de la posición larga) <span style="opacity:.7">(se pueden combinar; si dos se cumplen en la misma vela manda la mayor)</span></div>
-      <div id="rpRulesLargo"></div><button class="tab" id="rpAddLargo" style="padding:5px 10px;font-size:.78rem;margin-top:6px">+ Añadir regla</button>
+      <div class="legend" style="margin:12px 0 4px"><b>🎯 SALIDAS</b> <span style="opacity:.75">(sin reglas = nunca cierra, solo acumula)</span></div><div id="rpRulesLargo"></div><button class="tab" id="rpAddLargo" style="padding:5px 10px;font-size:.78rem;margin-top:6px">+ Añadir regla</button>
     </div>
   </div>
   <div style="margin-top:14px;display:flex;gap:12px;flex-wrap:wrap"><button class="btn" id="rpRun">▶ Simular</button><button class="btn" id="rpCsv" style="display:none">⬇ Operaciones (CSV)</button></div>
@@ -430,6 +434,8 @@ details ul{color:var(--mut);line-height:1.6;padding-left:20px;margin:8px 0 0}
 </div>
 <div id="rpOut" style="display:none">
   <div class="panel"><div id="rpDash"></div></div>
+  <div class="panel"><h2>📅 Estado en una fecha</h2><div class="legend" style="margin:0 0 8px">Elige un día (también dentro de la caída) y, si quieres, un precio distinto para ver qué tendrías acumulado y cuánto ganarías o perderías.</div><div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-bottom:10px"><div><label>Fecha</label><input type="date" id="rpSnD"></div><div><label>Precio hipotético (opcional)</label><input type="number" step="any" id="rpSnP" placeholder="cierre de ese día"></div></div><div id="rpSnap"></div></div>
+  <div class="panel"><h2>🔁 Ciclos (de la primera compra hasta quedar sin posición)</h2><div style="overflow:auto"><table id="rpCyc"></table></div></div>
   <div class="panel"><h2>Precio, PEPP y liquidación</h2><div class="legend" style="margin:0 0 8px"><b style="color:#ef5350">▬ PEPP corto</b> · <b style="color:#26a69a">▬ PEPP largo</b> · <b style="color:#FF9800">┄ Precio de liquidación del corto</b> (solo se dibuja cuando está a menos de +100 % del precio; abajo tienes la distancia siempre, con tope en 300 %) · flechas: compras · círculos: cierres</div><div id="rpPx" style="height:440px"></div>
   <div class="legend" style="margin:10px 0 2px"><b>Distancia a la liquidación</b> (% que debería subir el precio para liquidar el corto)</div><div id="rpDl" style="height:130px"></div>
   <div class="legend" style="margin:10px 0 2px"><b>Resultado acumulado ($)</b>: <b style="color:#F4D03F">total</b> · <b style="color:#ef5350">corto</b> · <b style="color:#26a69a">largo</b></div><div id="rpEq" style="height:190px"></div></div>
@@ -1139,42 +1145,56 @@ function rpSim(b8, d1, bl, fund, pp) {
   };
   const resetRoi = side => rules[side].forEach((r, k) => { if (r.type === 'roi') fired[side][k] = false; });
   let fc = p.futCap, sc = p.spotCap, sq = 0, sa = 0, lq = 0, la = 0, prevReg = g[0].reg, prevSl = g[0].sl;
-  const ev = [], bars = [];
+  const ev = [], bars = [], cycles = [], cyc = { corto: null, largo: null }, block = { corto: null, largo: null }, adv = { corto: { pct: 0, t: 0, px: 0 }, largo: { pct: 0, t: 0, px: 0 } }, mu = { corto: { v: 0, t: 0, px: 0 }, largo: { v: 0, t: 0, px: 0 } };
   const S = { corto: { inv: 0, n: 0, mx: 0, mn: Infinity, real: 0, fees: 0, peak: p.futCap, dd: 0, ddp: 0, mind: 1e9 }, largo: { inv: 0, n: 0, mx: 0, mn: Infinity, real: 0, fees: 0, peak: p.spotCap, dd: 0, ddp: 0 } };
+  const closeCyc_end = () => { ['corto', 'largo'].forEach(k => { if (cyc[k]) { cyc[k].open = true; cycles.push(cyc[k]); cyc[k] = null; } }); };
   let maxexp = 0, liq = 0, fundtot = 0, peak = 0, mdd = 0, mddUsd = 0;
   const log = (i, t, kind, side, px, usd, note) => ev.push({ i, t, kind, side, px, usd, note, sq, sa, lq, la });
+  const openCyc = (side, T) => { if (!cyc[side]) cyc[side] = { side, t0: T, tEnd: null, n: 0, inv: 0, peakNot: 0, advPct: 0, advPx: 0, advT: 0, minUn: 0, real: 0 }; };
+  const closeCyc = (side, T) => { if (cyc[side]) { cyc[side].tEnd = T; cycles.push(cyc[side]); cyc[side] = null; } };
+  const blockIt = (side, T, why, P) => { if (!block[side]) { block[side] = { t: T, why, px: P }; log(0, T, 'AGOTADO', side, P, 0, why); ev[ev.length - 1].i = curI; } };
+  let curI = 0;
   g.forEach((r, i) => {
+    curI = i;
     const P = r.c, reg = r.reg, sl = r.sl, evSl = sl !== prevSl, evReg = reg !== prevReg, T = r.tc;
     if (sq > 0 && r.fund !== 0) { const f_ = sq * P * r.fund; fc += f_; fundtot += f_; }
-    if (sq > 0 && fc + sq * (sa - r.h) <= p.mm * sq * r.h) { liq++; log(i, T, 'LIQ', 'corto', r.h, sq * r.h, 'Liquidación del corto'); fc = 0; sq = 0; sa = 0; resetRoi('corto'); }
+    if (sq > 0 && fc + sq * (sa - r.h) <= p.mm * sq * r.h) { liq++; log(i, T, 'LIQ', 'corto', r.h, sq * r.h, 'Liquidación del corto'); fc = 0; sq = 0; sa = 0; resetRoi('corto'); if (cyc.corto) cyc.corto.real -= 0; closeCyc('corto', T); }
     if (sq > 0) {
       const [f, note] = frac('corto', { cross: evSl && sl > 0, flip: evReg && reg > 0, roi: (sa - P) / sa * 100 }, T);
-      if (f > 0) { const q = sq * f, pnl = q * (sa - P), fee = q * P * p.feeF; fc += pnl - fee; S.corto.fees += fee; S.corto.real += pnl; sq -= q; if (sq < 1e-12) { sq = 0; sa = 0; resetRoi('corto'); } log(i, T, 'TP', 'corto', P, q * P, note); ev[ev.length - 1].pnl = pnl; }
+      if (f > 0) { const q = sq * f, pnl = q * (sa - P), fee = q * P * p.feeF; fc += pnl - fee; S.corto.fees += fee; S.corto.real += pnl; if (cyc.corto) cyc.corto.real += pnl; sq -= q; if (sq < 1e-12) { sq = 0; sa = 0; resetRoi('corto'); closeCyc('corto', T); } log(i, T, 'TP', 'corto', P, q * P, note); ev[ev.length - 1].pnl = pnl; }
     }
     if (lq > 0) {
       const [f, note] = frac('largo', { cross: evSl && sl < 0 && reg > 0, flip: evReg && reg < 0, roi: (P - la) / la * 100 }, T);
-      if (f > 0) { const q = lq * f, pnl = q * (P - la), fee = q * P * p.feeS; sc += q * P * (1 - p.feeS); S.largo.fees += fee; S.largo.real += pnl; lq -= q; if (lq < 1e-12) { lq = 0; la = 0; resetRoi('largo'); } log(i, T, 'TP', 'largo', P, q * P, note); ev[ev.length - 1].pnl = pnl; }
+      if (f > 0) { const q = lq * f, pnl = q * (P - la), fee = q * P * p.feeS; sc += q * P * (1 - p.feeS); S.largo.fees += fee; S.largo.real += pnl; if (cyc.largo) cyc.largo.real += pnl; lq -= q; if (lq < 1e-12) { lq = 0; la = 0; resetRoi('largo'); closeCyc('largo', T); } log(i, T, 'TP', 'largo', P, q * P, note); ev[ev.length - 1].pnl = pnl; }
     }
     let addS = 0; if (reg < 0) addS = p.uShort * p.mTrend; else if (sl < 0) addS = p.uShort * p.mCounter;
-    if (addS > 0 && fc > 0 && sq * P + addS <= p.maxShort && (sq * P + addS) <= fc * (p.maxLev || 3)) { const q = addS / P; sa = (sa * sq + P * q) / (sq + q); sq += q; const fee = addS * p.feeF; fc -= fee; S.corto.fees += fee; S.corto.inv += addS; S.corto.n++; S.corto.mx = Math.max(S.corto.mx, P); S.corto.mn = Math.min(S.corto.mn, P); log(i, T, 'BUY', 'corto', P, addS, reg < 0 ? 'Régimen 3d bajista' : 'Cruce menor bajista (a contra)'); }
+    if (p.enShort === false) addS = 0;
+    if (addS > 0) { if (fc <= 0) blockIt('corto', T, 'Corto: sin margen', P); else if (sq * P + addS > p.maxShort) blockIt('corto', T, 'Corto: tope de nocional alcanzado', P); else if (sq * P + addS > fc * (p.maxLev || 3)) blockIt('corto', T, 'Corto: tope de apalancamiento alcanzado', P); }
+    if (addS > 0 && fc > 0 && sq * P + addS <= p.maxShort && (sq * P + addS) <= fc * (p.maxLev || 3)) { openCyc('corto', T); cyc.corto.n++; cyc.corto.inv += addS; const q = addS / P; sa = (sa * sq + P * q) / (sq + q); sq += q; const fee = addS * p.feeF; fc -= fee; S.corto.fees += fee; S.corto.inv += addS; S.corto.n++; S.corto.mx = Math.max(S.corto.mx, P); S.corto.mn = Math.min(S.corto.mn, P); log(i, T, 'BUY', 'corto', P, addS, reg < 0 ? 'Régimen 3d bajista' : 'Cruce menor bajista (a contra)'); }
     let addL = 0;
     if (reg > 0) addL = p.uLong * p.lmTrend;
     else if (p.longStart === 'always') addL = p.uLong * p.smallAlways;
     else if ((p.longStart === 'ltf' || p.longStart === 'confirm') && sl > 0) addL = p.uLong * p.lmCounter;
     if (p.longStart === 'confirm' && reg < 0) { let n = 0; for (let k = Math.max(0, i - p.confirmBars); k < i; k++) if (g[k].reg < 0) n++; if (n < p.confirmBars) addL = 0; }
-    if (addL > 0 && sc >= addL && lq * P + addL <= p.maxLong) { const q = addL * (1 - p.feeS) / P; la = (la * lq + P * q) / (lq + q); lq += q; sc -= addL; S.largo.fees += addL * p.feeS; S.largo.inv += addL; S.largo.n++; S.largo.mx = Math.max(S.largo.mx, P); S.largo.mn = Math.min(S.largo.mn, P); log(i, T, 'BUY', 'largo', P, addL, reg > 0 ? 'Régimen 3d alcista' : 'Acumulación (cruce menor alcista)'); }
+    if (p.enLong === false) addL = 0;
+    if (addL > 0) { if (sc < addL) blockIt('largo', T, 'Largo: capital spot agotado', P); else if (lq * P + addL > p.maxLong) blockIt('largo', T, 'Largo: tope máximo alcanzado', P); }
+    if (addL > 0 && sc >= addL && lq * P + addL <= p.maxLong) { openCyc('largo', T); cyc.largo.n++; cyc.largo.inv += addL; const q = addL * (1 - p.feeS) / P; la = (la * lq + P * q) / (lq + q); lq += q; sc -= addL; S.largo.fees += addL * p.feeS; S.largo.inv += addL; S.largo.n++; S.largo.mx = Math.max(S.largo.mx, P); S.largo.mn = Math.min(S.largo.mn, P); log(i, T, 'BUY', 'largo', P, addL, reg > 0 ? 'Régimen 3d alcista' : 'Acumulación (cruce menor alcista)'); }
     const eF = fc + sq * (sa - P), eS = sc + lq * P, E = eF + eS;
     peak = Math.max(peak, E, p.futCap + p.spotCap); mdd = Math.max(mdd, (peak - E) / peak); mddUsd = Math.max(mddUsd, peak - E);
     [['corto', eF], ['largo', eS]].forEach(([k, v]) => { const s = S[k]; s.peak = Math.max(s.peak, v); s.dd = Math.max(s.dd, s.peak - v); s.ddp = Math.max(s.ddp, (s.peak - v) / s.peak * 100); });
     let pl = null, dl = null; if (sq > 0) { pl = (fc + sq * sa) / (sq * (1 + p.mm)); dl = (pl - P) / P * 100; S.corto.mind = Math.min(S.corto.mind, dl); }
     maxexp = Math.max(maxexp, sq * P + lq * P);
-    bars.push({ t: r.t, tc: T, o: r.o, h: r.h, l: r.l, c: r.c, reg, sl, E, pT: E - p.futCap - p.spotCap, pF: eF - p.futCap, pS: eS - p.spotCap, sq, sa: sq > 0 ? sa : null, lq, la: lq > 0 ? la : null, pl, dl });
+    if (sq > 0) { const a = (r.h - sa) / sa * 100, u = sq * (sa - P); if (a > adv.corto.pct) adv.corto = { pct: a, t: T, px: r.h }; if (u < mu.corto.v) mu.corto = { v: u, t: T, px: P }; const c_ = cyc.corto; if (c_) { if (a > c_.advPct) { c_.advPct = a; c_.advPx = r.h; c_.advT = T; } c_.minUn = Math.min(c_.minUn, u); c_.peakNot = Math.max(c_.peakNot, sq * P); } }
+    if (lq > 0) { const a = (la - r.l) / la * 100, u = lq * (P - la); if (a > adv.largo.pct) adv.largo = { pct: a, t: T, px: r.l }; if (u < mu.largo.v) mu.largo = { v: u, t: T, px: P }; const c_ = cyc.largo; if (c_) { if (a > c_.advPct) { c_.advPct = a; c_.advPx = r.l; c_.advT = T; } c_.minUn = Math.min(c_.minUn, u); c_.peakNot = Math.max(c_.peakNot, lq * P); } }
+    bars.push({ invS: S.corto.inv, invL: S.largo.inv, nS: S.corto.n, nL: S.largo.n, cashS: fc, cashL: sc, realS: S.corto.real, realL: S.largo.real, t: r.t, tc: T, o: r.o, h: r.h, l: r.l, c: r.c, reg, sl, E, pT: E - p.futCap - p.spotCap, pF: eF - p.futCap, pS: eS - p.spotCap, sq, sa: sq > 0 ? sa : null, lq, la: lq > 0 ? la : null, pl, dl });
     prevReg = reg; prevSl = sl;
   });
+  closeCyc_end(); 
   const last = g[g.length - 1], tot = p.futCap + p.spotCap, E = bars[bars.length - 1].E, P = last.c;
   const pS = fc + sq * (sa - P) - p.futCap, pL = sc + lq * P - p.spotCap, bh = tot * P / g[0].c;
   const sum = { pnlCorto: pS, pnlLargo: pL, final: E, ret: (E / tot - 1) * 100, bh: (bh / tot - 1) * 100, mdd: mdd * 100, mddUsd, distLiqMin: S.corto.mind < 1e8 ? S.corto.mind : null, liq, expMax: maxexp, fees: S.corto.fees + S.largo.fees, funding: fundtot, nS: S.corto.n, nL: S.largo.n, pnlTot: E - tot, lastPx: P, firstPx: g[0].c, sq, sa, lq, la, pl: sq > 0 ? (fc + sq * sa) / (sq * (1 + p.mm)) : null, fut: S.corto, spot: S.largo, fundTot: fundtot, futCap: p.futCap, spotCap: p.spotCap, feeF: p.feeF, feeS: p.feeS };
-  return { p, bars, ev, sum };
+  sum.adv = adv; sum.mu = mu; sum.block = block; cycles.sort((a, b) => a.t0 - b.t0);
+  return { p, bars, ev, sum, cycles };
 }
 if (typeof module !== 'undefined') module.exports = { RP_RULES_DEF, rpSim, rpBuild3d, rpEmaState, RP_DEF };
 
@@ -1846,7 +1866,7 @@ async function rpData(sym, tf, st) {
   if (!v.length) throw new Error('No hay velas ' + tf + ' de ' + sym + ' en velas_ref. Descárgalas en «Setup 5m → Datos de referencia».');
   return RPC[k] = v;
 }
-const RPR = { Corto: [{ type: 'cross', pct: 25 }, { type: 'flip', pct: 100 }], Largo: [{ type: 'cross', pct: 25 }, { type: 'flip', pct: 50 }] };
+const RPR = { Corto: [], Largo: [] };
 function rpRulesUI(k) {
   const box = $('rpRules' + k), isS = k === 'Corto';
   box.innerHTML = RPR[k].map((r, i) => `<div style="display:flex;gap:6px;align-items:center;margin-bottom:5px;flex-wrap:wrap"><select data-i="${i}" data-f="type" style="width:auto;min-width:170px"><option value="cross"${r.type === 'cross' ? ' selected' : ''}>Cruce menor ${isS ? 'alcista' : 'bajista'}</option><option value="flip"${r.type === 'flip' ? ' selected' : ''}>Giro 3d a ${isS ? 'alcista' : 'bajista'}</option><option value="roi"${r.type === 'roi' ? ' selected' : ''}>ROI ≥ (% sobre PEPP)</option><option value="date"${r.type === 'date' ? ' selected' : ''}>En una fecha</option></select>${r.type === 'roi' ? `<input data-i="${i}" data-f="val" type="number" step="any" value="${r.val == null ? 10 : r.val}" style="width:80px" title="Beneficio sin apalancar respecto al PEPP, en %">` : r.type === 'date' ? `<input data-i="${i}" data-f="val" type="date" value="${r.val ? new Date(r.val).toISOString().slice(0, 10) : ''}">` : ''}<span>cerrar</span><input data-i="${i}" data-f="pct" type="number" step="any" value="${r.pct}" style="width:70px"><span>%</span><button class="tab" data-del="${i}" style="padding:3px 8px">✕</button></div>`).join('') || '<div class="legend">Sin reglas: nunca cierra.</div>';
@@ -1859,7 +1879,7 @@ rpRulesUI('Corto'); rpRulesUI('Largo');
 function rpParams() {
   const n = id => +$(id).value, d = id => $(id).value ? Date.parse($(id).value + 'T00:00:00Z') : null;
   const clean = a => a.filter(r => r.pct > 0 && (r.type !== 'roi' || r.val > 0) && (r.type !== 'date' || r.val)).map(r => ({ ...r }));
-  return { ltf: $('rpLtf').value, uShort: 1, mTrend: n('rpBS'), mCounter: n('rpUC'), uLong: 1, lmTrend: n('rpUL'), lmCounter: n('rpBL'), longStart: $('rpLS').value, smallAlways: n('rpSA'), confirmBars: n('rpCB'), rules: { corto: clean(RPR.Corto), largo: clean(RPR.Largo) }, futCap: n('rpFC'), spotCap: n('rpSC'), maxShort: n('rpMS'), maxLev: n('rpLev') || 3, maxLong: n('rpML'), feeF: n('rpFF') / 100, feeS: n('rpFSP') / 100, mm: n('rpMM') / 100, start: d('rpStart') || 0, end: d('rpEnd') != null ? d('rpEnd') + 86400000 : Infinity };
+  return { ltf: $('rpLtf').value, uShort: 1, mTrend: n('rpBS'), mCounter: n('rpUC'), uLong: 1, lmTrend: n('rpUL'), lmCounter: n('rpBL'), longStart: $('rpLS').value, smallAlways: n('rpSA'), confirmBars: n('rpCB'), rules: { corto: clean(RPR.Corto), largo: clean(RPR.Largo) }, enShort: $('rpEnS').value === '1', enLong: $('rpEnL').value === '1', futCap: n('rpFC'), spotCap: n('rpSC'), maxShort: n('rpMS'), maxLev: n('rpLev') || 3, maxLong: n('rpML'), feeF: n('rpFF') / 100, feeS: n('rpFSP') / 100, mm: n('rpMM') / 100, start: d('rpStart') || 0, end: d('rpEnd') != null ? d('rpEnd') + 86400000 : Infinity };
 }
 async function rpRun() {
   const st = $('rpSt'); st.className = 'status'; $('rpRun').disabled = true;
@@ -1874,6 +1894,7 @@ async function rpRun() {
   } catch (e) { st.className = 'status err'; st.textContent = e.message; }
   $('rpRun').disabled = false;
 }
+const rpD = t => new Date(t).toISOString().slice(0, 10).split('-').reverse().join('/');
 const rpM = n => n == null || !isFinite(n) ? '—' : (n < 0 ? '−' : '') + '$' + fmt(Math.abs(n), 0);
 const rpPx = n => n == null || !isFinite(n) || n === Infinity ? '—' : '$' + fmt(n, 2);
 function rpCards() {
@@ -1886,10 +1907,12 @@ function rpCards() {
   const rowsS = R('Resultado neto del corto', rpM(s.pnlCorto) + ' (' + pct(s.pnlCorto / s.futCap * 100, 1) + ' s/ margen)', c(s.pnlCorto)) + R('· realizado (cierres)', rpM(f.real), c(f.real)) + R('· no realizado (posición abierta)', rpM(unS), c(unS)) + R('· funding', rpM(s.fundTot), c(s.fundTot)) + R('· comisiones', rpM(-f.fees), 'neg') +
     R('Total invertido (suma de compras)', rpM(f.inv), '', 'Suma de todos los nocionales vendidos, aunque ya se hayan cerrado') + R('Nº de DCA (compras)', f.n) + R('Posición abierta', s.sq > 0 ? fmt(s.sq, 4) + ' · ' + rpM(s.sq * s.lastPx) : 'ninguna') + R('PEPP actual', rpPx(s.sq > 0 ? s.sa : null)) + R('Precio más alto / más bajo vendido', f.n ? rpPx(f.mx) + ' / ' + rpPx(f.mn) : '—') +
     R('Precio de liquidación actual', rpPx(s.pl)) + R('Distancia mín. a liquidación', s.distLiqMin == null ? '—' : fmt(s.distLiqMin, 1) + ' %') + R('Liquidaciones', s.liq, s.liq ? 'neg' : '') + R('Drawdown máx. del corto', rpM(-f.dd) + ' (' + fmt(f.ddp, 1) + ' % del margen)', 'neg') +
+    R('😖 Mayor caída contra el PEPP', s.adv.corto.t ? fmt(s.adv.corto.pct, 1) + ' % · ' + rpD(s.adv.corto.t) + ' · máx. ' + rpPx(s.adv.corto.px) : '—', 'neg', 'Cuánto subió el precio por encima de tu precio medio de venta, en el peor momento') + R('😖 Mayor pérdida no realizada', s.mu.corto.t ? rpM(s.mu.corto.v) + ' · ' + rpD(s.mu.corto.t) : '—', 'neg') + R('⛔ Tope / margen', s.block.corto ? s.block.corto.why.replace('Corto: ', '') + ' · ' + rpD(s.block.corto.t) + ' · ' + rpPx(s.block.corto.px) : 'nunca se alcanzó') +
     R('Si cierro a ' + rpPx(X) + ' (neto de comisión)', rpM(whS), c(whS));
   const rowsL = R('Resultado neto del largo', rpM(s.pnlLargo) + ' (' + pct(s.pnlLargo / s.spotCap * 100, 1) + ' s/ capital)', c(s.pnlLargo)) + R('· realizado (cierres)', rpM(o.real), c(o.real)) + R('· no realizado (posición abierta)', rpM(unL), c(unL)) + R('· comisiones', rpM(-o.fees), 'neg') +
     R('Total invertido (suma de compras)', rpM(o.inv), '', 'Suma de todo lo comprado, aunque ya se haya vendido') + R('Nº de DCA (compras)', o.n) + R('Posición abierta', s.lq > 0 ? fmt(s.lq, 4) + ' · ' + rpM(s.lq * s.lastPx) : 'ninguna') + R('PEPP actual', rpPx(s.lq > 0 ? s.la : null)) + R('Precio más alto / más bajo comprado', o.n ? rpPx(o.mx) + ' / ' + rpPx(o.mn) : '—') +
     R('Drawdown máx. del largo', rpM(-o.dd) + ' (' + fmt(o.ddp, 1) + ' % del capital)', 'neg') +
+    R('😖 Mayor caída contra el PEPP', s.adv.largo.t ? fmt(s.adv.largo.pct, 1) + ' % · ' + rpD(s.adv.largo.t) + ' · mín. ' + rpPx(s.adv.largo.px) : '—', 'neg', 'Cuánto cayó el precio por debajo de tu precio medio de compra, en el peor momento') + R('😖 Mayor pérdida no realizada', s.mu.largo.t ? rpM(s.mu.largo.v) + ' · ' + rpD(s.mu.largo.t) : '—', 'neg') + R('⛔ Capital / tope', s.block.largo ? s.block.largo.why.replace('Largo: ', '') + ' · ' + rpD(s.block.largo.t) + ' · ' + rpPx(s.block.largo.px) : 'nunca se agotó') + R('Capital sin usar', rpM(RP.bars[RP.bars.length - 1].cashL)) +
     R('Si vendo a ' + rpPx(X) + ' (neto de comisión)', rpM(whL), c(whL));
   const gen = `<div class="card" style="cursor:default;background:transparent;padding:0">` + R('Resultado total', rpM(s.pnlTot) + ' (' + pct(s.ret, 1) + ')', c(s.pnlTot)) + R('Comprar y mantener (mismo capital total)', pct(s.bh, 1)) + R('Drawdown máx. TOTAL (corto + largo)', rpM(-s.mddUsd) + ' (' + fmt(s.mdd, 1) + ' %)', 'neg') + R('Exposición máx. (corto + largo)', rpM(s.expMax)) + R('Si todo se cierra a ' + rpPx(X), rpM(whS + whL + f.real + o.real + s.fundTot - f.fees - o.fees) + ' acumulado', c(whS + whL + f.real + o.real)) + '</div>';
   $('rpDash').innerHTML = `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px"><label style="margin:0">💡 ¿Y si el precio fuera…?</label><input id="rpWhat" type="number" step="any" value="${X}" style="width:130px"><span class="legend" style="margin:0">(por defecto el último precio: ${rpPx(s.lastPx)}). Recalcula las tarjetas al instante.</span></div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px">${card('🔴 CORTO (perp)', '#ef5350', rowsS)}${card('🟢 LARGO (spot)', '#26a69a', rowsL)}${card('📊 TOTAL', '#F4D03F', gen)}</div>`;
@@ -1897,7 +1920,7 @@ function rpCards() {
 }
 function rpRender() {
   const { bars, ev } = RP; $('rpOut').style.display = ''; $('rpCsv').style.display = '';
-  rpCards();
+  rpCards(); rpCycles(); const lb = RP.bars[RP.bars.length - 1]; if (!$('rpSnD').value) $('rpSnD').value = new Date(lb.tc - 1).toISOString().slice(0, 10); rpSnap();
   const sec = ms => Math.floor(ms / 1000);
   ['rpPx', 'rpDl', 'rpEq'].forEach(id => { $(id).innerHTML = ''; });
   const mk = (id, h) => LightweightCharts.createChart($(id), { width: $(id).clientWidth, height: h, layout: { background: { color: '#12141f' }, textColor: '#A8B2C1' }, grid: { vertLines: { color: '#1f2336' }, horzLines: { color: '#1f2336' } }, rightPriceScale: { borderColor: '#363c57', minimumWidth: 80 }, timeScale: { borderColor: '#363c57', timeVisible: false, minBarSpacing: 0.02, rightOffset: 3 }, localization: { locale: 'es-ES', dateFormat: 'dd/MM/yyyy' }, crosshair: { mode: 0 } });
@@ -1914,6 +1937,23 @@ function rpRender() {
   ch.timeScale().fitContent();
   rpTable();
 }
+function rpCycles() {
+  const T = $('rpCyc'), d = rpD; const rows = RP.cycles.map(c => `<tr><td>${c.side === 'corto' ? '🔴 corto' : '🟢 largo'}</td><td>${d(c.t0)}</td><td>${c.open ? '<b>abierta</b>' : d(c.tEnd)}</td><td class="r">${c.n}</td><td class="r">${rpM(c.inv)}</td><td class="r">${rpM(c.peakNot)}</td><td class="r neg">${fmt(c.advPct, 1)} %</td><td class="r">${c.advT ? rpPx(c.advPx) + ' · ' + d(c.advT) : '—'}</td><td class="r neg">${rpM(c.minUn)}</td><td class="r ${c.real >= 0 ? 'pos' : 'neg'}">${rpM(c.real)}</td></tr>`).join('');
+  T.innerHTML = '<tr><th>Lado</th><th>Inicio</th><th>Fin</th><th class="r">Compras</th><th class="r">Invertido</th><th class="r">Posición máx.</th><th class="r">Peor caída vs PEPP</th><th class="r">Peor precio · fecha</th><th class="r">Peor pérdida no realizada</th><th class="r">Realizado</th></tr>' + (rows || '<tr><td colspan="10">Sin posiciones</td></tr>');
+}
+function rpSnap() {
+  const v = $('rpSnD').value; if (!v || !RP) return; const lim = Date.parse(v + 'T00:00:00Z') + 86400000; let b = null;
+  for (const x of RP.bars) { if (x.tc <= lim) b = x; else break; }
+  const box = $('rpSnap'); if (!b) { box.innerHTML = '<div class="legend">Esa fecha es anterior al inicio de la simulación.</div>'; return; }
+  const p = RP.p, X = +$('rpSnP').value || b.c, R = (l, v_, cl) => `<div class="row"><span>${l}</span><b class="${cl || ''}">${v_}</b></div>`, cc = n => n >= 0 ? 'pos' : 'neg';
+  const unL = b.lq > 0 ? b.lq * (X - b.la) : 0, unS = b.sq > 0 ? b.sq * (b.sa - X) : 0;
+  const plq = b.sq > 0 ? (b.cashS + b.sq * b.sa) / (b.sq * (1 + p.mm)) : null;
+  const card = (t, col, r) => `<div style="border:2px solid ${col};border-radius:12px;padding:12px"><h3 style="margin:0 0 8px;color:${col};font-size:1rem">${t}</h3><div class="card" style="cursor:default;background:transparent;padding:0">${r}</div></div>`;
+  box.innerHTML = `<div class="legend" style="margin:0 0 8px">Cierre de la última vela de 8h hasta el ${rpD(b.tc - 1)} · régimen 3d: <b>${b.reg > 0 ? 'alcista' : b.reg < 0 ? 'bajista' : '—'}</b> · precio usado: <b>${rpPx(X)}</b>${$('rpSnP').value ? ' (hipotético)' : ''}</div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px">` +
+    card('🟢 LARGO (spot)', '#26a69a', R('Invertido hasta ese día', rpM(b.invL)) + R('Nº de compras', b.nL) + R('BTC acumulados', fmt(b.lq, 4)) + R('PEPP (precio medio)', rpPx(b.lq > 0 ? b.la : null)) + R('Valor de la posición', rpM(b.lq * X)) + R('Resultado no realizado', rpM(unL) + (b.lq > 0 ? ' (' + pct((X / b.la - 1) * 100, 1) + ')' : ''), cc(unL)) + R('Resultado realizado', rpM(b.realL), cc(b.realL)) + R('Capital sin usar', rpM(b.cashL))) +
+    card('🔴 CORTO (perp)', '#ef5350', R('Vendido hasta ese día', rpM(b.invS)) + R('Nº de ventas', b.nS) + R('BTC en corto', fmt(b.sq, 4)) + R('PEPP (precio medio)', rpPx(b.sq > 0 ? b.sa : null)) + R('Valor de la posición', rpM(b.sq * X)) + R('Resultado no realizado', rpM(unS) + (b.sq > 0 ? ' (' + pct((b.sa / X - 1) * 100, 1) + ')' : ''), cc(unS)) + R('Resultado realizado', rpM(b.realS), cc(b.realS)) + R('Precio de liquidación', rpPx(plq)) + R('Distancia a liquidación', plq ? fmt((plq / X - 1) * 100, 1) + ' %' : '—')) + '</div>';
+}
+$('rpSnD').onchange = rpSnap; $('rpSnP').oninput = rpSnap;
 function rpTable() {
   const k = $('rpFk').value, sd = $('rpFsd').value, d = t => new Date(t).toISOString().slice(0, 16).replace('T', ' ');
   const rows = RP.ev.filter(e => (!k || e.kind === k) && (!sd || e.side === sd)), lim = rows.slice(-2000);
