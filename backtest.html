@@ -121,7 +121,7 @@ details ul{color:var(--mut);line-height:1.6;padding-left:20px;margin:8px 0 0}
 <body>
 <header>
   <h1>🏇 Backtest – Carrera de Caballos</h1>
-  <div><span id="ver" style="color:var(--gold);font-size:.72rem;margin-right:12px;border:1px solid var(--line);border-radius:6px;padding:2px 7px">v. 27/11 12:30 · Represa: caja Corto/Largo, sufrimiento, estado por fecha</span><span id="who" style="color:var(--mut);margin-right:12px"></span><a href="/dashboard.html">← Dashboard</a></div>
+  <div><span id="ver" style="color:var(--gold);font-size:.72rem;margin-right:12px;border:1px solid var(--line);border-radius:6px;padding:2px 7px">v. 27/11 13:15 · Represa: tabla de operaciones y liquidación en $</span><span id="who" style="color:var(--mut);margin-right:12px"></span><a href="/dashboard.html">← Dashboard</a></div>
 </header>
 <main>
 <div class="tabs"><button class="tab on" id="tabBtnBT">🏇 Backtest</button><button class="tab" id="tabBtnCX">📊 Análisis de cruces</button><button class="tab" id="tabBtnCL">🧮 Calculadora</button><button class="tab" id="tabBtnPD">📝 Pendientes</button><button class="tab" id="tabBtnSP">🎯 Setup 5m</button><button class="tab" id="tabBtnRP">🌊 Represa</button></div>
@@ -437,9 +437,9 @@ details ul{color:var(--mut);line-height:1.6;padding-left:20px;margin:8px 0 0}
   <div class="panel"><h2>📅 Estado en una fecha</h2><div class="legend" style="margin:0 0 8px">Elige un día (también dentro de la caída) y, si quieres, un precio distinto para ver qué tendrías acumulado y cuánto ganarías o perderías.</div><div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-bottom:10px"><div><label>Fecha</label><input type="date" id="rpSnD"></div><div><label>Precio hipotético (opcional)</label><input type="number" step="any" id="rpSnP" placeholder="cierre de ese día"></div></div><div id="rpSnap"></div></div>
   <div class="panel"><h2>🔁 Ciclos (de la primera compra hasta quedar sin posición)</h2><div style="overflow:auto"><table id="rpCyc"></table></div></div>
   <div class="panel"><h2>Precio, PEPP y liquidación</h2><div class="legend" style="margin:0 0 8px"><b style="color:#ef5350">▬ PEPP corto</b> · <b style="color:#26a69a">▬ PEPP largo</b> · <b style="color:#FF9800">┄ Precio de liquidación del corto</b> (solo se dibuja cuando está a menos de +100 % del precio; abajo tienes la distancia siempre, con tope en 300 %) · flechas: compras · círculos: cierres</div><div id="rpPx" style="height:440px"></div>
-  <div class="legend" style="margin:10px 0 2px"><b>Distancia a la liquidación</b> (% que debería subir el precio para liquidar el corto)</div><div id="rpDl" style="height:130px"></div>
+  <div class="legend" style="margin:10px 0 2px" id="rpDlT"></div><div id="rpDl" style="height:150px"></div>
   <div class="legend" style="margin:10px 0 2px"><b>Resultado acumulado ($)</b>: <b style="color:#F4D03F">total</b> · <b style="color:#ef5350">corto</b> · <b style="color:#26a69a">largo</b></div><div id="rpEq" style="height:190px"></div></div>
-  <div class="panel"><h2>Operaciones</h2><div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px"><select id="rpFk"><option value="">Todas</option><option value="BUY">Compras</option><option value="TP">Cierres</option><option value="LIQ">Liquidaciones</option></select><select id="rpFsd"><option value="">Corto y largo</option><option value="corto">Corto</option><option value="largo">Largo</option></select><span class="status" id="rpCnt" style="margin:0"></span></div><div style="max-height:420px;overflow:auto"><table id="rpTbl"></table></div></div>
+  <div class="panel"><h2>Operaciones</h2><div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px"><select id="rpFk"><option value="">Todas</option><option value="BUY">Entradas (abren / añaden)</option><option value="TP">Cierres</option><option value="LIQ">Liquidaciones</option></select><select id="rpFsd"><option value="">Corto y largo</option><option value="corto">Corto</option><option value="largo">Largo</option></select><span class="status" id="rpCnt" style="margin:0"></span></div><div style="max-height:420px;overflow:auto"><table id="rpTbl"></table></div></div>
 </div>
 </div>
 <div id="tabPD" style="display:none"><div id="pdRoot"><div class="pd-empty">Cargando…</div></div></div>
@@ -1894,7 +1894,10 @@ async function rpRun() {
   } catch (e) { st.className = 'status err'; st.textContent = e.message; }
   $('rpRun').disabled = false;
 }
-const rpD = t => new Date(t).toISOString().slice(0, 10).split('-').reverse().join('/');
+const rpD = t => new Date(t).toISOString().slice(0, 10).split('-').reverse().join('-');
+const rpDT = t => rpD(t) + ' ' + new Date(t).toISOString().slice(11, 16);
+const rpAct = e => e.kind === 'LIQ' ? 'LIQUIDACIÓN del corto' : e.side === 'corto' ? (e.kind === 'BUY' ? 'VENTA (abre / añade corto)' : 'COMPRA (cierra corto)') : (e.kind === 'BUY' ? 'COMPRA spot' : 'VENTA spot (cierra)');
+const rpFl = e => e.side === 'corto' ? (e.sq > 0 ? [e.sq * (e.sa - e.px), (e.sa / e.px - 1) * 100] : null) : (e.lq > 0 ? [e.lq * (e.px - e.la), (e.px / e.la - 1) * 100] : null);
 const rpM = n => n == null || !isFinite(n) ? '—' : (n < 0 ? '−' : '') + '$' + fmt(Math.abs(n), 0);
 const rpPx = n => n == null || !isFinite(n) || n === Infinity ? '—' : '$' + fmt(n, 2);
 function rpCards() {
@@ -1931,7 +1934,9 @@ function rpRender() {
   const idxT = new Map(bars.map((b, i) => [i, sec(b.t)])), nb = ev.filter(e => e.kind === 'BUY').length, stepMk = Math.max(1, Math.ceil(nb / 300)); const marks = []; let bi = 0;
   ev.forEach(e => { if (e.kind === 'BUY') { bi++; if (bi % stepMk) return; } if (e.kind === 'TP' && e.usd < 300) return; const t = idxT.get(e.i); if (t == null) return; const short = e.side === 'corto'; marks.push({ time: t, position: short ? 'aboveBar' : 'belowBar', shape: e.kind === 'BUY' ? (short ? 'arrowDown' : 'arrowUp') : e.kind === 'LIQ' ? 'square' : 'circle', color: e.kind === 'LIQ' ? '#FF9800' : short ? '#ef5350' : '#26a69a', text: e.kind === 'LIQ' ? 'LIQ' : '' }); });
   cs.setMarkers(marks.sort((a, b) => a.time - b.time));
-  const cd = mk('rpDl', 130); const dsr = cd.addLineSeries({ color: '#FF9800', lineWidth: 2, priceLineVisible: false, lastValueVisible: true }); dsr.setData(bars.map(b => b.dlv == null ? { time: sec(b.t) } : { time: sec(b.t), value: b.dlv }));
+  const cd = mk('rpDl', 150); cd.priceScale('right').applyOptions({ mode: 1 }); const dsr = cd.addLineSeries({ color: '#FF9800', lineWidth: 2, priceLineVisible: false, lastValueVisible: true, title: 'Liquidación' }); dsr.setData(bars.map(b => !(b.sq * b.c >= 0.05 * RP.p.futCap) || b.pl == null ? { time: sec(b.t) } : { time: sec(b.t), value: b.pl }));
+  const dpx = cd.addLineSeries({ color: '#A8B2C1', lineWidth: 1, priceLineVisible: false, lastValueVisible: true, title: 'Precio' }); dpx.setData(bars.map(b => ({ time: sec(b.t), value: b.c })));
+  const lb2 = bars[bars.length - 1]; $('rpDlT').innerHTML = '<b>Precio de liquidación del corto en $</b> frente al precio de BTC. ' + (lb2.pl != null ? `Hoy: BTC en <b>${rpPx(lb2.c)}</b> y te liquidan si sube a <b style="color:#FF9800">${rpPx(lb2.pl)}</b> (<b>+${fmt(lb2.dl, 0)} %</b> desde el precio actual: ×${fmt(lb2.pl / lb2.c, 2)}).` : 'Hoy no hay corto abierto.') + ' El % es lo que debe subir BTC desde el precio de ese momento.';
   const ce = mk('rpEq', 190); L(ce, 'pT', '#F4D03F', 0, false, 2); L(ce, 'pF', '#ef5350', 0, false, 1); L(ce, 'pS', '#26a69a', 0, false, 1);
   const all = [ch, cd, ce]; let lk = false; all.forEach(a => a.timeScale().subscribeVisibleLogicalRangeChange(r => { if (r && !lk) { lk = true; all.forEach(o => { if (o !== a) o.timeScale().setVisibleLogicalRange(r); }); lk = false; } }));
   ch.timeScale().fitContent();
@@ -1955,15 +1960,16 @@ function rpSnap() {
 }
 $('rpSnD').onchange = rpSnap; $('rpSnP').oninput = rpSnap;
 function rpTable() {
-  const k = $('rpFk').value, sd = $('rpFsd').value, d = t => new Date(t).toISOString().slice(0, 16).replace('T', ' ');
-  const rows = RP.ev.filter(e => (!k || e.kind === k) && (!sd || e.side === sd)), lim = rows.slice(-2000);
-  $('rpCnt').textContent = rows.length.toLocaleString('es-ES') + ' eventos' + (rows.length > lim.length ? ' (muestro los últimos 2.000)' : '');
-  $('rpTbl').innerHTML = '<tr><th>Fecha (UTC)</th><th>Tipo</th><th>Lado</th><th class="r">Precio</th><th class="r">$</th><th class="r">PEPP corto</th><th class="r">PEPP largo</th><th class="r">Pos. corto</th><th class="r">Pos. largo</th><th>Motivo</th><th class="r">P&amp;L</th></tr>' + lim.map(e => `<tr><td>${d(e.t)}</td><td>${e.kind}</td><td>${e.side}</td><td class="r">${fmt(e.px, 2)}</td><td class="r">${fmt(e.usd, 0)}</td><td class="r">${e.sq > 0 ? fmt(e.sa, 2) : '—'}</td><td class="r">${e.lq > 0 ? fmt(e.la, 2) : '—'}</td><td class="r">${fmt(e.sq, 4)}</td><td class="r">${fmt(e.lq, 4)}</td><td>${esc(e.note)}</td><td class="r ${e.pnl > 0 ? 'pos' : e.pnl < 0 ? 'neg' : ''}">${e.pnl == null ? '' : rpM(e.pnl)}</td></tr>`).join('');
+  const k = $('rpFk').value, sd = $('rpFsd').value;
+  const rows = RP.ev.filter(e => (!k || e.kind === k) && (!sd || e.side === sd || (e.kind === 'LIQ' && sd === 'corto'))), lim = rows.slice(-2000);
+  const showS = sd !== 'largo', showL = sd !== 'corto';
+  $('rpCnt').textContent = rows.length.toLocaleString('es-ES') + ' eventos' + (rows.length > lim.length ? ' (muestro los últimos 2.000)' : '') + (sd ? '' : ' · cada fila muestra además las dos posiciones tal como quedaron');
+  const H = '<tr><th>Fecha (dd-mm-aaaa, UTC)</th><th>Acción</th><th class="r">Precio</th><th class="r">$ operado</th>' + (showS ? '<th class="r">PEPP corto</th><th class="r">Pos. corto (BTC)</th>' : '') + (showL ? '<th class="r">PEPP largo</th><th class="r">Pos. largo (BTC)</th>' : '') + '<th class="r" title="Ganancia o pérdida de la posición de ese lado, valorada al precio de la operación y tras ella">P&amp;L flotante</th><th class="r">P&amp;L realizado</th><th>Motivo</th></tr>';
+  $('rpTbl').innerHTML = H + lim.map(e => { const f = rpFl(e), cl = n => n > 0 ? 'pos' : n < 0 ? 'neg' : ''; return `<tr><td>${rpDT(e.t)}</td><td>${rpAct(e)}</td><td class="r">${fmt(e.px, 2)}</td><td class="r">${fmt(e.usd, 0)}</td>` + (showS ? `<td class="r">${e.sq > 0 ? fmt(e.sa, 2) : '—'}</td><td class="r">${fmt(e.sq, 4)}</td>` : '') + (showL ? `<td class="r">${e.lq > 0 ? fmt(e.la, 2) : '—'}</td><td class="r">${fmt(e.lq, 4)}</td>` : '') + `<td class="r ${f ? cl(f[0]) : ''}">${f ? rpM(f[0]) + ' (' + pct(f[1], 1) + ')' : '—'}</td><td class="r ${cl(e.pnl)}">${e.pnl == null ? '' : rpM(e.pnl)}</td><td>${esc(e.note)}</td></tr>`; }).join('');
 }
 function rpCsv() {
-  const d = t => new Date(t).toISOString().slice(0, 19).replace('T', ' ');
-  const L = ['fecha_utc;tipo;lado;precio;usd;pepp_corto;pepp_largo;pos_corto;pos_largo;motivo;pnl'];
-  RP.ev.forEach(e => L.push([d(e.t), e.kind, e.side, e.px, e.usd.toFixed(2), e.sq > 0 ? e.sa : '', e.lq > 0 ? e.la : '', e.sq, e.lq, e.note, e.pnl == null ? '' : e.pnl.toFixed(2)].join(';')));
+  const L = ['fecha_utc_dd-mm-aaaa;accion;precio;usd;pepp_corto;pepp_largo;pos_corto;pos_largo;pnl_flotante;pnl_flotante_pct;pnl_realizado;motivo'];
+  RP.ev.forEach(e => { const f = rpFl(e); L.push([rpDT(e.t), rpAct(e), e.px, e.usd.toFixed(2), e.sq > 0 ? e.sa : '', e.lq > 0 ? e.la : '', e.sq, e.lq, f ? f[0].toFixed(2) : '', f ? f[1].toFixed(2) : '', e.pnl == null ? '' : e.pnl.toFixed(2), e.note].join(';')); });
   rfDownload('Represa_' + RP.sym + '.csv', L);
 }
 $('rpRun').onclick = rpRun; $('rpCsv').onclick = rpCsv; $('rpFk').onchange = () => RP && rpTable(); $('rpFsd').onchange = () => RP && rpTable();
